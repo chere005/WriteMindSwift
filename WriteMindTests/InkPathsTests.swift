@@ -205,3 +205,43 @@ final class InkPathsTests: XCTestCase {
         XCTAssertTrue(box.insetBy(dx: -1, dy: -1).contains(drawn), "\(drawn) spills out of \(box)")
     }
 }
+
+/// Ink is shown in a colour that can be SEEN on the note. The tablet page's
+/// default ink is near-black, for white paper; taken into a note in Dark
+/// Mode its strokes were in the drawing and nowhere on screen (Sean,
+/// 2026-10-02: "images and text work from a selection, but taking the
+/// writing itself doesn't").
+final class ShownInkTests: XCTestCase {
+    private let darkNote = "#1E1E1E"
+    private let lightNote = "#FFFFFF"
+
+    func testInkTheColourOfThePaperIsShownAsItsOpposite() {
+        XCTAssertEqual(InkPaths.shownHex("#1C1C1E", onPaper: darkNote), "#FFFFFF",
+                       "the page's black ink, on a dark note")
+        XCTAssertEqual(InkPaths.shownHex("#FFFFFF", onPaper: lightNote), "#000000",
+                       "a white pen from Dark Mode, on a light note")
+        XCTAssertEqual(InkPaths.shownHex("#F1EFE6", onPaper: lightNote), "#000000", "chalk on white")
+    }
+
+    func testInkThatCanBeSeenIsLeftExactlyAsItWasPicked() {
+        for hex in ["#F2542D", "#F5B700", "#2FBF71", "#2D7DD2", "#8E44AD"] {
+            XCTAssertEqual(InkPaths.shownHex(hex, onPaper: darkNote), hex, "\(hex) on a dark note")
+            XCTAssertEqual(InkPaths.shownHex(hex, onPaper: lightNote), hex, "\(hex) on a light note")
+        }
+        XCTAssertEqual(InkPaths.shownHex("#1C1C1E", onPaper: lightNote), "#1C1C1E")
+        XCTAssertEqual(InkPaths.shownHex("#FFFFFF", onPaper: darkNote), "#FFFFFF")
+    }
+
+    func testAColourThatCannotBeReadIsNotGuessedAt() {
+        XCTAssertEqual(InkPaths.shownHex("not a colour", onPaper: darkNote), "not a colour")
+        XCTAssertEqual(InkPaths.shownHex("#1C1C1E", onPaper: "nor this"), "#1C1C1E")
+    }
+
+    func testTheNotesPaperIsDarkInDarkModeAndWhiteInLight() {
+        let dark = NSColor(hex: InkPaths.notePaperHex(dark: true))
+        let light = NSColor(hex: InkPaths.notePaperHex(dark: false))
+        XCTAssertNotNil(dark); XCTAssertNotNil(light)
+        XCTAssertLessThan(TextBoxStyle.luminance(dark ?? .white), 0.1)
+        XCTAssertGreaterThan(TextBoxStyle.luminance(light ?? .black), 0.9)
+    }
+}

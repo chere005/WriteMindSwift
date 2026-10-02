@@ -747,6 +747,20 @@ CoreMind's `bin/report-status.sh`.
   lattice search no longer recognises; both are worse than heavy ink.
   If the weight comes up again, it wants a different tool than a mask
   eroded pixel by pixel.
+- **INK THE COLOUR OF THE PAPER IS SHOWN AS ITS OPPOSITE, ON THE NOTE.**
+  Sean, 2026-10-02: "images and text work from a selection, but taking
+  the writing itself doesn't". It did: fourteen strokes a time were in
+  his sidecar, in the page's near-black ink (#1C1C1E, picked for white
+  paper), on a Dark Mode note whose paper is #1E1E1E. The same hole was
+  under the notebook's own black swatch, and under a white pen's strokes
+  in a note opened in Light. `InkPaths.shownHex(_:onPaper:)` is the rule
+  — below a contrast of `seen` (1.5) with the note's paper a stroke is
+  painted black or white, whichever reads, as the note's text is — and it
+  is asked when the stroke is PAINTED (`DrawingCanvas.draw(…paper:)`, the
+  live stroke and the tablet's notebook layer too), never stored: the
+  stroke keeps the colour it was written in and the appearance can change
+  under it. The tablet's PAGE passes no paper; its ink is kept readable by
+  the paper's own rule. Paper export already did this (`DrawingInk.ink`).
 - **Every NSTextView gets its OWN undo manager.** Left to itself an
   NSTextView registers its undo actions on the window's undo manager, and
   both editors here are torn down routinely — a `BlockEditor` whenever its

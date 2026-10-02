@@ -15,6 +15,16 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### Ink the colour of the note's paper is shown as its opposite
+A stroke keeps the colour it was written in, but on the NOTE it is painted
+black or white — whichever reads — when its contrast with the note's paper
+is under 1.5 (WCAG ratio). Decided at paint time from the current
+appearance, never stored. Without it the tablet page's near-black writing,
+taken into a note in Dark Mode, is in the drawing and invisible, and so is
+a white pen's stroke in a light note. (Sean, 2026-10-02: "images and text
+work from a selection, but taking the writing itself doesn't".) The
+tablet's own page does not do this: its paper has its own readability rule.
+
 ### The app takes the tablet itself, so the pen stops moving the pointer
 Sean, 2026-10-02, with the page up and the pointer flying round the other
 display under his pen: "how can i disable wacom from taking over my

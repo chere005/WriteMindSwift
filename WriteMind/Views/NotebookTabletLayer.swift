@@ -87,13 +87,17 @@ struct NotebookTabletLayer: View {
 private struct NotebookLiveInk: View {
     @ObservedObject var scribe: NotebookScribe
     let scrollOffset: CGFloat
+    /// The note's paper, so the stroke under the nib is shown as it will
+    /// be once it lands (`InkPaths.shownHex`).
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let stroke = scribe.stroke
         let marquee = scribe.marquee
+        let paper = InkPaths.notePaperHex(dark: colorScheme == .dark)
         Canvas { context, size in
             context.translateBy(x: 0, y: -scrollOffset)
-            if let stroke { DrawingCanvas.paintLive(stroke, in: &context, size: size) }
+            if let stroke { DrawingCanvas.paintLive(stroke, in: &context, size: size, paper: paper) }
             if let marquee { DrawingCanvas.paintMarquee(marquee, in: &context) }
         }
     }

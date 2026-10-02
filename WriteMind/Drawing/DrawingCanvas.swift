@@ -97,6 +97,10 @@ struct DrawingCanvas: View {
     private static let space = "WriteMindCanvas"
 
     @State private var current: Stroke?
+    /// The note's paper in this appearance, for showing ink that would
+    /// otherwise be the paper's own colour.
+    @Environment(\.colorScheme) private var colorScheme
+    private var notePaper: String { InkPaths.notePaperHex(dark: colorScheme == .dark) }
     @State private var selection: Set<UUID> = []
     @State private var hovered: UUID?
     @State private var hoveredHandles: Set<String> = []
@@ -246,7 +250,7 @@ struct DrawingCanvas: View {
         // Everything below is in the document's coordinates.
         context.translateBy(x: 0, y: -scrollOffset)
         for item in drawing.visibleItems { draw(item, in: &context, size: size) }
-        if let current { Self.paintLive(current, in: &context, size: size) }
+        if let current { Self.paintLive(current, in: &context, size: size, paper: notePaper) }
         // The shape as it is being dragged out, before it is real.
         if let placing, let preview = placePreview,
            let ghost = placing.item(from: preview.from, to: preview.to, in: size,
@@ -298,8 +302,9 @@ struct DrawingCanvas: View {
     /// coordinates: the layer's own pen's, and the tablet's in the note
     /// (`NotebookLiveInk`) — ONE painter, so the ink being written is the
     /// ink that lands.
-    static func paintLive(_ stroke: Stroke, in context: inout GraphicsContext, size: CGSize) {
-        draw(stroke, points: CanvasItem.stroke(stroke).basePoints(in: size), in: &context)
+    static func paintLive(_ stroke: Stroke, in context: inout GraphicsContext, size: CGSize,
+                          paper: String? = nil) {
+        draw(stroke, points: CanvasItem.stroke(stroke).basePoints(in: size), in: &context, paper: paper)
     }
 
     /// The marquee as it is dragged, in document points — a ⌘-drag's, and
@@ -340,7 +345,7 @@ struct DrawingCanvas: View {
 
             switch item {
             case .stroke(let stroke):
-                Self.draw(stroke, points: item.basePoints(in: size), in: &layer)
+                Self.draw(stroke, points: item.basePoints(in: size), in: &layer, paper: notePaper)
             case .image(let image):
                 let box = item.baseBounds(in: size)
                 if let loaded = images[image.file] {
@@ -422,8 +427,14 @@ struct DrawingCanvas: View {
         for head in heads { context.fill(head, with: .color(colour)) }
     }
 
-    static func draw(_ stroke: Stroke, points: [CGPoint], in context: inout GraphicsContext) {
-        let colour = Color(hex: stroke.colorHex) ?? .orange
+    /// `paper` is what the stroke is painted over, when it is the NOTE:
+    /// ink the paper's own colour is shown as its opposite there
+    /// (`InkPaths.shownHex`). Nil paints the colour as it is — the tablet's
+    /// page, whose paper keeps its ink readable by its own rule.
+    static func draw(_ stroke: Stroke, points: [CGPoint], in context: inout GraphicsContext,
+                     paper: String? = nil) {
+        let hex = paper.map { InkPaths.shownHex(stroke.colorHex, onPaper: $0) } ?? stroke.colorHex
+        let colour = Color(hex: hex) ?? .orange
         let (path, filled) = InkPaths.path(for: stroke, points: points)
         // Ink is one filled outline, so the tool's opacity goes on the
         // colour: the whole stroke is laid down once and never darkens

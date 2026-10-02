@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The SHAPE of what the pen and the arrow tool leave behind, with no
@@ -72,6 +73,38 @@ enum InkPaths {
 
     /// Every ink outline the painters have asked for, by stroke.
     static let inkCache = InkCache()
+
+    /// THE COLOUR A STROKE IS SHOWN IN ON THE NOTE: its own, unless that
+    /// is the paper's — then the opposite, the way the note's own text is
+    /// black on white and white on black. The tablet page's ink is
+    /// near-black, picked against white paper; taken into a note in Dark
+    /// Mode the strokes were in the drawing and nowhere on screen (Sean,
+    /// 2026-10-02: "images and text work from a selection, but taking the
+    /// writing itself doesn't"). The same goes for a white pen from a dark
+    /// note opened in a light one. Decided when it is PAINTED, never
+    /// stored: the stroke keeps the colour it was written in, and the
+    /// appearance can change under it. `seen` is deliberately low — only
+    /// ink that is as good as the paper's own colour is turned, and a
+    /// yellow picked on white stays the yellow that was picked.
+    static func shownHex(_ inkHex: String, onPaper paperHex: String) -> String {
+        guard let ink = NSColor(hex: inkHex), let paper = NSColor(hex: paperHex),
+              TextBoxStyle.ratio(ink, paper) < seen else { return inkHex }
+        return TextBoxStyle.contrast(with: paper)
+    }
+
+    /// The least contrast with the paper at which ink still counts as
+    /// there to be seen (WCAG's ratio: 1 is the paper's own colour).
+    static let seen = 1.5
+
+    /// The note's paper — the text view's background — in one appearance
+    /// or the other, as a hex the rule above can read.
+    static func notePaperHex(dark: Bool) -> String {
+        var hex = dark ? "#1E1E1E" : "#FFFFFF"
+        NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+            if let paper = NSColor.textBackgroundColor.usingColorSpace(.sRGB) { hex = paper.hexString }
+        }
+        return hex
+    }
 
     /// A connector: the line, with each end that carries a head pulled back
     /// along its own last segment so the head's TIP is the point, and the
