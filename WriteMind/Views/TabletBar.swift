@@ -3,25 +3,81 @@ import SwiftUI
 /// THE PAGE'S PEN AND PAPER, on one small bar in the tablet pane's top-left
 /// corner (Sean, 2026-10-02: "it can have themed backgrounds and different
 /// pen colors and strokes to write with"): the pen — its tool, its colour,
-/// its size — and the paper under it.
+/// its size — and the paper under it. And WHERE THE PEN WRITES — "Write on:
+/// Page | Notebook" (Sean, same day: "do the same for drawing mode in the
+/// notebook itself and let the wacom control that as well.. as a separate
+/// mode") — which is on this bar and nowhere else on screen; the View menu
+/// carries it too, as it carries the notebook's own pen.
 ///
 /// It sits in the band `TabletPane.band` keeps clear above the sheet, so it
 /// is never over the writing, and what it opens is a popover, gone again at
 /// the next click. Corner buttons in the camera pane's own style, all of it
 /// SwiftUI: the colour well and the slider live in the popover, which is a
 /// window of its own, so no hosted view sits over the pane to be handed its
-/// cursorUpdates (AGENTS.md, the eighth cause).
+/// cursorUpdates (AGENTS.md, the eighth cause) — which is also why the
+/// switch is two buttons and not a segmented `Picker`, an NSSegmentedControl
+/// underneath.
+///
+/// THE BAR HAS TO FIT THE PANE IT LIVES IN: offered only the width the
+/// corner's buttons leave it (`TabletPane.topRow`), it takes the first of
+/// its shapes that fits — the switch with "Write on" and an icon a name,
+/// the two names alone, the two icons alone, and on a pane too narrow for
+/// the row the switch on a row of its own over the pen and the paper. The
+/// two names are what the split's default 420 gets: two bare icons there
+/// read as one more paper control beside the swatch.
+/// THE SWITCH NEVER MOVES UNDER THE POINTER THAT PRESSED IT: it comes
+/// first, and while the pen writes in the notebook the page's pen and paper
+/// are out of play but KEEP THEIR PLACE (`setAside`) — the corner's undo,
+/// redo and clear the same — so the row measures the same in both modes
+/// and the switch keeps one shape and one place. With them taken out, the
+/// room they left made the switch grow its words and lead in Notebook mode
+/// and lose them again in Page mode, and the button just pressed jumped.
 struct TabletBar: View {
     @EnvironmentObject private var appState: AppState
     let theme: PageTheme
     /// A paper was picked from the menu.
     let onTheme: (PageTheme) -> Void
+    /// Where the pen writes, and the switch's way of changing it.
+    let target: TabletTarget
+    let onTarget: (TabletTarget) -> Void
 
     @State private var showPen = false
     @State private var showPaper = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                TabletTargetSwitch(target: target, shape: .full, onPick: onTarget)
+                pageControls
+            }
+            HStack(spacing: 6) {
+                TabletTargetSwitch(target: target, shape: .names, onPick: onTarget)
+                pageControls
+            }
+            HStack(spacing: 6) {
+                TabletTargetSwitch(target: target, shape: .icons, onPick: onTarget)
+                pageControls
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                TabletTargetSwitch(target: target, shape: .names, onPick: onTarget)
+                HStack(spacing: 6) { pageControls }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                TabletTargetSwitch(target: target, shape: .icons, onPick: onTarget)
+                HStack(spacing: 6) { pageControls }
+            }
+        }
+        // A popover left open on a control set aside would hang off nothing.
+        .onChange(of: target) { _, _ in
+            showPen = false
+            showPaper = false
+        }
+    }
+
+    /// The page's own pen and paper — in play only while the pen writes on
+    /// it, and in their place either way.
+    @ViewBuilder private var pageControls: some View {
+        Group {
             Button { showPen.toggle() } label: {
                 HStack(spacing: 4) {
                     Image(systemName: appState.pageInkTool.icon)
@@ -55,6 +111,76 @@ struct TabletBar: View {
                 }
             }
         }
+        .setAside(target != .page)
+    }
+}
+
+extension View {
+    /// OUT OF PLAY, IN ITS PLACE: not drawn, not pressed, not hovered, not
+    /// read out — and still measured, so what is beside it does not move
+    /// (`TabletBar`, the tablet pane's corner).
+    func setAside(_ aside: Bool) -> some View {
+        opacity(aside ? 0 : 1)
+            .allowsHitTesting(!aside)
+            .accessibilityHidden(aside)
+    }
+}
+
+/// "WRITE ON: PAGE | NOTEBOOK" — two buttons in one capsule, the one in use
+/// lit. Lit with the primary colour, never the accent: the accent can be
+/// yellow, and words on yellow are not words (AGENTS.md, colours).
+struct TabletTargetSwitch: View {
+    /// How much of it there is room for.
+    enum Shape {
+        /// "Write on", and an icon and a name a button.
+        case full
+        /// The two names alone.
+        case names
+        /// The two icons alone, for a narrow pane — the tip still says it
+        /// all.
+        case icons
+    }
+
+    let target: TabletTarget
+    let shape: Shape
+    let onPick: (TabletTarget) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            if shape == .full {
+                Text("Write on")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 5)
+                    .padding(.trailing, 1)
+                    .fixedSize()
+            }
+            ForEach(TabletTarget.allCases) { option in
+                let lit = option == target
+                Button { onPick(option) } label: {
+                    HStack(spacing: 4) {
+                        if shape != .names {
+                            Image(systemName: option.icon)
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        if shape != .icons {
+                            Text(option.title).font(.system(size: 11, weight: .semibold)).fixedSize()
+                        }
+                    }
+                    .foregroundStyle(lit ? Color.primary : Color.secondary)
+                    .padding(.horizontal, 7)
+                    .frame(height: 20)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(lit ? 0.18 : 0)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .paneTip(BarTip(title: "Write on the \(option.title)", detail: option.help))
+                .accessibilityLabel("Write on the \(option.title)")
+                .accessibilityAddTraits(lit ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
     }
 }
 

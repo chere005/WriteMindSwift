@@ -15,6 +15,67 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### The tablet writes straight into the note
+Sean, 2026-10-02: "do the same for drawing mode in the notebook itself and
+let the wacom control that as well.. as a separate mode". What the port
+has to copy:
+
+- **A switch, "Write on: Page | Notebook"**, on the page pane's bar and
+  nowhere else on screen (a menu may mirror it), remembered, the page by
+  default. Picking the notebook brings the notes into view if they were
+  put away. NO KEY changes it — Escape in particular stays the notes'
+  (an armed insertion bar, a block being edited, held cells, the link
+  banner): the mode is one that is lived in, and a key that sent the pen
+  home took every Escape away from the notes for as long as it was on.
+  The switch keeps one shape and one place in both modes — it comes
+  first on the bar, and the page's own controls are hidden IN THEIR
+  PLACE while the pen writes in the notebook — so it never moves under
+  the pointer that pressed it; at the narrow default width it is the two
+  names, not two bare icons.
+- **The tablet is fitted onto the notes on screen**: the drawing layer's
+  own visible frame (below the tab and formatting bars, above the footer,
+  in both the source and the rendered view), and in it the tablet's
+  turned shape — the same (u, v) the page uses, after the quarter turn —
+  as big as fits less a 12-point margin, centred, NEVER stretched, so
+  handwriting keeps its proportions. A point is (area.x + u × area.width,
+  area.y + v × area.height) on the pane, plus the scroll offset to be in
+  the document, divided by the pane's width and height to be a stroke's
+  point — and not clamped to one pane's height: a point further down a
+  long note is past 1.
+- **The nib writes the note's own strokes** with the NOTEBOOK pen's tool,
+  colour and width (the pen menu's, never the page's), a pressure a
+  point, the lift no point (a tap is a dot): the same stroke a pen
+  stroke drawn on the note itself would be. One stroke is one undo step,
+  taken as it lands; and Ctrl/⌘+Z straight after it takes the stroke back
+  — not the typing, though the keyboard is still in the text — until the
+  text is typed in again, only while the notes are on screen, and only
+  down to where the drawing's undo stood under the first such stroke:
+  past that the next undo is the typing's, not an older drawing step's
+  (count steps taken and taken back, not the capped history's length).
+  Redo stays the drawing's until the typing. The stroke being written is
+  drawn on a layer of its own over the drawing, by the drawing's own
+  painter. A stroke or a marquee under way when another note is opened
+  is dropped, and a notes view rebuilt beside a pane that came or went
+  must not leave the pen with nowhere to write.
+- **While the pen is near**, a faint dashed outline of the area and the
+  page's hover ring show over the notes, taking no clicks.
+- **The barrel button is the drawing's marquee**: dragged, it draws the
+  same rectangle a ⌘-drag draws; let go, it picks everything it touches,
+  whole groups, Shift to add — the ⌘-drag's one rule — so Delete and the
+  handles act on it. A barrel click is a ⌘-click.
+- **What is on screen decides**: in Notebook mode it is a note being on
+  screen (the page may be put away) that takes the pen off the pointer
+  and swallows its events; with no note open the pen is an ordinary pen.
+  Switching with both on screen changes nothing there. Switching drops a
+  stroke or a box half-done for either.
+- **The page is set aside**, untouched: dimmed, one line ("The pen is
+  writing on the notebook" — or, with no note on screen, that there is
+  none and the pen is a pointer until there is), no box can be drawn on
+  it, and its own pen, paper, undo, redo and clear are hidden; the turn
+  stays, since it is the tablet's. On the web the area mapping needs the tablet's own counts
+  (WebHID) or, from screen-mapped PointerEvents, the OS's own mapping of
+  the tablet onto the screen — the same caveat as the page's entry.
+
 ### The page has papers, and a pen of its own
 Sean, 2026-10-02: "it can have themed backgrounds and different pen colors
 and strokes to write with". What the port has to copy:

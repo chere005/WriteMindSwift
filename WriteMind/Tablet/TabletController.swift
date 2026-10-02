@@ -91,15 +91,16 @@ final class LiveDriverLink: TabletDriverLink {
 /// A launch that finds the remembered tablet takes the pen again without
 /// asking anything.
 ///
-/// While a tablet is the input AND ITS PAGE IS ON SCREEN there is a driver
-/// CONTEXT with Mvsc false — the pen writes on the page and the pointer
-/// stays where the trackpad left it. Put the pane away and the context goes
-/// with it: a pen kept off the pointer for a page nobody can see writes
-/// nowhere, and the notebook's own pen needs it as a pointer. Contexts only
-/// act while WriteMind is in front, so it is checked again every time
-/// WriteMind comes back to the front (kept if the driver still has it, made
-/// again if not) and whenever the driver restarts; and it is let go when
-/// the page goes, the tablet is turned off or unplugged, or the app quits.
+/// While a tablet is the input AND WHAT IT WRITES ON IS ON SCREEN — its
+/// page, or in Notebook mode a note — there is a driver CONTEXT with Mvsc
+/// false: the pen writes and the pointer stays where the trackpad left it.
+/// Put that away and the context goes with it: a pen kept off the pointer
+/// for a page nobody can see writes nowhere, and the notebook's own pen
+/// needs it as a pointer. Contexts only act while WriteMind is in front, so
+/// it is checked again every time WriteMind comes back to the front (kept
+/// if the driver still has it, made again if not) and whenever the driver
+/// restarts; and it is let go when the target goes, the tablet is turned
+/// off or unplugged, or the app quits.
 @MainActor
 final class TabletController: ObservableObject {
     enum Status: Equatable {
@@ -169,9 +170,10 @@ final class TabletController: ObservableObject {
         self.defaults = defaults
         self.link = link
         self.input = input
-        // The page comes and goes on the main thread, from the pane.
-        input.pageShowingChanged = { [weak self] showing in
-            MainActor.assumeIsolated { self?.pageShowing(showing) }
+        // The page and the notes come and go on the main thread, from their
+        // panes; the target changes there too.
+        input.targetShowingChanged = { [weak self] showing in
+            MainActor.assumeIsolated { self?.targetShowing(showing) }
         }
         guard live else { return }
         restoreRemembered()
@@ -254,11 +256,11 @@ final class TabletController: ObservableObject {
         case .unavailable where ask: status = .connecting
         default: break
         }
-        // Only a page on screen wants the pen off the pointer. A pick puts
+        // Only a target on screen wants the pen off the pointer. A pick puts
         // its question whether or not its page is up yet — the pane comes
         // up a moment after the menu, and the question is the pick's — and
-        // what it makes waits for the page (`landed`).
-        guard ask || input.pageIsShowing else { return }
+        // what it makes waits for the target (`landed`).
+        guard ask || input.targetIsShowing else { return }
         if inFlight {
             pendingAsk = (pendingAsk ?? false) || ask
             return
@@ -298,9 +300,9 @@ final class TabletController: ObservableObject {
         } else {
             status = .ready
         }
-        // The page went while the driver was answering, or a pick asked
+        // The target went while the driver was answering, or a pick asked
         // before its page was up: the pen stays a pointer until it is.
-        if !input.pageIsShowing { letGoOfContext(wait: true) }
+        if !input.targetIsShowing { letGoOfContext(wait: true) }
         if let ask = pendingAsk {
             pendingAsk = nil
             connect(ask: ask)
@@ -319,14 +321,16 @@ final class TabletController: ObservableObject {
 
     // MARK: - What happens around it
 
-    /// THE CONTEXT FOLLOWS THE PAGE. The first page on screen takes the pen
-    /// off the pointer, asking nothing; the last one going gives it back —
-    /// ⌘Y, the pane's switch, a camera picked. Left standing, it kept the
-    /// pen off the pointer while WriteMind was in front with no page to
-    /// write on: the notebook's own pen, the only other use of the pen
-    /// here, was dead, and the line that would have said why was hidden
-    /// with the pane.
-    func pageShowing(_ showing: Bool) {
+    /// THE CONTEXT FOLLOWS THE TARGET. The page — or in Notebook mode a note
+    /// — coming on screen takes the pen off the pointer, asking nothing;
+    /// the last one going gives it back — ⌘Y, the pane's switch, a camera
+    /// picked, the notes put away, Esc sending the pen back to a page that
+    /// is put away. Left standing, it kept the pen off the pointer while
+    /// WriteMind was in front with nothing to write on: the notebook's own
+    /// pen, the only other use of the pen here, was dead, and the line that
+    /// would have said why was hidden with the pane. From one target to the
+    /// other with both on screen is no change: the same context serves.
+    func targetShowing(_ showing: Bool) {
         if showing { connect(ask: false) } else { letGoOfContext(wait: true) }
     }
 

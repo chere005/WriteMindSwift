@@ -138,6 +138,16 @@ final class AppState: ObservableObject {
     @Published var tabletQuarterTurns: Int {
         didSet { defaults.set(tabletQuarterTurns, forKey: Keys.tabletQuarterTurns) }
     }
+    /// WHERE THE TABLET'S PEN WRITES: its own page, or straight into the
+    /// note (Sean, 2026-10-02: "do the same for drawing mode in the notebook
+    /// itself and let the wacom control that as well.. as a separate
+    /// mode"). The page unless the notebook is picked, and remembered — a
+    /// way of working, like the turn. Changed through `writeOn` (the
+    /// switch on the page's bar, and the View menu) and nothing else — no
+    /// key; the funnel is handed it from the app (`TabletInput.aim`).
+    @Published var tabletTarget: TabletTarget {
+        didSet { defaults.set(tabletTarget.rawValue, forKey: Keys.tabletTarget) }
+    }
     /// Which pane the input is — derived from the pick, so it has ONE
     /// writer (`follow(tabletPicked:)`, fed by the tablet controller) and
     /// is never stored: the pick is what is remembered.
@@ -287,12 +297,69 @@ final class AppState: ObservableObject {
     }
 
     /// Whose ⌘Z it is. The drawing's while the pen is up, while something
-    /// on the layer is picked, while a shape is waiting to be put down, or
-    /// while the arrow tool is on — the four times the last thing done was
-    /// done on the layer (Sean, 2026-09-19: "fix undo in drawing mode").
-    var drawingOwnsUndo: Bool {
-        penActive || connectActive || placing != nil || canvasSelection
+    /// on the layer is picked, while a shape is waiting to be put down,
+    /// while the arrow tool is on, or straight after the tablet wrote in
+    /// the note — the five times the last thing done was done on the layer
+    /// (Sean, 2026-09-19: "fix undo in drawing mode").
+    var drawingOwnsUndo: Bool { layerInHand || tabletInkOwnsUndo }
+
+    /// And ⇧⌘Z: the same, but the tablet's claim on it outlasts the
+    /// strokes it took back (`tabletInkOwnsRedo`).
+    var drawingOwnsRedo: Bool { layerInHand || tabletInkOwnsRedo }
+
+    /// The four that are the layer's own: something on it in hand.
+    private var layerInHand: Bool { penActive || connectActive || placing != nil || canvasSelection }
+
+    /// Where the drawing's undo stood under the tablet's FIRST stroke in
+    /// the note since the text was last typed in — `NoteStore.drawingSteps`,
+    /// which counts every step taken and taken back — and nil while the
+    /// tablet has no claim on ⌘Z. Not published: only the Undo and Redo
+    /// items read it, when pressed.
+    private(set) var tabletInkFloor: Int?
+    /// Where the drawing's undo stands now, told on every change to the
+    /// drawing (`drawingChanged`).
+    private(set) var drawingSteps = 0
+    /// A stroke from the tablet landed in the note (`NoteStore.inkFromTablet`)
+    /// over a drawing that stood at `floor` steps. The first since the
+    /// typing sets the claim's floor; the rest are above it.
+    func tabletInkedNote(above floor: Int) {
+        if tabletInkFloor == nil { tabletInkFloor = floor }
     }
+    /// The note's drawing changed, and its undo stands at `steps`: the last
+    /// thing done is the note's again (`notebookChanged`), and the
+    /// tablet's claim is measured from here.
+    func drawingChanged(steps: Int) {
+        notebookChanged()
+        drawingSteps = steps
+    }
+    /// The note's TEXT changed: the last thing done is the text's — the
+    /// page's claim goes (`notebookChanged`) and so does the tablet's ink's.
+    func noteTyped() {
+        notebookChanged()
+        tabletInkFloor = nil
+    }
+
+    /// ⌘Z TAKES BACK THE TABLET'S STROKES IN THE NOTE, straight after
+    /// them: the pen is in one hand and ⌘Z under the other, the keyboard is
+    /// still in the note's text, and left to it ⌘Z after a stroke undid
+    /// the TYPING. From the stroke until the text is typed in, and only
+    /// while the notes can be seen — AND ONLY DOWN TO THE FLOOR: once the
+    /// strokes are taken back, and anything done on the layer after them,
+    /// what is next to undo is the typing before them, and an undo that
+    /// went on into the drawing undid an older step there and left the
+    /// newer words standing.
+    var tabletInkOwnsUndo: Bool {
+        guard let floor = tabletInkFloor else { return false }
+        return drawingSteps > floor && notesInView
+    }
+
+    /// ⇧⌘Z puts back what ⌘Z took off the drawing — the tablet's strokes —
+    /// until the text is typed in. When the drawing has nothing to put
+    /// back it goes on to the text (the Redo item).
+    var tabletInkOwnsRedo: Bool { tabletInkFloor != nil && notesInView }
+
+    /// The notes pane is on screen.
+    private var notesInView: Bool { showEditor && !cameraFullWindow }
 
     /// The tablet's page was the last thing written on — by the pen, or by
     /// its own undo, redo and clear — and nothing in the note has changed
@@ -341,6 +408,7 @@ final class AppState: ObservableObject {
         static let penWidth = "penWidth"
         static let cameraRotation = "cameraRotation"
         static let tabletQuarterTurns = "tabletQuarterTurns"
+        static let tabletTarget = "tabletTarget"
         static let penColorHex = "penColorHex"
         static let penTool = "penTool"
         static let pageInkTool = "pageInkTool"
@@ -375,6 +443,8 @@ final class AppState: ObservableObject {
         penWidth = defaults.object(forKey: Keys.penWidth) as? Double ?? 3
         cameraRotation = defaults.object(forKey: Keys.cameraRotation) as? Int ?? 0
         tabletQuarterTurns = TabletMapping.turns(defaults.object(forKey: Keys.tabletQuarterTurns) as? Int ?? 1)
+        // A target this build does not know is the page.
+        tabletTarget = TabletTarget(rawValue: defaults.string(forKey: Keys.tabletTarget) ?? "") ?? .page
         cameraAspect = CameraAspect(rawValue: defaults.string(forKey: Keys.cameraAspect) ?? "") ?? .free
         evaluator = Evaluator(rawValue: defaults.string(forKey: Keys.evaluator) ?? "") ?? .python
         penColorHex = defaults.string(forKey: Keys.penColorHex) ?? Self.presetColors[0]
@@ -440,6 +510,22 @@ final class AppState: ObservableObject {
             tabletQuarterTurns = TabletMapping.turns(tabletQuarterTurns + quarterTurns)
         }
     }
+
+    /// The switch: write on the page, or on the notebook. PICKING THE
+    /// NOTEBOOK BRINGS THE NOTES INTO VIEW — a pen writing in a note nobody
+    /// can see writes nowhere, and the page's veil would be saying it was
+    /// writing there. Going back to the page puts nothing away.
+    func writeOn(_ target: TabletTarget) {
+        if tabletTarget != target { tabletTarget = target }
+        guard target == .notebook, !showEditor || cameraFullWindow else { return }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            showEditor = true
+            cameraFullWindow = false
+        }
+    }
+
+    /// The tablet is the input and writes in the note.
+    var tabletWritesInNotebook: Bool { inputSource == .tablet && tabletTarget == .notebook }
 
     /// What was picked in Input Devices decides the pane.
     func follow(tabletPicked: Bool) {

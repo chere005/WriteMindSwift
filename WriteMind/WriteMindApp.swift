@@ -53,15 +53,26 @@ struct WriteMindApp: App {
                     cacheSession()
                 }
                 // The pane is the camera's or the tablet's by what was
-                // picked, and by nothing else.
+                // picked, and by nothing else. And the samples' one consumer
+                // is made the moment a tablet IS the input, whichever pane
+                // is up — in Notebook mode the page's pane may never have
+                // been shown, and samples nobody takes write nothing.
                 .onReceive(tablet.$selectedTabletID) { picked in
                     appState.follow(tabletPicked: picked != nil)
+                    if picked != nil { _ = TabletScribe.shared }
                 }
+                // Where the pen writes, and how the tablet is held, handed
+                // to the funnel here and nowhere else: the page's pane and
+                // the notes both read them, and either may be put away.
+                .onReceive(appState.$tabletTarget) { tablet.input.aim(at: $0) }
+                .onReceive(appState.$tabletQuarterTurns) { tablet.input.quarterTurns = $0 }
                 // Typing in the note, or anything done on its layer, makes
                 // the note the last thing written on again — ⌘Z goes back
-                // to it from the tablet's page.
-                .onReceive(store.$text) { _ in appState.notebookChanged() }
-                .onReceive(store.$drawing) { _ in appState.notebookChanged() }
+                // to it from the tablet's page; typing makes ⌘Z the text's
+                // again after the tablet wrote in the note, and the
+                // drawing's steps say how far down its claim still reaches.
+                .onReceive(store.$text) { _ in appState.noteTyped() }
+                .onReceive(store.$drawing) { _ in appState.drawingChanged(steps: store.drawingSteps) }
         }
         .defaultSize(width: 1280, height: 800)
         .commands {
@@ -138,6 +149,16 @@ struct WriteMindApp: App {
                 Button(appState.penActive ? "Stop Drawing" : "Draw") { appState.togglePen() }
                     .shortcut(.togglePen)
 
+                // Where the TABLET's pen writes — the switch on the page's
+                // bar, mirrored here as the pen above is, and with no key:
+                // Esc in the notes is the notes' own (a seam, a block, a
+                // link, held cells), and the mode is a long-lived one.
+                Button(appState.tabletTarget == .page ? "Write on the Notebook with the Tablet"
+                                                      : "Write on the Page with the Tablet") {
+                    appState.writeOn(appState.tabletTarget == .page ? .notebook : .page)
+                }
+                .disabled(appState.inputSource != .tablet)
+
                 // NO KEY on these two (Sean, 2026-09-21: "get rid of
                 // ^cmd+e and opt+cmd+m"). The commands stay — the notes
                 // pane comes back from the corner of the video, and the
@@ -189,7 +210,7 @@ struct WriteMindApp: App {
 
                 Button("Redo") {
                     if appState.pageOwnsUndo, TabletPage.shared.redo() { return }
-                    if appState.drawingOwnsUndo, store.redoDrawing() { return }
+                    if appState.drawingOwnsRedo, store.redoDrawing() { return }
                     NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
                 }
                 .shortcut(.redo)

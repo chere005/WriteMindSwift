@@ -258,8 +258,8 @@ struct TabletReading: Equatable {
     }
 }
 
-/// One moment of the pen on the page — what `TabletScribe` makes ink and
-/// boxes of (and, later, the notebook).
+/// One moment of the pen on the turned tablet — what `TabletScribe` makes
+/// ink and boxes of on the page, or ink and a marquee in the note.
 struct TabletSample: Equatable {
     enum Phase: Equatable {
         /// Near the tablet, nothing pressed: the marker follows it.
@@ -408,19 +408,32 @@ final class TabletInput: ObservableObject {
 
     /// A tablet is the chosen input (`start`/`stop`).
     private(set) var isRunning = false
-    /// How many pages are on screen. A count, not a flag: two windows can
-    /// each have one, and the first to go must not switch the pen off for
-    /// the other.
+    /// How many pages are on screen, and how many notebooks — a note open
+    /// under its drawing layer. Counts, not flags: two windows can each
+    /// have one, and the first to go must not switch the pen off for the
+    /// other.
     private var pagesShowing = 0
+    private var notebooksShowing = 0 {
+        didSet { if notebookIsShowing != (notebooksShowing > 0) { notebookIsShowing = notebooksShowing > 0 } }
+    }
+    /// A note is on screen under its layer — published, for the page set
+    /// aside to say whether the pen is writing in one (`TabletPane`).
+    @Published private(set) var notebookIsShowing = false
 
-    /// THE PEN BELONGS TO THE PAGE only while a tablet is the input and its
-    /// page is on screen. Then the local monitor SWALLOWS every pen event —
-    /// a tap on the tablet must never click a button or move the caret
-    /// under a pointer it happens to have left somewhere — and at every
-    /// other time it hands every event back as it came, to a pen that is an
-    /// ordinary pen again: the driver's context goes with the last page
-    /// (`pageShowingChanged`).
-    var isCapturing: Bool { isRunning && pagesShowing > 0 }
+    /// Where the pen writes: its page, or the note (`AppState.tabletTarget`,
+    /// handed in by `aim(at:)`). Published so the scribe can drop whatever
+    /// was half-written for the target it leaves.
+    @Published private(set) var target: TabletTarget = .page
+
+    /// THE PEN BELONGS TO ITS TARGET only while a tablet is the input and
+    /// that target is on screen — the page in Page mode, a note in Notebook
+    /// mode, whichever else is or is not up. Then the local monitor
+    /// SWALLOWS every pen event — a tap on the tablet must never click a
+    /// button or move the caret under a pointer it happens to have left
+    /// somewhere — and at every other time it hands every event back as it
+    /// came, to a pen that is an ordinary pen again: the driver's context
+    /// goes with the last of them (`targetShowingChanged`).
+    var isCapturing: Bool { isRunning && targetIsShowing }
 
     private var state = TabletPen()
     private var local: Any?
@@ -460,27 +473,49 @@ final class TabletInput: ObservableObject {
         if pen != nil { pen = nil }
     }
 
-    /// A page is on screen.
-    var pageIsShowing: Bool { pagesShowing > 0 }
-    /// Told when the first page comes on screen (true) and when the last
-    /// one goes (false): the controller's cue to take the pen off the
-    /// pointer, or to give it back (`TabletController.pageShowing`).
-    var pageShowingChanged: ((Bool) -> Void)?
+    /// The target is on screen: a page in Page mode, a note in Notebook
+    /// mode.
+    var targetIsShowing: Bool {
+        switch target {
+        case .page: return pagesShowing > 0
+        case .notebook: return notebooksShowing > 0
+        }
+    }
+    /// Told when the target comes on screen (true) and when it goes
+    /// (false) — the last page or note going, the pen sent to a target that
+    /// is not up: the controller's cue to take the pen off the pointer, or
+    /// to give it back (`TabletController.targetShowing`). Only when that
+    /// CHANGES: from the page to the notebook with both up is one context
+    /// serving either.
+    var targetShowingChanged: ((Bool) -> Void)?
+
+    /// Where the pen writes from now on.
+    func aim(at target: TabletTarget) {
+        guard target != self.target else { return }
+        changingWhatShows { self.target = target }
+    }
 
     /// A page came on screen, or went.
-    func pageAppeared() {
-        pagesShowing += 1
-        if pagesShowing == 1 { pageShowingChanged?(true) }
-    }
-    func pageDisappeared() {
-        let was = pagesShowing
-        pagesShowing = max(pagesShowing - 1, 0)
-        if pagesShowing == 0, pen != nil { pen = nil }
-        if was == 1 { pageShowingChanged?(false) }
+    func pageAppeared() { changingWhatShows { pagesShowing += 1 } }
+    func pageDisappeared() { changingWhatShows { pagesShowing = max(pagesShowing - 1, 0) } }
+
+    /// A note came on screen under its drawing layer, or went.
+    func notebookAppeared() { changingWhatShows { notebooksShowing += 1 } }
+    func notebookDisappeared() { changingWhatShows { notebooksShowing = max(notebooksShowing - 1, 0) } }
+
+    /// The one way the counts and the target change: the marker goes with
+    /// a target that is no longer up, and the controller hears only of a
+    /// change.
+    private func changingWhatShows(_ change: () -> Void) {
+        let was = targetIsShowing
+        change()
+        let now = targetIsShowing
+        if !now, pen != nil { pen = nil }
+        if was != now { targetShowingChanged?(now) }
     }
 
     /// One event from either monitor. Returns what the local monitor hands
-    /// on: nil for a pen event taken for the page, the event itself —
+    /// on: nil for a pen event taken for the target, the event itself —
     /// unchanged, the same object — for everything else. The global
     /// route's answer is ignored; it can only watch.
     func handle(_ event: NSEvent, from route: Route) -> NSEvent? {

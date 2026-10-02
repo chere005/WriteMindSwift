@@ -213,13 +213,14 @@ CoreMind's `bin/report-status.sh`.
   `NSWorkspace.runningApplications`, because the driver is
   LSBackgroundOnly and LSUIElement and NSWorkspace posts no launch or
   quit notice for such an app (its documentation says so; a probe saw
-  neither). **AND THE CONTEXT FOLLOWS THE PAGE**: made when the first
-  page comes on screen, let go when the last one goes
-  (`TabletInput.pageShowingChanged` → `TabletController.pageShowing`) —
-  left standing with the pane put away, it kept the pen off the pointer
+  neither). **AND THE CONTEXT FOLLOWS THE TARGET**: made when what the
+  pen writes on comes on screen — the page, or in Notebook mode a note
+  (below) — let go when the last of it goes
+  (`TabletInput.targetShowingChanged` → `TabletController.targetShowing`)
+  — left standing with the pane put away, it kept the pen off the pointer
   in front of no page at all, and the notebook's own pen was dead. A
   pick still asks with the pane away (the question is the pick's); what
-  it makes waits for the page. And it is let go on turning the tablet
+  it makes waits for the target. And it is let go on turning the tablet
   off, on unplugging and — posted, not waited for — on quitting. The
   pane is a "connecting" page from the moment a pick or a replug lands,
   even while an earlier conversation is still out. A property is
@@ -244,10 +245,10 @@ CoreMind's `bin/report-status.sh`.
   mouse events with a tablet subtype, a LOCAL monitor and a GLOBAL one
   (the global route counts only while WriteMind is in front), the same
   sample by two routes counted once by its timestamp. While the tablet is
-  the input AND its page is on screen the local monitor SWALLOWS every
-  pen event — a tap must never click whatever the pointer happens to be
-  over — and hands everything else back untouched; otherwise it hands
-  back everything. The pressure is read only off an event that defines it
+  the input AND its target is on screen (`TabletInput.isCapturing`) the
+  local monitor SWALLOWS every pen event — a tap must never click
+  whatever the pointer happens to be over — and hands everything else
+  back untouched; otherwise it hands back everything. The pressure is read only off an event that defines it
   (a spy in `TabletReadingTests` proves a hover is never asked), the
   extent comes from the driver, else a table by product id, and is
   WIDENED to the farthest count ever seen so a wrong entry can never clip
@@ -308,8 +309,8 @@ CoreMind's `bin/report-status.sh`.
   past the lift went on drawing in the air at no pressure — and a switch
   held over from ink starts no box until it is let go
   (`TabletPen.switchHeldOver`). `TabletScribe` is its shell and the ONE
-  consumer of `TabletInput.samples` — the notebook mode later is a
-  second target chosen there. **120 SAMPLES A SECOND REDRAW ONE STROKE**: the stroke
+  consumer of `TabletInput.samples` — and the notebook is the second
+  target, chosen there (the rule after next). **120 SAMPLES A SECOND REDRAW ONE STROKE**: the stroke
   being written is `TabletScribe.stroke`, watched by its own layer; the
   page (`TabletPage.strokes`, watched by the finished-ink layer, which is
   `Equatable`) changes once a stroke; the box is `TabletBox`, watched by
@@ -325,9 +326,9 @@ CoreMind's `bin/report-status.sh`.
   taken ONLY while there is one, and only for the page's own window with
   no field being typed in (`TabletBox.putsAway`). **ONE ESC CHAIN**: the
   box is a step in the drawing layer's (`DrawingCanvas.handleKey`: a
-  label, a style bar, an armed shape, a crop, THE BOX, then the pen),
-  and the pane's own monitor answers only while no layer watches keys
-  (`DrawingCanvas.keyWatchers`, `TabletBox.paneAnswersEscape`) — two
+  label, a style bar, an armed shape, a crop, THE BOX, then the pen), and
+  the pane's own monitor answers only while no layer
+  watches keys (`DrawingCanvas.keyWatchers`, `TabletBox.paneAnswersEscape`) — two
   monitors each taking Esc for itself took it in the order they were
   added, which every rebuild of the panes changes. Its three go
   through `NoteStore.takeFromTablet` and land the way the camera's do:
@@ -416,6 +417,122 @@ CoreMind's `bin/report-status.sh`.
   sheet a sheet on the pane's black, is drawn OVER the paper layer and in
   the pane only — under it, the layer's own fill covered it
   (`TabletSheetEdgeTests`).
+- **THE NOTEBOOK IS THE PEN'S OTHER TARGET, AND THE PAGE IS LEFT AS IT
+  IS.** Sean, 2026-10-02: "make the text strokes well implemented to feel
+  natural for writing letters.. do the same for drawing mode in the
+  notebook itself and let the wacom control that as well.. as a separate
+  mode". **Write on: Page | Notebook** is a switch on the page's bar
+  (`TabletBar`, `TabletTargetSwitch`) and nowhere else on screen;
+  `AppState.tabletTarget`, remembered, the page unless the notebook is
+  picked. The View menu mirrors it as it mirrors Draw — "Write on the
+  Notebook with the Tablet", no key, only while a tablet is the input —
+  and both go through `AppState.writeOn`, which BRINGS THE NOTES INTO
+  VIEW when the notebook is picked (leaving the whole-window page too): a
+  pen writing in a note nobody can see writes nowhere. **The tablet held
+  turned is FITTED onto the notes on screen** (`NotebookPlace`, pure): the
+  drawing layer's own frame — below the tab bar and the formatting bar,
+  above the footer, the source pane and the rendered page alike — and in
+  it the tablet's turned shape as big as fits less 12 points, centred,
+  never stretched, because a letter written on the tablet has to keep its
+  proportions in the note; on the PANE, not the document, so the pen
+  writes on what can be seen wherever the note is scrolled. A sample's
+  page fraction (`TabletSample.page`, after the turn) goes `onPane` →
+  `inDocument` (a scroll's worth down, the layer's `doc`) → `strokePoint`
+  (fractions of the pane on BOTH axes) — the layer's own pen's point
+  WITHOUT `DrawingCanvas.normalise`'s clamp, which pins a point a screen
+  or more down a long note to the bottom of the first screen.
+  `NotebookMappingTests` holds the fit, the centring and the four quarter
+  turns through the funnel's own `TabletMapping`. **The nib writes the
+  note's own strokes** (`NotebookWriting`, walked sample by sample;
+  `NotebookScribe`, its shell): `Stroke.starting` with the nib's sample
+  and the NOTEBOOK pen — `penTool`, `penColorHex`, `penWidth`, never the
+  page's — `append` per drag, the lift no point, so a tap is a dot:
+  exactly the stroke the layer's own pen makes. It lands through
+  `NoteStore.inkFromTablet`, which takes `beginDrawingChange` AS IT LANDS:
+  one stroke, one step, and one given up half-way leaves no empty step.
+  **⌘Z IS THE STROKE'S STRAIGHT AFTER IT** (`AppState.tabletInkOwnsUndo`,
+  part of `drawingOwnsUndo`): the keyboard is still in the note's text,
+  and left to it ⌘Z undid the typing. From the stroke until the text is
+  typed in (`noteTyped`, off `store.$text`), only while the notes are on
+  screen, and **ONLY DOWN TO THE FLOOR**: the claim remembers where the
+  drawing's undo stood under the first stroke since the typing
+  (`tabletInkFloor`, in `NoteStore.drawingSteps` — every step taken less
+  every one taken back, not held to the sixty the history keeps, whose
+  count stands still under a new step once full) and is told where it
+  stands on every change to the drawing (`drawingChanged`). Once the
+  strokes, and whatever the layer did after them, are taken back, the
+  next thing to undo is the typing: an undo that went on into the
+  drawing undid an older step there and left the newer words standing.
+  ⇧⌘Z stays the drawing's until the typing (`drawingOwnsRedo`), to put
+  back what ⌘Z took. **The stroke being written is drawn by the layer's own
+  painter** (`DrawingCanvas.paintLive`, which the layer's pen now calls
+  too) on its own layer over the drawing (`NotebookTabletLayer`,
+  `NotebookLiveInk`), so 120 samples a second redraw one stroke and not
+  the note. While the pen is near, a faint dashed outline of the area and
+  the page's own hover marker (`TabletHoverMarker`) show over the notes —
+  SwiftUI shapes and a `Canvas`, hit testing off, no NSView (the eighth
+  cause). **ANOTHER NOTE UNDER THE NIB TAKES NOTHING WITH IT**: the layer
+  stays up when the tab changes, so `NotebookPlace` carries the note's id
+  and the scribe drops whatever was under way when it changes — a stroke
+  begun in one note landed in the next, half its points a scroll below
+  the rest; a scroll or a resize in the same note keeps it. **AND A
+  LAYER GOING LETS GO ONLY WITH THE LAST** (`NotebookScribe.layerWent`):
+  the notes pane is built again when a pane beside it comes or goes
+  (⌘Y), SwiftUI can bring the new one up first, and the old one's going
+  left the new one with no place and no way into the note — every stroke
+  after it drawn live and landed nowhere; the coming one hands its place
+  back besides. **The side switch is the layer's marquee**: drawn while it is
+  dragged (`paintMarquee`, the ⌘-drag's look), and let go it goes to the
+  layer (`NotebookScribe.picks` → `DrawingCanvas.pick(byTablet:)`) and
+  picks by `marqueePicked` — `Drawing.ids(touching:)`, whole groups by
+  `CanvasGroups.whole`, ⇧ to add — the ONE rule the ⌘-drag's end now
+  calls too; so ⌫ and the handles act on it as on a ⌘-drag's (and under
+  the pen, as there, it picks with no handles drawn). A side-switch click
+  is a ⌘-click. **WHAT IS ON SCREEN DECIDES, BY TARGET**:
+  `TabletInput.aim(at:)` (fed from the app, as the turn now is too) and
+  two counts — pages, and notebooks: a note open under its layer, counted
+  by `NotebookTabletLayer` appearing — give `targetIsShowing`, and both
+  the funnel's swallowing and the driver's context follow it. In
+  Notebook mode the page may be put away; with no note open there is
+  nothing to write on and the pen is a pointer. Switching with both up
+  is no change at all: the one context serves either. Switching drops
+  whatever was half-done for either (`TabletScribe.dropUnderWay`): the
+  lift of a stroke begun on the page lands nowhere, and the page's box
+  goes. The samples' one consumer is made the moment a tablet is the
+  input (`TabletScribe.shared`, from the app), since in Notebook mode the
+  page's pane may never have been on screen. **NO KEY CHANGES THE
+  TARGET**: an Esc that sent the pen back to the page was the last step
+  of the layer's chain for a day, and a local monitor sees a key before
+  the notes do — so in a mode that is remembered and lived in, every Esc
+  meant for the notes (an armed seam, a block being edited, held cells,
+  the /link banner) went to the tablet instead, and with the page put
+  away the pen was silently a pointer. The switch and the View menu are
+  the way.
+  **THE PAGE SET ASIDE**: in Notebook mode the sheet is dimmed with one
+  line (`PageSetAside`, which takes the clicks on the sheet so no box is
+  drawn on it) that follows what is on screen
+  (`TabletInput.notebookIsShowing`, `TabletPane.setAsideLine`): "The pen
+  is writing on the notebook" while a note is up, and while none is, that
+  there is none and the pen is a pointer until there is — the funnel and
+  the context have let go then, and the line said otherwise. The page's
+  pen and paper, its undo, redo and clear and its hover marker are out of
+  play, and the turn stays — it is the tablet's, and holds for the
+  notebook. **THE BAR FITS ITS PANE**: the bar and the corner's buttons
+  are ONE ROW (`TabletPane.topRow`), so the bar is offered what the
+  corner leaves and takes the first of its shapes that fits
+  (`ViewThatFits`): the switch with "Write on" and an icon a name, the
+  two names alone — what the default 420 gets; two bare icons there read
+  as one more paper control beside the swatch — the two icons, or on a
+  row of its own over the pen and paper. Laid over each other, a bar that
+  grew a switch would run under the corner. **THE SWITCH NEVER MOVES
+  UNDER THE POINTER THAT PRESSED IT**: it comes first on the bar, and in
+  Notebook mode the page's controls, the bar's and the corner's, are SET
+  ASIDE IN THEIR PLACE (`View.setAside`: not drawn, not hit, not read
+  out, still measured) — taken out, the room they left made the switch
+  grow its words in Notebook mode and lose them in Page mode, and the
+  button just pressed jumped. The switch is two buttons, not a
+  segmented `Picker` (an NSSegmentedControl, hosted, over the pane), and
+  the one in use is lit with the primary colour, never the accent.
 - **A project is a list of folders in a JSON file** (`Project`,
   `.writemind-project`) — Sublime Text's shape. What is NOT in it is the
   session: which notes are open, which one is in front, and any text that had
@@ -519,7 +636,18 @@ CoreMind's `bin/report-status.sh`.
   is not one of our `PasteAwareTextView`s (those paste pictures themselves;
   `BlockTextView` inherits it and asks `EditorBridge.pasteImage`). The
   monitor returns nil to swallow a key — anything it does not take must be
-  returned unchanged or typing dies.
+  returned unchanged or typing dies. **THE MONITOR HOLDS A COPY OF THE
+  VIEW**: its closure, made in `onAppear`, captured the layer as it was
+  then, and every plain input `handleKey` reads — the mode, an armed
+  shape, the arrow tool — stayed as it was then; the layer does not
+  appear again when they change. A note opened in cursor mode, the pen
+  picked up: Esc read "no pen" and the pen stayed up, and ⌘Z and ⌫ asked
+  the same stale mode. `@State`, the binding and the closures read
+  through to the live value; the plain inputs are `KeyInputs`, and the
+  monitor is put up again from the new copy whenever they change
+  (`CanvasKeyTests` sends Esc through `NSApp.sendEvent`, which is where
+  local monitors are asked). An input `handleKey` starts reading goes in
+  `KeyInputs` too.
 - **THE PANE HAS ONE MODE, AND THERE ARE TWO OF THEM.** Sean, 2026-09-21:
   "drop the cursor and select buttons.. clicking the pen outside of the
   dropdown is the toggle between pen and cursor.. in both modes holding
@@ -1153,8 +1281,9 @@ WriteMind/
                           and under them any Wacom tablet plugged in
   AppState.swift          UI state: sidebar shown, editor/preview mode, pen
                           on/off, pen width, colour and tablet tool, the
-                          tablet page's own pen (all persisted), and the
-                          EditorBridge the toolbar talks through
+                          tablet page's own pen, where the tablet writes
+                          (all persisted), and the EditorBridge the
+                          toolbar talks through
   TestHost.swift          the unit-test host keeps out of ~/Documents
                           and off the camera
   Notes/Note.swift        a row: url, modified, title (first # heading, else
@@ -1337,7 +1466,13 @@ WriteMind/
                           note; drag to move a note or a section into
                           another section
   Views/EditorPane.swift  editor or preview with the DrawingCanvas over it,
-                          and a status line (file, words, saved time)
+                          the tablet's layer over that, and a status line
+                          (file, words, saved time)
+  Views/NotebookTabletLayer.swift
+                          the tablet writing in the note: its live stroke
+                          and marquee, the area's outline and the hover
+                          marker while the pen is near; the notes pane's
+                          word to the tablet (on screen, where, which pen)
   Views/ShapeMenu.swift   the Shapes popover (nodes, the arrow tool) and the
                           Marks popover (checks, crosses, stars, arrows)
   Views/CameraPane.swift  the preview, or a placeholder that says why not;
@@ -1346,12 +1481,15 @@ WriteMind/
   Views/TabletPane.swift  the same pane when a tablet is the input: the page
                           at the tablet's turned shape, the hover marker,
                           the page's undo, redo and clear, the turn
-                          buttons, the bar, and one line on why the pen
-                          also moves the pointer when it does
-  Views/TabletBar.swift   the bar top left of the page: the page's pen (its
-                          ink on a chip of the paper, InkChip; its popover:
-                          tool, size, colour) and its paper (a menu of
-                          papers, a swatch each, PaperSwatch)
+                          buttons, the bar, one line on why the pen also
+                          moves the pointer when it does, and the page set
+                          aside while the pen writes in the notebook
+  Views/TabletBar.swift   the bar top left of the page: Write on: Page |
+                          Notebook (TabletTargetSwitch), then the page's
+                          pen (its ink on a chip of the paper, InkChip;
+                          its popover: tool, size, colour) and its paper
+                          (a menu of papers, a swatch each, PaperSwatch),
+                          in the first of its shapes that fits; setAside
   Views/TabletPageView.swift
                           the sheet's layers, each at its own rate: the
                           paper and what its theme prints, the finished
@@ -1367,13 +1505,14 @@ WriteMind/
   Tablet/TabletController.swift
                           the tablets on the USB bus (IOKit notices), the
                           pick, and the context made, kept and let go
-                          with the page;
+                          with the target;
                           InputDevices.pick for both kinds of input
   Tablet/TabletInput.swift
                           the pen from every route through one funnel:
                           the tablet's size in counts and millimetres,
                           the reading of an event, counts to the turned
-                          page, the pen's state, the sample stream
+                          page, the pen's state, the sample stream, and
+                          whether its target is on screen
   Tablet/TabletPage.swift the page: strokes in page fractions and page
                           points, its paper, undo/redo/clear, the ink
                           turned with the sheet, the file in Application
@@ -1385,7 +1524,13 @@ WriteMind/
   Tablet/TabletWriting.swift
                           samples to ink and boxes (TabletWriting, pure),
                           TabletInk, TabletBox, and TabletScribe — the one
-                          consumer of the samples
+                          consumer of the samples, which picks the target
+  Tablet/TabletNotebook.swift
+                          the pen's other target: TabletTarget, the
+                          tablet fitted onto the notes
+                          (NotebookPlace, pure), samples to the note's
+                          strokes and the marquee (NotebookWriting, pure),
+                          and NotebookScribe, its shell
   Tablet/TabletSelection.swift
                           what a box touches, Writing re-expressed on the
                           notebook, and TabletRender: the page as a
@@ -1498,8 +1643,10 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   `+`, the overflow list); the editor bar (the six ToolGroups, then preview
   and video); the video's corner (select section, zoom, fit-when-zoomed,
   rotate left, rotate right, notes pane); the tablet page's corner (undo,
-  redo, clear, turn left, turn right, notes pane), its bar on the other
-  side (the page's pen, its paper) and its box (Image,
+  redo, clear — in play only while the pen writes on the page — turn
+  left, turn right, notes pane), its bar on the other side (Write on:
+  Page | Notebook, mirrored in the View menu with no key, then the page's
+  pen and its paper — the same proviso) and its box (Image,
   Writing, Text — the video's own three); the drawing layer's handles
   (rotate, scale, move, trash, and per-kind: crop and read for a picture,
   style for a connector, a circle per segment for a routed one).

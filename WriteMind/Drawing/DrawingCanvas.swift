@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// The drawing layer over the editor.
@@ -68,6 +69,9 @@ struct DrawingCanvas: View {
     /// Esc while the tablet's page has a box up: it is put away. True when
     /// it was taken (`TabletBox.key`).
     var onEscapeBox: ((NSEvent) -> Bool)?
+    /// The tablet's side switch let go over the notes, in document points
+    /// (`NotebookScribe.picks`): picked by the marquee's own rule.
+    var tabletPicks: AnyPublisher<CGRect, Never> = Empty().eraseToAnyPublisher()
     /// How far the text under the layer has scrolled. Objects live in the
     /// DOCUMENT — a picture sits beside the paragraph it was put next to and
     /// goes up with it — so everything is drawn and hit this far up.
@@ -194,6 +198,10 @@ struct DrawingCanvas: View {
             .coordinateSpace(name: Self.space)
             .onAppear { loadImages(); watchModifiers(); watchKeys() }
             .onDisappear { unwatchModifiers(); unwatchKeys() }
+            // The key monitor answers for the layer as it is NOW: put up
+            // again from this copy of the view whenever what it reads
+            // changes (`KeyInputs`).
+            .onChange(of: keyInputs) { _, _ in if keyMonitor != nil { watchKeys() } }
             .onChange(of: geo.size, initial: true) { _, size in
                 paneSize = size
                 onSize?(size)
@@ -209,6 +217,7 @@ struct DrawingCanvas: View {
             }
             .onChange(of: deselectToken) { _, _ in selection = []; cropping = nil; styling = nil; editingLabel = nil }
             .onChange(of: selection) { _, picked in onSelectionChanged?(!picked.isEmpty) }
+            .onReceive(tabletPicks) { rect in pick(byTablet: rect) }
             // A mode change leaves nothing behind it: not a selection, not
             // a crop half-dragged, not an arrow's style bar, not a label
             // being typed. Each of those is a conversation with one mode.
@@ -237,7 +246,7 @@ struct DrawingCanvas: View {
         // Everything below is in the document's coordinates.
         context.translateBy(x: 0, y: -scrollOffset)
         for item in drawing.visibleItems { draw(item, in: &context, size: size) }
-        if let current { draw(.stroke(current), in: &context, size: size) }
+        if let current { Self.paintLive(current, in: &context, size: size) }
         // The shape as it is being dragged out, before it is real.
         if let placing, let preview = placePreview,
            let ghost = placing.item(from: preview.from, to: preview.to, in: size,
@@ -263,12 +272,7 @@ struct DrawingCanvas: View {
             }
         }
 
-        if let marquee {
-            let path = Path(marquee)
-            context.fill(path, with: .color(Color.accentColor.opacity(0.12)))
-            context.stroke(path, with: .color(Color.accentColor),
-                           style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        }
+        if let marquee { Self.paintMarquee(marquee, in: &context) }
 
         if let connectPreview {
             var line = Path()
@@ -288,6 +292,22 @@ struct DrawingCanvas: View {
             context.stroke(Self.polygon(kept), with: .color(.white),
                            style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
         }
+    }
+
+    /// A stroke still being written, on a context already in the document's
+    /// coordinates: the layer's own pen's, and the tablet's in the note
+    /// (`NotebookLiveInk`) — ONE painter, so the ink being written is the
+    /// ink that lands.
+    static func paintLive(_ stroke: Stroke, in context: inout GraphicsContext, size: CGSize) {
+        draw(stroke, points: CanvasItem.stroke(stroke).basePoints(in: size), in: &context)
+    }
+
+    /// The marquee as it is dragged, in document points — a ⌘-drag's, and
+    /// the tablet side switch's over the notes.
+    static func paintMarquee(_ rect: CGRect, in context: inout GraphicsContext) {
+        let path = Path(rect)
+        context.fill(path, with: .color(Color.accentColor.opacity(0.12)))
+        context.stroke(path, with: .color(Color.accentColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
     }
 
     private static func polygon(_ points: [CGPoint]) -> Path {
@@ -840,9 +860,8 @@ struct DrawingCanvas: View {
                           in: size, modifiers: modifiers)
                 case .marquee(let start, let additive):
                     let rect = CanvasGeometry.rect(from: start, to: doc(value.location))
-                    let touched = CanvasGroups.whole(drawing.ids(touching: rect, in: size),
-                                                     in: drawing.items)
-                    selection = additive ? selection.union(touched) : touched
+                    selection = Self.marqueePicked(rect, in: drawing, size: size,
+                                                   adding: additive ? selection : nil)
                     marquee = nil
                 default:
                     break
@@ -910,6 +929,19 @@ struct DrawingCanvas: View {
         }
         beginManipulation(in: size)
         interaction = .moving
+    }
+
+    /// THE TABLET'S SIDE SWITCH, let go over the notes: the end of a
+    /// ⌘-drag, by the same rule — what it touches, whole groups, ⇧ to add —
+    /// and the same way out of a crop, a style bar and a label as a press
+    /// on the layer takes. So ⌫ and the handles act on what it picked, as
+    /// they do on a ⌘-drag's.
+    private func pick(byTablet rect: CGRect) {
+        if cropping != nil { cancelCrop() }
+        styling = nil
+        editingLabel = nil
+        let additive = NSEvent.modifierFlags.contains(.shift)
+        selection = Self.marqueePicked(rect, in: drawing, size: paneSize, adding: additive ? selection : nil)
     }
 
     private func handleDrag(kind: HandleKind, in size: CGSize) -> some Gesture {
@@ -1009,13 +1041,32 @@ struct DrawingCanvas: View {
     /// 2026-09-18: "delete key should delete most recently selected item"),
     /// ↩ and esc finish or drop a crop, and ⌘V puts a picture on the layer
     /// when no text view is there to take it.
+    ///
+    /// Called again whenever `keyInputs` changes, and each call puts the
+    /// monitor up afresh: the closure holds a COPY of this view, so
+    /// everything plain it reads is as it was when the monitor went up.
     private func watchKeys() {
-        guard keyMonitor == nil else { return }
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) } else { Self.keyWatchers += 1 }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
             handleKey(event) ? nil : event
         }
-        Self.keyWatchers += 1
     }
+
+    /// EVERYTHING PLAIN THAT `handleKey` READS — not `@State`, which the
+    /// copy reads through to the live value, not the binding, not a
+    /// closure — and so what the key monitor is put up again for. A copy of
+    /// the view made when the layer appeared answered Esc for the mode it
+    /// had then, and the layer does not appear again when the mode changes:
+    /// a note opened in cursor mode, the pen then picked up, and Esc read
+    /// "no pen" and left it up (`CanvasKeyTests`). A new input read there
+    /// goes in here too.
+    private struct KeyInputs: Equatable {
+        let mode: AppState.CanvasMode
+        let placing: CanvasPlacement?
+        let connectActive: Bool
+    }
+
+    private var keyInputs: KeyInputs { KeyInputs(mode: mode, placing: placing, connectActive: connectActive) }
 
     private func unwatchKeys() {
         guard let keyMonitor else { return }
@@ -1143,6 +1194,17 @@ struct DrawingCanvas: View {
     static func dragEnd(_ to: CGPoint, from: CGPoint,
                         modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) -> CGPoint {
         CanvasGeometry.onAxis(to, from: from, locked: modifiers.contains(.shift))
+    }
+
+    /// WHAT A MARQUEE PICKS, wherever it was dragged — ⌘ under the pen, ⌘
+    /// over the words, the tablet's side switch over the notes: everything
+    /// it touches (`Drawing.ids(touching:)`, which skips a hidden picture),
+    /// whole groups (`CanvasGroups.whole`), added to `held` when ⇧ is down.
+    /// `rect` in the document's points.
+    nonisolated static func marqueePicked(_ rect: CGRect, in drawing: Drawing, size: CGSize,
+                                          adding held: Set<UUID>?) -> Set<UUID> {
+        let touched = CanvasGroups.whole(drawing.ids(touching: rect, in: size), in: drawing.items)
+        return held.map { $0.union(touched) } ?? touched
     }
 
     /// Whether the layer's key monitor takes ⌘Z / ⇧⌘Z for itself: while it

@@ -355,6 +355,23 @@ is how the code is put together.
   or the Wacom driver will not allow that, the page says so in one line
   and still takes the pen; put the page away (**Hide Page**, ⌘Y) and the
   pen is a pointer again.
+- **Or the tablet writes straight into the note.** **Write on: Page |
+  Notebook** on the page's bar (and in the View menu) sends the pen to the
+  notebook instead: the tablet, turned the way it is held, lands on the
+  notes you can see — its own shape, as big as fits and centred, never
+  stretched, so handwriting keeps its proportions — and the nib writes
+  ink straight into the note's drawing with the notebook's pen (the tool,
+  colour and size on the pen menu), pressure and all; a tap is a dot.
+  While the pen is near, a faint outline shows where the tablet lands and
+  a ring follows the nib. **⌘Z** straight after takes the strokes back, one
+  stroke at a time, and once they are all back it is the typing's again;
+  **⇧⌘Z** puts them back. Hold the **side switch** and drag to pick things
+  up on the drawing, exactly as a ⌘-drag does — ⌫ and the handles then
+  work on them. The page is set aside, dimmed, and kept as it was; the
+  switch (or the View menu) sends the pen back to it — Esc stays the
+  notes'. Picking the notebook brings the notes into view if they were
+  put away, and the page may be hidden while you write in the notes; with
+  no note on screen the pen is a pointer again, and the page says so.
 - **A bar you can put away a piece at a time.** The toolbar is in
   sections — Style, Structure, Insert, Maths, Flow Chart, Capture — and the
   grip at the end of each one folds it down to a single icon; right-click

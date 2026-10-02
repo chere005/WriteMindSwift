@@ -379,6 +379,7 @@ final class NoteStore: ObservableObject {
         defer { isLoadingText = false }
         drawingHistory.removeAll()
         drawingFuture.removeAll()
+        drawingSteps = 0
         guard let note = notes.first(where: { $0.id == id }) else {
             text = ""
             drawing = Drawing()
@@ -447,6 +448,13 @@ final class NoteStore: ObservableObject {
         collapsedSections.compactMapValues { $0.isEmpty ? nil : Array($0).sorted() }
     }
 
+    /// How many steps the drawing has been taken since the note was
+    /// opened, less the ones taken back — a step begun, an undo, a redo —
+    /// and NOT held to the sixty `drawingHistory` keeps, whose count stands
+    /// still under a new step once it is full. What the tablet's claim on
+    /// ⌘Z is measured against (`AppState.tabletInkFloor`).
+    private(set) var drawingSteps = 0
+
     var canUndoDrawing: Bool { !drawingHistory.isEmpty }
     var canRedoDrawing: Bool { !drawingFuture.isEmpty }
 
@@ -454,6 +462,7 @@ final class NoteStore: ObservableObject {
     /// gesture begins, so what gets kept is the state the gesture is about to
     /// leave. A drag is one entry, however many frames it took.
     func beginDrawingChange() {
+        drawingSteps += 1
         drawingHistory.append(drawing)
         if drawingHistory.count > 60 { drawingHistory.removeFirst() }
         drawingFuture.removeAll()
@@ -465,6 +474,9 @@ final class NoteStore: ObservableObject {
     @discardableResult
     func undoDrawing() -> Bool {
         guard let previous = drawingHistory.popLast() else { return false }
+        // Counted before the drawing changes: its change is told with the
+        // count (`AppState.drawingChanged`).
+        drawingSteps -= 1
         drawingFuture.append(drawing)
         drawing = previous
         return true
@@ -473,8 +485,21 @@ final class NoteStore: ObservableObject {
     @discardableResult
     func redoDrawing() -> Bool {
         guard let next = drawingFuture.popLast() else { return false }
+        drawingSteps += 1
         drawingHistory.append(drawing)
         drawing = next
+        return true
+    }
+
+    /// A stroke the tablet's pen wrote straight into the note (Notebook
+    /// mode, `NotebookScribe`). ONE STEP BACK, taken as it LANDS — so ⌘Z
+    /// takes the stroke, and one given up half-way (the target changed, the
+    /// notes went) leaves no empty step behind it. False with no note open.
+    @discardableResult
+    func inkFromTablet(_ stroke: Stroke) -> Bool {
+        guard selectedNote != nil else { return false }
+        beginDrawingChange()
+        drawing.items.append(.stroke(stroke))
         return true
     }
 

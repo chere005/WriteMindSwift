@@ -105,10 +105,16 @@ struct EditorPane: View {
                                   onPlaced: { appState.placing = nil },
                                   onEscapePen: { appState.escapePen() },
                                   onEscapeBox: { TabletScribe.shared.box.key($0) == nil },
+                                  tabletPicks: NotebookScribe.shared.picks.eraseToAnyPublisher(),
                                   // Both panes scroll their objects with
                                   // the text now, so a picture stays beside
                                   // what it was put beside.
                                   scrollOffset: scrollOffset)
+                    // The tablet writing straight into the note: its live
+                    // stroke, its marquee, and where it lands on the notes
+                    // while the pen is near. Over the layer, taking no
+                    // clicks, and nothing in it an NSView.
+                    NotebookTabletLayer(scrollOffset: scrollOffset)
                 }
                 .onAppear {
                     appState.editor.pasteImage = { store.pasteImage(from: $0) }

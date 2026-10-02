@@ -161,7 +161,10 @@ final class SymbolTests: XCTestCase {
                      // The pane's switch while it is the page.
                      "pencil.tip.crop.circle", "pencil.slash",
                      // The tick on the paper in use.
-                     "checkmark"]
+                     "checkmark",
+                     // Write on: Page | Notebook, and the set-aside page's line
+                     // — the pen in the notebook, or a pointer with no note up.
+                     "doc", "book.closed", "cursorarrow"]
         for icon in icons {
             XCTAssertNotNil(NSImage(systemSymbolName: icon, accessibilityDescription: nil),
                             "the camera pane asks for the missing symbol \(icon)")

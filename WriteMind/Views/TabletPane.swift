@@ -10,6 +10,11 @@ import SwiftUI
 /// been written on it (`TabletPage`, kept across launches), the stroke being
 /// written, a marker where the nib is hovering, and the box that takes a
 /// piece of the page into the note as a picture, as ink or as words.
+///
+/// While the pen writes in the NOTEBOOK ("Write on: Page | Notebook", on the
+/// bar) the sheet is set aside — dimmed, with one line saying where the pen
+/// is writing — and the switch on the bar is the way back; the page itself
+/// is left exactly as it was.
 struct TabletPane: View {
     @EnvironmentObject private var tablet: TabletController
     @EnvironmentObject private var appState: AppState
@@ -20,6 +25,9 @@ struct TabletPane: View {
     @State private var extent = TabletExtent.fallback
     /// Esc, while a box is up.
     @State private var keyMonitor: Any?
+    /// A note is on screen for the pen to write in, in Notebook mode — read
+    /// off the funnel only when it CHANGES.
+    @State private var notesShowing = false
 
     private var input: TabletInput { tablet.input }
     private var scribe: TabletScribe { .shared }
@@ -48,12 +56,40 @@ struct TabletPane: View {
             CursorLayer(cursor: .arrow)
                 .allowsHitTesting(false)
             content
-            corners
-            bar
+            topRow
         }
         .clipped()
         .paneTipHost()
         .onReceive(input.$extent.removeDuplicates()) { extent = $0 }
+        .onReceive(input.$notebookIsShowing.removeDuplicates()) { notesShowing = $0 }
+    }
+
+    /// The pen writes on this page, not in the notebook.
+    private var writesOnPage: Bool { appState.tabletTarget == .page }
+
+    /// The line on the page while it is set aside.
+    /// The line on the page while it is set aside: where the pen is
+    /// writing — and with no note on screen it is writing nowhere and is a
+    /// pointer again (`TabletInput.targetIsShowing`), so the page says THAT,
+    /// not that it is writing on the notebook.
+    nonisolated static func setAsideLine(notesShowing: Bool) -> String {
+        notesShowing ? "The pen is writing on the notebook"
+                     : "No note on screen to write in — the pen is a pointer until there is"
+    }
+
+    /// The bar on the left and the corner's buttons on the right, IN ONE
+    /// ROW, so the bar is offered only the width the corner leaves it and
+    /// picks the shape of itself that fits (`TabletBar`) — laid over each
+    /// other, a bar that grew a switch would run under the corner's buttons
+    /// on a pane of the width the split gives it.
+    private var topRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            bar
+            Spacer(minLength: 0)
+            corners
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     // MARK: - What the pane shows
@@ -86,13 +122,17 @@ struct TabletPane: View {
                     .onTapGesture { scribe.box.rect = nil }
                 TabletSheetView(page: sheet, scribe: scribe, pageSize: pageSize, size: frame.size,
                                 theme: sheet.theme, millimetres: millimetres,
-                                canTake: store.selectedNote != nil, busy: store.isCapturing,
+                                canTake: store.selectedNote != nil && writesOnPage, busy: store.isCapturing,
                                 onFullWindow: { appState.toggleCameraFullWindow() },
                                 onTake: { choice, box in
                                     take(choice, box: box, pageSize: pageSize, millimetres: millimetres)
                                 })
                     .position(x: frame.midX, y: frame.midY)
-                TabletHoverMarker(input: input, page: frame)
+                if writesOnPage {
+                    TabletHoverMarker(input: input, page: frame)
+                } else {
+                    PageSetAside(frame: frame, notesShowing: notesShowing)
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .animation(.easeInOut(duration: 0.2), value: turns)
@@ -105,7 +145,6 @@ struct TabletPane: View {
         .overlay(alignment: .bottomLeading) { statusLine }
         // The pen is the page's only while the page is on screen.
         .onAppear {
-            input.quarterTurns = appState.tabletQuarterTurns
             sheet.align(to: appState.tabletQuarterTurns)
             let state = appState
             scribe.onWrite = { [weak state] in state?.pageWritten() }
@@ -126,9 +165,9 @@ struct TabletPane: View {
             keyMonitor = nil
         }
         .onChange(of: appState.tabletQuarterTurns) { _, turns in
-            input.quarterTurns = turns
             // The ink turns with the sheet; a box drawn the old way round
-            // would be over some other part of it now.
+            // would be over some other part of it now. (The funnel is told
+            // the turn by the app, whichever pane is up.)
             sheet.align(to: turns)
             scribe.box.rect = nil
         }
@@ -166,13 +205,12 @@ struct TabletPane: View {
 
     // MARK: - The bar
 
-    /// The page's pen and paper, top left, in the band above the sheet —
-    /// shown whenever the corner's own buttons are.
+    /// The page's pen and paper and where the pen writes, top left, in the
+    /// band above the sheet — shown whenever the corner's own buttons are.
     @ViewBuilder private var bar: some View {
         if showsPageControls {
-            TabletBar(theme: sheet.theme, onTheme: choose)
-                .padding(10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            TabletBar(theme: sheet.theme, onTheme: choose, target: appState.tabletTarget,
+                      onTarget: { appState.writeOn($0) })
         }
     }
 
@@ -266,24 +304,34 @@ struct TabletPane: View {
     /// while no camera is running.
     private var corners: some View {
         HStack(spacing: 6) {
+            // The page's own undo, redo and clear — ⌘Z and ⇧⌘Z reach the
+            // same two while the page was written on last. Out of play while
+            // the pen writes in the notebook — the page is set aside, and
+            // the notes' own undo is the one in play — but IN THEIR PLACE,
+            // so the bar beside them is offered the same room in both modes
+            // and its switch keeps its shape (`TabletBar`).
             if showsPageControls {
-                // The page's own undo, redo and clear — ⌘Z and ⇧⌘Z reach
-                // the same two while the page was written on last.
-                corner(icon: "arrow.uturn.backward", label: "Undo on the Page",
-                       help: "Take back the last stroke on the page — ⌘Z does it too, straight after writing",
-                       enabled: sheet.canUndo) {
-                    if sheet.undo() { appState.pageWritten() }
+                Group {
+                    corner(icon: "arrow.uturn.backward", label: "Undo on the Page",
+                           help: "Take back the last stroke on the page — ⌘Z does it too, straight after writing",
+                           enabled: sheet.canUndo) {
+                        if sheet.undo() { appState.pageWritten() }
+                    }
+                    corner(icon: "arrow.uturn.forward", label: "Redo on the Page",
+                           help: "Put back what Undo took off the page", enabled: sheet.canRedo) {
+                        if sheet.redo() { appState.pageWritten() }
+                    }
+                    corner(icon: "trash", label: "Clear the Page",
+                           help: "Wipe the page clean — Undo brings it all back", enabled: !sheet.strokes.isEmpty) {
+                        sheet.clear()
+                        appState.pageWritten()
+                    }
+                    Divider().frame(height: 18)
                 }
-                corner(icon: "arrow.uturn.forward", label: "Redo on the Page",
-                       help: "Put back what Undo took off the page", enabled: sheet.canRedo) {
-                    if sheet.redo() { appState.pageWritten() }
-                }
-                corner(icon: "trash", label: "Clear the Page",
-                       help: "Wipe the page clean — Undo brings it all back", enabled: !sheet.strokes.isEmpty) {
-                    sheet.clear()
-                    appState.pageWritten()
-                }
-                Divider().frame(height: 18)
+                .setAside(!writesOnPage)
+            }
+            // The turn is the TABLET'S, so it holds for the notebook too.
+            if showsPageControls {
                 corner(icon: "rotate.left", label: "Turn Left",
                        help: "Turn the page a quarter turn anticlockwise — the way the tablet sits on the desk") {
                     turn(by: -1)
@@ -300,7 +348,6 @@ struct TabletPane: View {
                 }
             }
         }
-        .padding(10)
     }
 
     /// The sheet comes round, and the ink on it in the SAME breath — left
@@ -345,11 +392,13 @@ struct TabletPane: View {
     }
 }
 
-/// Where the nib is, over the page. Its own view, watching the funnel on
-/// its own, so that the pen's hundred-odd samples a second redraw a dot and
-/// not the pane. A SwiftUI shape and not an NSView: a hosted view over a
-/// pane takes every cursorUpdate there (AGENTS.md, the eighth cause).
-private struct TabletHoverMarker: View {
+/// Where the nib is, over the page — or, in Notebook mode, over the area of
+/// the notes the tablet lands on (`NotebookTabletLayer`). Its own view,
+/// watching the funnel on its own, so that the pen's hundred-odd samples a
+/// second redraw a dot and not the pane. A SwiftUI shape and not an NSView:
+/// a hosted view over a pane takes every cursorUpdate there (AGENTS.md, the
+/// eighth cause).
+struct TabletHoverMarker: View {
     @ObservedObject var input: TabletInput
     let page: CGRect
 
@@ -363,5 +412,37 @@ private struct TabletHoverMarker: View {
                 .position(x: page.minX + pen.page.x * page.width, y: page.minY + pen.page.y * page.height)
                 .allowsHitTesting(false)
         }
+    }
+}
+
+/// THE PAGE SET ASIDE while the pen writes in the notebook: the sheet
+/// dimmed, and one line saying where the pen is writing — or that with no
+/// note on screen it is not writing at all — and the switch on the bar
+/// above is the way back. It takes the clicks on the sheet, so nothing is
+/// boxed off a page the pen is not writing on; and it is a SwiftUI shape,
+/// never an NSView (the eighth cause).
+private struct PageSetAside: View {
+    let frame: CGRect
+    let notesShowing: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.black.opacity(0.62))
+            Label(TabletPane.setAsideLine(notesShowing: notesShowing),
+                  systemImage: notesShowing ? TabletTarget.notebook.icon : "cursorarrow")
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(12)
+        }
+        .frame(width: frame.width, height: frame.height)
+        .contentShape(Rectangle())
+        .onTapGesture {}
+        .position(x: frame.midX, y: frame.midY)
+        .accessibilityElement(children: .combine)
     }
 }

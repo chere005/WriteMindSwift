@@ -8,9 +8,10 @@ import Combine
 // being written where its own layer can redraw it at the pen's rate, and
 // hands a finished stroke to the page.
 //
-// It is the ONE consumer of the samples. Writing straight into the
-// notebook — a "Write on: Page | Notebook" switch, not built yet — would be
-// a second target chosen here; the funnel and the page stay as they are.
+// It is the ONE consumer of the samples, and the target is chosen HERE:
+// "Write on: Page | Notebook" — the page's own writing below, or straight
+// into the note through `NotebookScribe` (TabletNotebook.swift). The funnel
+// and the page stay as they are either way.
 
 /// What the pen writes with on the page — the page's own pen, off the bar
 /// in its corner (`AppState.pageInkTool`, `pageInkHex`, `pageInkWidth`).
@@ -169,10 +170,10 @@ final class TabletBox: ObservableObject {
     }
 }
 
-/// The shell round `TabletWriting`.
+/// The shell round `TabletWriting` — and where the pen's target is chosen.
 @MainActor
 final class TabletScribe: ObservableObject {
-    static let shared = TabletScribe(page: .shared, input: .shared)
+    static let shared = TabletScribe(page: .shared, input: .shared, notebook: .shared)
 
     let page: TabletPage
     let box = TabletBox()
@@ -187,20 +188,51 @@ final class TabletScribe: ObservableObject {
     /// A stroke went onto the page: ⌘Z is the page's now.
     var onWrite: (() -> Void)?
 
-    private var writing = TabletWriting()
-    private var subscription: AnyCancellable?
+    /// The other target: the note, in Notebook mode.
+    let notebook: NotebookScribe
 
-    /// `input` nil for a test that hands samples over itself.
-    init(page: TabletPage, input: TabletInput?) {
+    private var writing = TabletWriting()
+    private weak var input: TabletInput?
+    private var subscription: AnyCancellable?
+    private var retargeting: AnyCancellable?
+
+    /// `input` nil for a test that hands samples over itself; `notebook`
+    /// nil for one of its own.
+    init(page: TabletPage, input: TabletInput?, notebook: NotebookScribe? = nil) {
         self.page = page
+        self.notebook = notebook ?? NotebookScribe()
+        self.input = input
         // The funnel publishes from its monitors, which run on the main
         // thread.
         subscription = input?.samples.sink { [weak self] sample in
             MainActor.assumeIsolated { self?.consume(sample) }
         }
+        // NOTHING HALF-DONE CROSSES OVER: the target changing drops the
+        // stroke, the box and the marquee under way for either, so the lift
+        // of a stroke begun on the page lands nowhere and the page's box is
+        // not left up under the notebook's veil. The switch is flipped on
+        // the main thread, from the bar or the menu or Esc.
+        retargeting = input?.$target.removeDuplicates().dropFirst().sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.dropUnderWay() }
+        }
+    }
+
+    /// Where the samples go: the funnel's own word on it (`TabletInput.target`),
+    /// so the switch has one writer.
+    private var target: TabletTarget { input?.target ?? .page }
+
+    private func dropUnderWay() {
+        writing = TabletWriting()
+        if stroke != nil { stroke = nil }
+        if box.rect != nil { box.rect = nil }
+        notebook.drop()
     }
 
     func consume(_ sample: TabletSample) {
+        if target == .notebook {
+            notebook.consume(sample)
+            return
+        }
         switch writing.consume(sample, ink: ink) {
         case .none:
             break
