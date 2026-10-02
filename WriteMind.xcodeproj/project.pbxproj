@@ -259,6 +259,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WriteMind;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "WriteMind asks the Wacom driver to keep the pen on the page while you write, instead of moving the pointer.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "WriteMind shows a live preview from the camera you pick in the Input Devices menu.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -289,6 +290,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = WriteMind;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "WriteMind asks the Wacom driver to keep the pen on the page while you write, instead of moving the pointer.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "WriteMind shows a live preview from the camera you pick in the Input Devices menu.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -99,9 +99,11 @@ struct EditorPane: View {
                                   onSelectionChanged: { appState.canvasSelection = $0 },
                                   onUndo: { store.undoDrawing() },
                                   onRedo: { store.redoDrawing() },
+                                  pageOwnsUndo: { appState.pageOwnsUndo },
                                   placing: appState.placing,
                                   onPlaced: { appState.placing = nil },
                                   onEscapePen: { appState.escapePen() },
+                                  onEscapeBox: { TabletScribe.shared.box.key($0) == nil },
                                   // Both panes scroll their objects with
                                   // the text now, so a picture stays beside
                                   // what it was put beside.

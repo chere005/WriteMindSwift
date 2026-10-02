@@ -15,6 +15,108 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### A drawing tablet is an input, chosen like a camera
+The list of inputs that holds the cameras lists any drawing tablet plugged
+in, under them, by the name on its box ("One by Wacom (CTL-472)"). Picking
+one turns the camera off and the pane that showed the video shows a PAGE
+instead — a sheet at the tablet's own shape — and picking a camera gives
+the pane back to the video. The pick is remembered the way the camera's
+is, the two picks forget each other, and a first launch asks nothing: no
+permission prompt until the tablet has been picked by hand at least once,
+and only as the direct result of that pick (Sean, 2026-10-02: "wacom
+should basically just be chosen as if it were an input display").
+
+The tablet is read turned a quarter turn clockwise unless turned back
+(Sean, same day: "i want to rotate the wacom 90 degrees clockwise"): a
+point (x, y) on a W × H tablet, origin top left, is (1 − y/H, x/W) on
+the page, and the page is H/W wide. Two buttons on the pane turn it a
+quarter at a time, and the turn is remembered. While the pen is near the
+tablet a marker on the page shows where the nib is.
+
+Where the platform can stop the pen moving the pointer while this page
+is up, it should — the pen is a writing instrument on the page, the
+trackpad and mouse still drive everything else, and a pen tap must never
+click whatever the pointer happens to be over. ONLY while it is up: with
+the pane put away the pen is an ordinary pen again, or the notebook's
+own pen has nothing to draw with. The switch that shows and hides the
+pane, its menu item and its panel call it the page while the tablet is
+the input, and the panel drops the camera's own rows. Where it cannot, or the
+user has refused it, the page still takes the pen and the pane says in
+one line why the pointer moves with it, offering the setting that would
+change that. On the web that is a `pointerType: 'pen'` PointerEvent over
+the page, its pressure and its eraser/barrel buttons, with
+`setPointerCapture` and `preventDefault` so it does nothing else; the
+side (barrel) button held is a selection, not ink.
+
+### The tablet's page, and taking a piece of it into the note
+The page is "the picture of a page" (Sean, 2026-10-02: "in normal mode its
+as if we were looking at the picture of a page, and anything drawn can be
+selected and inserted"). What the port has to copy:
+
+- **The model.** The page's strokes are the drawing layer's own strokes —
+  ink, a pressure a point, a tool — with points as fractions of the page
+  (0…1 across and down from the top left) and widths in the page's own
+  points: its LONG side is 800 whichever way it is turned. The pen's width
+  goes on as it is seen: the pen menu's width divided by the page's scale
+  on screen at the moment of writing, so 3 points writes 3 points where it
+  is being watched, and the ink grows and shrinks with the page after
+  that. The nib down starts a stroke, every move appends a point with its
+  pressure, the lift finishes it WITHOUT a point of its own (it has no
+  pressure, and a last point at none pinches every end) — so a tap is one
+  point, drawn as a dot. Ink ends where the nib lifts, whatever the
+  barrel button is doing, and a barrel button still held from a stroke of
+  ink starts no box until it is let go.
+- **Kept, not in the notes.** One page, in the app's own data
+  (Application Support here; the user-data folder in Electron), never in
+  the notes folder. Saved half a second after the pen rests. A file that
+  cannot be read is renamed `TabletPage.corrupt-<date>.json` and the page
+  starts blank — never written over; a file with one unreadable stroke
+  keeps the rest, is copied aside first, and is then written back with
+  what could be read (so it is copied aside once, not at every launch).
+  A save writes over the file only while it holds what this page last
+  read or wrote; anything else is another copy of the app's, kept, and
+  the page is written beside it as `TabletPage.conflict-<date>.json`. A
+  build of the app with an id of its own keeps a page file of its own. Undo is whole pages, a stroke
+  or a clear a step, for the session. The file is
+  `{"version":1,"quarterTurns":n,"strokes":[…]}`, the strokes in the
+  sidecar's own shape, so either app opens the other's page.
+- **The ink turns with the sheet.** Turning the tablet a quarter turn
+  makes a tall page wide, so every stroke (and the undo history) is turned
+  too: clockwise, (u, v) → (1 − v, u). That keeps each stroke where it is
+  on the tablet — it is exactly the mapping one turn on. The file records
+  the turn its strokes are in, and a page opens turned to fit.
+- **The box is the camera's box**, its three buttons and all. The barrel
+  button held and dragged draws it, so does a mouse or trackpad drag; a
+  click, the nib going down, or Esc (only while there is a box, and
+  never an Esc meant for a popover, a dialog or a field) puts it away —
+  one Esc, asked in one order: a label being typed, a style bar, an armed
+  shape, a crop, the box, and last the pen mode. **Image** is the box as it stands, paper and all, as a PNG.
+  **Writing** is the strokes the box TOUCHES, whole, re-expressed as
+  strokes on the note's layer with new ids, pressure, tool and colour
+  kept, one group (a single stroke gets none), one undo step. **Text** is
+  those strokes drawn black on white — explicit colours, never the
+  window's: drawn through anything theme-aware, Dark Mode's black came
+  out white — and read by the same recogniser the camera's Text uses,
+  never through the camera's thresholding. Image and Writing land the way
+  a camera capture lands: the page at 0.9 of the pane, the piece where it
+  was on that page, under the caret when there is one.
+- **⌘Z (Ctrl+Z) is the page's straight after writing on it**, until the
+  note's text or drawing changes, and only while the page is the input
+  and on screen — the pen is in one hand and the key under the other, and
+  the keyboard focus is still in the note.
+- **Electron.** The page is a `<canvas>` taking `pointerdown` /
+  `pointermove` / `pointerup` with `pointerType === 'pen'`: `pressure` is
+  the nib, `buttons & 2` the barrel button (a selection, not ink),
+  `getCoalescedEvents()` gives every sample between two frames (the Mac
+  app turns coalescing off for the same reason), and `setPointerCapture`
+  plus `preventDefault()` keep the stroke on the page. Pointer events
+  arrive in SCREEN coordinates through the OS's own tablet mapping, not
+  in tablet counts; reading the counts themselves (and so the quarter turn
+  in the entry above) means WebHID's raw reports, which needs a permission
+  per device and which the vendor driver may hold open. Draw the finished
+  strokes to one canvas and the live stroke to another on top, so 120
+  samples a second redraw one stroke and not the page.
+
 ### With no tool up, nothing sits over the notebook
 In cursor mode the pointer over the note is the notebook's, in both panes:
 the I-beam over the words, the I-beam on its side over the space between two

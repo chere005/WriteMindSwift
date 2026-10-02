@@ -5,6 +5,7 @@ struct WriteMindApp: App {
     @StateObject private var store = NoteStore()
     @StateObject private var appState = AppState()
     @StateObject private var camera = CameraController.shared
+    @StateObject private var tablet = TabletController.shared
     @StateObject private var projects = ProjectStore()
     @State private var didRestoreSession = false
 
@@ -39,6 +40,7 @@ struct WriteMindApp: App {
                 .environmentObject(store)
                 .environmentObject(appState)
                 .environmentObject(camera)
+                .environmentObject(tablet)
                 .environmentObject(projects)
                 .frame(minWidth: 900, minHeight: 560)
                 .task {
@@ -50,6 +52,16 @@ struct WriteMindApp: App {
                     for: NSApplication.willTerminateNotification)) { _ in
                     cacheSession()
                 }
+                // The pane is the camera's or the tablet's by what was
+                // picked, and by nothing else.
+                .onReceive(tablet.$selectedTabletID) { picked in
+                    appState.follow(tabletPicked: picked != nil)
+                }
+                // Typing in the note, or anything done on its layer, makes
+                // the note the last thing written on again — ⌘Z goes back
+                // to it from the tablet's page.
+                .onReceive(store.$text) { _ in appState.notebookChanged() }
+                .onReceive(store.$drawing) { _ in appState.notebookChanged() }
         }
         .defaultSize(width: 1280, height: 800)
         .commands {
@@ -116,7 +128,7 @@ struct WriteMindApp: App {
                 // sidebar, which can itself be put away (Sean, 2026-09-19:
                 // "what happened to the right pane with the camera view?").
                 // ⌃⌘C did it from 2026-09-19; ⌘Y does it now.
-                Button(appState.showCamera ? "Hide Video" : "Show Video") {
+                Button(appState.showCamera ? appState.inputSource.words.hide : appState.inputSource.words.show) {
                     appState.toggleCameraPane()
                 }
                 .shortcut(.toggleVideo)
@@ -157,20 +169,26 @@ struct WriteMindApp: App {
             }
 
             // ⌘Z ITSELF, not a monitor underneath it. The Edit menu's own
-            // Undo is a key equivalent, and a key equivalent is answered by
-            // the menu before any local event monitor sees it — which is
-            // why undo in drawing mode went to the TEXT (Sean, 2026-09-19:
-            // "fix undo in drawing mode"). This item decides where it goes
-            // and hands it to the responder chain when it is not the
-            // drawing's.
+            // Undo went to the TEXT whatever had been done last (Sean,
+            // 2026-09-19: "fix undo in drawing mode"). This item decides
+            // where it goes and hands it to the responder chain when it is
+            // not the drawing's. A LOCAL KEY MONITOR SEES THE KEY FIRST,
+            // though — one that returns nil stops this item (measured
+            // 2026-10-02) — so the drawing layer's, which takes ⌘Z for
+            // itself while it owns undo, asks the page's claim the way
+            // this item does (`DrawingCanvas.takesUndo`).
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") {
+                    // The tablet's page first, while it was written on
+                    // last (`AppState.pageOwnsUndo`).
+                    if appState.pageOwnsUndo, TabletPage.shared.undo() { return }
                     if appState.drawingOwnsUndo, store.undoDrawing() { return }
                     NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
                 }
                 .shortcut(.undo)
 
                 Button("Redo") {
+                    if appState.pageOwnsUndo, TabletPage.shared.redo() { return }
                     if appState.drawingOwnsUndo, store.redoDrawing() { return }
                     NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
                 }
@@ -210,7 +228,7 @@ struct WriteMindApp: App {
             FormatMenu(appState: appState, store: store)
             InsertMenu(appState: appState, store: store)
 
-            InputDevicesMenu(camera: camera, appState: appState)
+            InputDevicesMenu(camera: camera, tablet: tablet, appState: appState)
         }
     }
 }
@@ -457,7 +475,14 @@ struct ProjectMenu: Commands {
 }
 
 /// The "Input Devices" menu bar item: every camera the Mac can see, an off
-/// switch, and what SHAPE the picture is shown at.
+/// switch, any Wacom tablet plugged in, and what SHAPE the picture is shown
+/// at.
+///
+/// A TABLET IS PICKED HERE THE WAY A CAMERA IS (Sean, 2026-10-02: "wacom
+/// should basically just be chosen as if it were an input display"): ticked
+/// like one, and picking it turns the camera off and makes the pane the
+/// page; picking a camera gives the pane back to the video. Both go through
+/// `InputDevices`, which the picker in the pane uses too.
 ///
 /// The shape lives here rather than in the Picture panel on the bar (Sean,
 /// 2026-09-21: "aspect ratio control should be in the video input
@@ -466,6 +491,7 @@ struct ProjectMenu: Commands {
 /// already asks.
 struct InputDevicesMenu: Commands {
     @ObservedObject var camera: CameraController
+    @ObservedObject var tablet: TabletController
     @ObservedObject var appState: AppState
 
     var body: some Commands {
@@ -475,7 +501,7 @@ struct InputDevicesMenu: Commands {
             } else {
                 ForEach(camera.devices) { device in
                     Button {
-                        camera.select(deviceID: device.id)
+                        InputDevices.pick(cameraID: device.id, cameras: camera, tablets: tablet)
                     } label: {
                         HStack {
                             Text(device.name)
@@ -489,6 +515,29 @@ struct InputDevicesMenu: Commands {
 
             Button("Turn Camera Off") { camera.turnOff() }
                 .disabled(camera.selectedDeviceID == nil)
+
+            // Under the cameras, and only when there is a tablet to say
+            // anything about: a Mac with no Wacom on it has no tablets
+            // section at all.
+            if !tablet.tablets.isEmpty || tablet.isSelected {
+                Divider()
+                Text("Tablets")
+                ForEach(tablet.tablets) { device in
+                    Button {
+                        InputDevices.pick(device, cameras: camera, tablets: tablet)
+                    } label: {
+                        HStack {
+                            Text(device.name)
+                            if tablet.selectedTabletID == device.id { Image(systemName: "checkmark") }
+                        }
+                    }
+                }
+                if tablet.isSelected, tablet.selectedTablet == nil {
+                    Text("\(tablet.selectedName ?? "The tablet") — unplugged")
+                }
+                Button("Turn Tablet Off") { tablet.turnOff() }
+                    .disabled(!tablet.isSelected)
+            }
 
             Divider()
 

@@ -69,6 +69,52 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// What the right-hand pane shows: the camera's picture, or the page
+    /// the tablet writes on. Not a switch of its own — it is whichever was
+    /// picked last in Input Devices (Sean, 2026-10-02: "wacom should
+    /// basically just be chosen as if it were an input display").
+    enum InputSource: String {
+        case camera, tablet
+
+        /// The one rule: a tablet picked is the tablet's pane, and nothing
+        /// picked — or a camera — is the camera's.
+        static func of(tabletPicked: Bool) -> InputSource { tabletPicked ? .tablet : .camera }
+
+        /// What the pane's one switch, its panel and its way out call it.
+        var words: PaneWords { self == .tablet ? .page : .camera }
+    }
+
+    /// THE PANE IS CALLED WHAT IT SHOWS. The switch, the View menu, the
+    /// panel under the chevron and the whole-window × were worded for video
+    /// alone, so with the tablet picked the only control for the page named
+    /// a camera that was off.
+    struct PaneWords: Equatable {
+        let show: String
+        let hide: String
+        let showHelp: String
+        let hideHelp: String
+        let shownIcon: String
+        let hiddenIcon: String
+        let wholeWindowHelp: String
+        let sideBySideHelp: String
+        let leaveWholeWindow: String
+        let options: String
+
+        static let camera = PaneWords(show: "Show Video", hide: "Hide Video",
+                                      showHelp: "Bring the camera pane back", hideHelp: "Put the camera pane away",
+                                      shownIcon: "video.fill", hiddenIcon: "video.slash",
+                                      wholeWindowHelp: "Put the notes away and give the window to the video",
+                                      sideBySideHelp: "The notes and the video side by side again",
+                                      leaveWholeWindow: "Leave Full-Window Video", options: "Video Options")
+
+        static let page = PaneWords(show: "Show Page", hide: "Hide Page",
+                                    showHelp: "Bring the tablet's page back", hideHelp: "Put the tablet's page away",
+                                    shownIcon: "pencil.tip.crop.circle", hiddenIcon: "pencil.slash",
+                                    wholeWindowHelp: "Put the notes away and give the window to the page",
+                                    sideBySideHelp: "The notes and the page side by side again",
+                                    leaveWholeWindow: "Leave Full-Window Page", options: "Page Options")
+    }
+
     /// A `/link` waiting for its target: which note it was typed in, roughly
     /// where, and what the note was called so the banner can say so.
     struct PendingLink: Equatable {
@@ -84,6 +130,18 @@ final class AppState: ObservableObject {
     /// Quarter turns of the video pane, kept because a camera that is mounted
     /// sideways stays mounted sideways.
     @Published var cameraRotation: Int { didSet { defaults.set(cameraRotation, forKey: Keys.cameraRotation) } }
+    /// How the tablet is held: quarter turns clockwise from the landscape it
+    /// shipped in, 0…3. ONE by default (Sean, 2026-10-02: "i want to rotate
+    /// the wacom 90 degrees clockwise for when its in use in WriteMind"),
+    /// and remembered, because a tablet kept turned on the desk stays
+    /// turned.
+    @Published var tabletQuarterTurns: Int {
+        didSet { defaults.set(tabletQuarterTurns, forKey: Keys.tabletQuarterTurns) }
+    }
+    /// Which pane the input is — derived from the pick, so it has ONE
+    /// writer (`follow(tabletPicked:)`, fed by the tablet controller) and
+    /// is never stored: the pick is what is remembered.
+    @Published private(set) var inputSource: InputSource = .camera
     /// What shape the viewfinder is (Sean, 2026-09-21: "add aspect ratio
     /// control"). Remembered, like the turn and the zoom beside it: the
     /// shape you photograph pages in is a property of your notebook, not
@@ -221,6 +279,26 @@ final class AppState: ObservableObject {
         penActive || connectActive || placing != nil || canvasSelection
     }
 
+    /// The tablet's page was the last thing written on — by the pen, or by
+    /// its own undo, redo and clear — and nothing in the note has changed
+    /// since. Not published: only the Undo item reads it, when pressed.
+    private(set) var pageWrittenLast = false
+    func pageWritten() { pageWrittenLast = true }
+    /// The note's text or its drawing changed: the last thing done is the
+    /// note's again.
+    func notebookChanged() { if pageWrittenLast { pageWrittenLast = false } }
+
+    /// ⌘Z TAKES BACK THE LAST STROKE ON THE PAGE while the page is what
+    /// was written on last. The page has no keyboard focus of its own —
+    /// the pen is in one hand and ⌘Z under the other — and left to the
+    /// focus, ⌘Z after a stroke on the tablet undid the TYPING in the note
+    /// instead. Asked before `drawingOwnsUndo`: the page is the newer.
+    /// Only while the page can be SEEN — an undo nobody can watch happen
+    /// is a stroke lost.
+    var pageOwnsUndo: Bool {
+        pageWrittenLast && inputSource == .tablet && (showCamera || cameraFullWindow)
+    }
+
     /// True while a block in the preview is open for editing. The bar's
     /// buttons work on that block, so they are live on that side too.
     @Published var blockEditing = false
@@ -237,6 +315,7 @@ final class AppState: ObservableObject {
         static let showCamera = "showCamera"
         static let penWidth = "penWidth"
         static let cameraRotation = "cameraRotation"
+        static let tabletQuarterTurns = "tabletQuarterTurns"
         static let penColorHex = "penColorHex"
         static let canvasMode = "canvasMode"
         static let cameraZoom = "cameraZoom"
@@ -266,6 +345,7 @@ final class AppState: ObservableObject {
         showCamera = true
         penWidth = defaults.object(forKey: Keys.penWidth) as? Double ?? 3
         cameraRotation = defaults.object(forKey: Keys.cameraRotation) as? Int ?? 0
+        tabletQuarterTurns = TabletMapping.turns(defaults.object(forKey: Keys.tabletQuarterTurns) as? Int ?? 1)
         cameraAspect = CameraAspect(rawValue: defaults.string(forKey: Keys.cameraAspect) ?? "") ?? .free
         evaluator = Evaluator(rawValue: defaults.string(forKey: Keys.evaluator) ?? "") ?? .python
         penColorHex = defaults.string(forKey: Keys.penColorHex) ?? Self.presetColors[0]
@@ -319,6 +399,19 @@ final class AppState: ObservableObject {
 
     /// On its side, so the preview's width and height swap.
     var cameraIsTurned: Bool { cameraRotation == 90 || cameraRotation == 270 }
+
+    /// A quarter turn of the tablet either way, wrapping round.
+    func rotateTablet(by quarterTurns: Int) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            tabletQuarterTurns = TabletMapping.turns(tabletQuarterTurns + quarterTurns)
+        }
+    }
+
+    /// What was picked in Input Devices decides the pane.
+    func follow(tabletPicked: Bool) {
+        let source = InputSource.of(tabletPicked: tabletPicked)
+        if inputSource != source { inputSource = source }
+    }
 
     func isCollapsed(_ group: ToolGroup) -> Bool { collapsedToolGroups.contains(group.rawValue) }
 

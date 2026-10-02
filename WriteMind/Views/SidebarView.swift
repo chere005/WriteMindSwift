@@ -227,11 +227,11 @@ struct SidebarView: View {
             }
             .disabled(store.selectedNote == nil)
 
+            let pane = appState.inputSource.words
             BarSplit(isOn: appState.showCamera) {
-                BarButton(systemImage: appState.showCamera ? "video.fill" : "video.slash",
-                          label: appState.showCamera ? "Hide Video" : "Show Video",
-                          help: appState.showCamera ? "Put the camera pane away"
-                                                    : "Bring the camera pane back",
+                BarButton(systemImage: appState.showCamera ? pane.shownIcon : pane.hiddenIcon,
+                          label: appState.showCamera ? pane.hide : pane.show,
+                          help: appState.showCamera ? pane.hideHelp : pane.showHelp,
                           keys: ["⌃", "⌘", "C"],
                           isOn: appState.showCamera, bare: true, width: 22) {
                     appState.toggleCameraPane()
@@ -239,7 +239,7 @@ struct SidebarView: View {
             } chevron: {
                 Button { showVideoMenu.toggle() } label: { BarChevron() }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Video Options")
+                    .accessibilityLabel(pane.options)
                     .popover(isPresented: $showVideoMenu, arrowEdge: .bottom) {
                         VideoMenu(isPresented: $showVideoMenu)
                     }

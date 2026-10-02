@@ -9,12 +9,24 @@ struct ContentView: View {
             // pane at its widest — the sidebar, the notes and the divider
             // are all out, so a page held up to the camera is as big as
             // the screen can make it.
-            CameraPane()
+            inputPane
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .topLeading) { wayOut }
                 .transition(.opacity)
         } else {
             panes
+        }
+    }
+
+    /// The right-hand pane: the camera's picture, or — when a tablet is the
+    /// input — the page it writes on. ONE PANE, two faces, so the switch
+    /// that shows and hides it, ⌘Y, the whole-window view and the divider
+    /// all go on working whichever it is ("every button has exactly one
+    /// place").
+    @ViewBuilder private var inputPane: some View {
+        switch appState.inputSource {
+        case .camera: CameraPane()
+        case .tablet: TabletPane()
         }
     }
 
@@ -35,7 +47,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .padding(14)
         .help("Back to the notes — double-clicking the picture does it too")
-        .accessibilityLabel("Leave Full-Window Video")
+        .accessibilityLabel(appState.inputSource.words.leaveWholeWindow)
     }
 
     private var panes: some View {
@@ -63,7 +75,7 @@ struct ContentView: View {
                         .frame(minWidth: 460, idealWidth: 720, maxWidth: .infinity, maxHeight: .infinity)
                 }
                 if appState.showCamera {
-                    CameraPane()
+                    inputPane
                         .frame(minWidth: 280,
                                idealWidth: appState.showEditor ? 420 : 900,
                                maxWidth: .infinity, maxHeight: .infinity)

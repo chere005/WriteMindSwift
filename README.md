@@ -34,7 +34,7 @@ fails if the two disagree.
 | --- | --- |
 | ⌘T | Markdown ⇄ the rendered page |
 | ⌘P | Pen up, pen down |
-| ⌘Y | Show or hide the video |
+| ⌘Y | Show or hide the video — or the tablet's page, when the tablet is the input |
 | ⌘K | Show or hide the notes list |
 | ⌘; | Collapse what is under this cell — or under each cell that is held — and open it again |
 | ⌥⇧⌘← ⌥⇧⌘→ | Fold, unfold every section |

@@ -219,21 +219,8 @@ struct CameraPane: View {
         .accessibilityLabel(label)
     }
 
-    private var devicePicker: some View {
-        Menu {
-            if camera.devices.isEmpty {
-                Text("No cameras found")
-            }
-            ForEach(camera.devices) { device in
-                Button(device.name) { camera.select(deviceID: device.id) }
-            }
-            Divider()
-            Button("Refresh Device List") { camera.refreshDevices() }
-        } label: {
-            Label("Input Devices", systemImage: "video.badge.ellipsis")
-        }
-        .fixedSize()
-    }
+    /// The cameras and, under them, any tablet — the menu bar's list.
+    private var devicePicker: some View { InputDevicePicker() }
 
     private func placeholder<Extra: View>(icon: String, title: String, detail: String,
                                           @ViewBuilder extra: () -> Extra) -> some View {
@@ -348,6 +335,24 @@ struct SectionBox: View {
     var onInsert: ((NotebookCapture.Mode) -> Void)?
     /// The box read into the note as words.
     var onRead: (() -> Void)?
+    /// What the three buttons say they do — the same three on the camera
+    /// and on the tablet's page, from different sources.
+    var help = Help.camera
+
+    struct Help: Equatable {
+        var image: String
+        var writing: String
+        var text: String
+
+        static let camera = Help(image: "Put the picture inside the box on the page, squared up",
+                                 writing: "Lift the writing inside the box onto the page as ink",
+                                 text: "Read the writing inside the box into the note as words")
+        /// The page's ink is already clean: nothing is squared up or
+        /// traced, and Writing brings the strokes themselves.
+        static let tabletPage = Help(image: "Put this part of the page into the note as a picture, paper and all",
+                                     writing: "Bring the strokes the box touches into the note, pressure and colour kept",
+                                     text: "Read the writing the box touches into the note as words")
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -389,8 +394,7 @@ struct SectionBox: View {
                 // buttons — not a sentence about a button somewhere else
                 // (Sean, 2026-09-19).
                 HStack(spacing: 6) {
-                    choice("Image", icon: "photo",
-                           help: "Put the picture inside the box on the page, squared up") {
+                    choice("Image", icon: "photo", help: help.image) {
                         // .page, not .raw: a page found in the frame is
                         // straightened and brought in at the notebook's
                         // remembered size, which is the whole point of
@@ -398,12 +402,10 @@ struct SectionBox: View {
                         // back to the frame itself.
                         onInsert?(.page)
                     }
-                    choice("Writing", icon: "scribble.variable",
-                           help: "Lift the writing inside the box onto the page as ink") {
+                    choice("Writing", icon: "scribble.variable", help: help.writing) {
                         onInsert?(.ink)
                     }
-                    choice("Text", icon: "text.viewfinder",
-                           help: "Read the writing inside the box into the note as words") {
+                    choice("Text", icon: "text.viewfinder", help: help.text) {
                         onRead?()
                     }
                 }

@@ -23,7 +23,13 @@ enum NoteWriting {
     /// `onDisk` is what the file holds now (nil when it cannot be read),
     /// `known` what this app last read from it or wrote to it (nil before
     /// it has ever seen the file).
-    static func mayWrite(onDisk: String?, known: String?) -> Bool {
+    static func mayWrite(onDisk: String?, known: String?) -> Bool { owns(onDisk, known) }
+
+    /// The same rule for a file that is not a note — the tablet's page,
+    /// read as bytes (`TabletPage`).
+    static func mayWrite(dataOnDisk: Data?, known: Data?) -> Bool { owns(dataOnDisk, known) }
+
+    private static func owns<Contents: Equatable>(_ onDisk: Contents?, _ known: Contents?) -> Bool {
         switch (onDisk, known) {
         // A file that is not there yet, and we never saw one: a new note
         // saving itself for the first time.

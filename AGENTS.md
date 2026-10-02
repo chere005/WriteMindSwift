@@ -145,9 +145,12 @@ CoreMind's `bin/report-status.sh`.
   drawing that fails to decode. **THE LOCKSTEP RULE: `pressures` is
   PARALLEL to `points`, and whatever writes one writes the other in the
   same breath.** Today that is `Stroke.starting(at:…)` and
-  `append(_:pen:)` and nothing else — every other edit (move, turn, group,
-  delete, a duplicated note) carries the whole value — so a split, a crop
-  or a merge added later keeps the two the same length. `InkPaths` reads a
+  `append(_:pen:)`, and two maps that move every point one for one and
+  keep the pressures as they are — the tablet page's turn
+  (`TabletPage.turned`) and Writing taken off it
+  (`TabletSelection.noteStrokes`) — and nothing else: every other edit
+  (move, turn, group, delete, a duplicated note) carries the whole value.
+  So a split, a crop or a merge added later keeps the two the same length. `InkPaths` reads a
   missing pressure as "none reported" rather than crash; that is a belt,
   not permission. **THE LEGACY GUARANTEE: a stroke with neither field —
   everything drawn before 2026-10-02, and every mouse or trackpad stroke
@@ -183,6 +186,178 @@ CoreMind's `bin/report-status.sh`.
   samples) — measured first: 300 strokes of 120 samples took 5 ms in
   Release and 26–39 in Debug on EVERY redraw, and the layer redraws on
   every pen event.
+- **THE WACOM IS AN INPUT DEVICE, CHOSEN EXACTLY LIKE A CAMERA.** Sean,
+  2026-10-02: "wacom should basically just be chosen as if it were an
+  input display". `TabletController` finds Wacom tablets by IOKit's own
+  notices for a USB DEVICE with vendor 0x056A — the HID device is never
+  opened, so there is no Input Monitoring prompt — and Input Devices lists
+  them under the cameras ("One by Wacom (CTL-472)", named for the box, not
+  the USB descriptor). Picking one turns the camera off and the pane that
+  showed the video shows THE PAGE (`TabletPane`); picking a camera gives
+  it back. Both menus go through `InputDevices.pick`, and
+  `AppState.inputSource` is DERIVED from the pick — one writer, fed by
+  the controller, never stored — so ⌘Y, the pane's switch and the
+  whole-window view work on whichever pane it is. The tablet is read
+  TURNED a quarter turn clockwise by default (Sean, same day: "i want to
+  rotate the wacom 90 degrees clockwise"): counts (x, y), origin top
+  left, extent (W, H) → page (u, v) = (1 − y/H, x/W), and the page is
+  H/W wide; `tabletQuarterTurns` holds it, remembered, turned by the two
+  buttons in the pane's corner. **The pen is kept off the pointer by a
+  driver CONTEXT** — Wacom's Driver Request Interface, Apple Events to
+  'WaCM', ported in `WacomDriver` with Wacom's MIT notice: a context over
+  tablet 1 with `pContextMovesSystemCursor` false. A context acts only
+  while WriteMind is in front, so it is re-asserted every time the app
+  comes back (kept if the driver still has it, made again if not) and
+  made again when the driver restarts — seen by KVO on
+  `NSWorkspace.runningApplications`, because the driver is
+  LSBackgroundOnly and LSUIElement and NSWorkspace posts no launch or
+  quit notice for such an app (its documentation says so; a probe saw
+  neither). **AND THE CONTEXT FOLLOWS THE PAGE**: made when the first
+  page comes on screen, let go when the last one goes
+  (`TabletInput.pageShowingChanged` → `TabletController.pageShowing`) —
+  left standing with the pane put away, it kept the pen off the pointer
+  in front of no page at all, and the notebook's own pen was dead. A
+  pick still asks with the pane away (the question is the pick's); what
+  it makes waits for the page. And it is let go on turning the tablet
+  off, on unplugging and — posted, not waited for — on quitting. The
+  pane is a "connecting" page from the moment a pick or a replug lands,
+  even while an earlier conversation is still out. A property is
+  only ever SET through the context; the raw tablet's routing is every
+  application's tablet. **A FIRST LAUNCH NEVER ASKS, AND ONLY A PICK
+  ASKS**: Automation permission is READ with
+  `AEDeterminePermissionToAutomateTarget(askUserIfNeeded: false)` on
+  every other path — a launch reconnecting the remembered tablet, the
+  app coming to the front, a replug — and those stop at `needsConsent`;
+  `askUserIfNeeded: true` happens only as the direct result of Sean
+  picking the tablet from a menu (picking it again finishes a question
+  never answered). Every send is off the main thread with a two-second
+  timeout and every failure is a `WacomDriver.Failure` the pane says in
+  one line, with System Settings › Automation offered for a refusal.
+  `WacomDriver.Wire` REFUSES UNDER `TestHost` on the first line of both
+  doors — the test host is the app, and an Apple Event from it would put
+  the prompt in front of Sean — and `WacomDriverTests` proves it with
+  spies standing where the real send would be; the conversations are
+  tested against a stand-in driver. **What the driver sends with Mvsc
+  false was not seen before this was written**, so `TabletInput` takes
+  the pen from EVERY route: native `.tabletPoint`/`.tabletProximity` and
+  mouse events with a tablet subtype, a LOCAL monitor and a GLOBAL one
+  (the global route counts only while WriteMind is in front), the same
+  sample by two routes counted once by its timestamp. While the tablet is
+  the input AND its page is on screen the local monitor SWALLOWS every
+  pen event — a tap must never click whatever the pointer happens to be
+  over — and hands everything else back untouched; otherwise it hands
+  back everything. The pressure is read only off an event that defines it
+  (a spy in `TabletReadingTests` proves a hover is never asked), the
+  extent comes from the driver, else a table by product id, and is
+  WIDENED to the farthest count ever seen so a wrong entry can never clip
+  the page. The first event of each kind from each route, every status
+  change and every context made or refused go to /tmp/writemind-debug.log
+  — the first real session is read from there, not from Sean.
+- **THE PAGE IS THE PICTURE OF A PAGE, AND ANYTHING ON IT CAN BE TAKEN.**
+  Sean, 2026-10-02: "in normal mode its as if we were looking at the
+  picture of a page, and anything drawn can be selected and inserted".
+  `TabletPage` is the page: the drawing layer's own `Stroke`s — ink, a
+  pressure a point, a tool — whose points are FRACTIONS OF THE PAGE and
+  whose widths are in the PAGE'S OWN POINTS, the long side `TabletPage.longSide` (800)
+  whichever way it is turned, so the outline (`InkCache`), a box and a
+  cut-out are all worked once in one space and the pane only scales them.
+  The pen menu's width goes on as it is SEEN — `TabletInk.width` divides
+  by the page's scale on screen, so a 3-point pen writes 3 points where
+  it is writing — and from then on the ink is part of the picture. It is
+  kept in Application Support/WriteMind/TabletPage.json — **never in
+  ~/Documents/WriteMind**, which is Sean's notes and their sidecars, and
+  in `TestHost.supportDirectory` under the test host — saved half a second
+  after the pen rests, off the main thread, and flushed on quitting; the
+  flush waits for a save already on the queue, because AppKit exits the
+  moment it returns. **BOTH LOCKS, AS FOR A NOTE**: the file is named
+  for the BUILD (`TabletPage.fileName`) — any bundle id but the app's own
+  keeps `TabletPage-<id>.json`, because Application Support is found by
+  the app's NAME and a scratch copy is given an id of its own to be
+  driven at all, and with one fixed name it opened Sean's page and wrote
+  over it; and a save writes only over the bytes it last read or wrote
+  (`NoteWriting.mayWrite(dataOnDisk:known:)`) — anything else is another
+  writer's, left alone, and the page is written beside it as
+  `TabletPage.conflict-<date>.json` from then on. **A BAD FILE IS SET
+  ASIDE, NEVER WIPED**: one that is not a page is moved to
+  `TabletPage.corrupt-<date>.json` and the page starts blank; one with a
+  stroke that will not read keeps the rest and is copied there first,
+  and what could be read is written back over it at once — or it was
+  copied aside again at every launch.
+  Undo is whole pages, a stroke a step and a clear a step, sixty deep, the
+  session's and not the file's. **THE INK TURNS WITH THE SHEET**: the
+  page is the tablet's shape turned, so a quarter turn makes a tall
+  page wide, and fractions left where they were would stretch every
+  letter — `align(to:)` turns every stroke, and the history with it, so
+  each stays where it is ON THE TABLET (`TabletPage.turned` of a page
+  point is `TabletMapping.page` one turn on, tested for every turn). The
+  file says which turn its strokes are in, so a page opens turned to fit.
+  A turned stroke gets a NEW ID — `InkCache` knows an outline by id and a
+  fingerprint a turn can leave the same — and so does every stroke Writing
+  puts in the note; both map points one for one and carry the pressures
+  as they are, which is how they keep the lockstep rule above.
+  **The samples become ink in `TabletWriting`**, a value walked sample by
+  sample in the tests: the nib down starts a stroke with
+  `Stroke.starting(…, pen: .pen(pressure:))`, a drag appends, the lift
+  finishes it WITHOUT a point of its own (it reports no pressure, and the
+  notebook's pen does not take its mouse-up either) — so a tap is one
+  point, which the ink draws as a dot. The side switch held down draws a
+  box instead and never ink; under 1% of the page it is a click, which
+  puts a box away. **INK ENDS WHERE THE NIB LIFTS**, whatever the switch
+  is doing: asked as "nib or switch", a switch pressed under ink and held
+  past the lift went on drawing in the air at no pressure — and a switch
+  held over from ink starts no box until it is let go
+  (`TabletPen.switchHeldOver`). `TabletScribe` is its shell and the ONE
+  consumer of `TabletInput.samples` — the notebook mode later is a
+  second target chosen there. **120 SAMPLES A SECOND REDRAW ONE STROKE**: the stroke
+  being written is `TabletScribe.stroke`, watched by its own layer; the
+  page (`TabletPage.strokes`, watched by the finished-ink layer, which is
+  `Equatable`) changes once a stroke; the box is `TabletBox`, watched by
+  its own; the hover marker watches the funnel. `TabletScribeTests` holds
+  the page silent through a hundred and twenty samples and a sample's cost
+  under 4 ms on a page of four hundred strokes. All of it is SwiftUI — no
+  hosted NSView over the pane (the eighth cause, below).
+  **The box is the camera's `SectionBox`**, its look, its gestures and its
+  three buttons (`help: .tabletPage` says what they do here), over the
+  sheet in page fractions: a mouse or trackpad drag draws it, the side
+  switch draws the same one, a click on the sheet or the pane round it
+  puts it away and so does the nib going down; Esc puts it away and is
+  taken ONLY while there is one, and only for the page's own window with
+  no field being typed in (`TabletBox.putsAway`). **ONE ESC CHAIN**: the
+  box is a step in the drawing layer's (`DrawingCanvas.handleKey`: a
+  label, a style bar, an armed shape, a crop, THE BOX, then the pen),
+  and the pane's own monitor answers only while no layer watches keys
+  (`DrawingCanvas.keyWatchers`, `TabletBox.paneAnswersEscape`) — two
+  monitors each taking Esc for itself took it in the order they were
+  added, which every rebuild of the panes changes. Its three go
+  through `NoteStore.takeFromTablet` and land the way the camera's do:
+  **Image** is the box as it is, paper and all, a PNG drawn by Core
+  Graphics (`TabletRender`); **Writing** is the strokes the box TOUCHES,
+  whole — the marquee's rule — re-expressed as the notebook's strokes
+  (`TabletSelection.noteStrokes`), pressure, tool and colour kept, ONE
+  group (a lone stroke gets none: ⌃G would read a group of one as one to
+  take apart), ONE step; **Text** is those strokes rendered BLACK ON WHITE
+  — explicit sRGB in a bitmap, because anything drawn through SwiftUI or
+  a dynamic colour takes the window's appearance and Dark Mode's black is
+  white — and read by the SAME path the camera's Text takes
+  (`readIntoNote`), never through `captureNotebook(.ink)`, which would
+  threshold clean ink a second time. Image and Writing are placed by
+  `pageScaleLanding`, which the camera's captures now share: the page at
+  `NotebookCapture.pageFraction` of the pane, under the caret when there
+  is one — one scale for a box of writing whichever of the two it came
+  off. **⌘Z IS THE PAGE'S STRAIGHT AFTER WRITING ON IT**
+  (`AppState.pageOwnsUndo`): the page never has the keyboard, the pen is
+  in one hand and ⌘Z under the other, and left to the focus ⌘Z after a
+  stroke undid the TYPING in the note. The page owns it from a stroke, an
+  undo, a redo or a clear on it until the note's text or drawing changes,
+  and only while the page is the input and on screen; the corner has its
+  own undo, redo and clear besides. The drawing layer's key monitor sees
+  ⌘Z BEFORE the Edit menu does — a local monitor runs ahead of a key
+  equivalent, measured — so it asks the page's claim too
+  (`DrawingCanvas.takesUndo`); without that, ⌘Z after a stroke undid
+  whatever was picked on the layer. **Themes and pens are next** — the
+  seams are `PageTheme` (one case; whatever a theme prints, the pane's
+  `TabletPaperLayer` AND `TabletRender` print it, through the one
+  `PageTheme.print`) and `TabletInk.tool`.
 - **A project is a list of folders in a JSON file** (`Project`,
   `.writemind-project`) — Sublime Text's shape. What is NOT in it is the
   session: which notes are open, which one is in front, and any text that had
@@ -302,8 +477,9 @@ CoreMind's `bin/report-status.sh`.
   the pane back to the notebook. **Esc puts the pen down** (Sean,
   2026-10-02: "esc should exit pen mode") — `AppState.escapePen()`, the
   one writer beside `togglePen`, asked from `DrawingCanvas.handleKey`
-  AFTER a label, a style bar, an armed shape and a crop have had the key,
-  and taking it only when there was a pen to put down.
+  AFTER a label, a style bar, an armed shape, a crop and the tablet
+  page's box have had the key, and taking it only when there was a pen
+  to put down.
   **What a press does is `CanvasMode.press(with:)` and nothing else
   decides it**: ⌘ is the selector in BOTH modes, so it is asked BEFORE the
   mode — a modifier held down is asked for by hand, and that is what
@@ -638,7 +814,9 @@ CoreMind's `bin/report-status.sh`.
   reconnects a device the user already picked (`lastCameraDeviceID` in
   UserDefaults); the prompt fires the first time the Input Devices menu is
   used. Keep it that way — a writing app that opens with a camera dialog is
-  the wrong first impression.
+  the wrong first impression. The tablet keeps the same rule
+  (`lastTabletID`), and the two picks are exclusive: picking one forgets
+  the other.
 - **A to-do is a list STYLE, not a cell of its own.** Sean, 2026-09-21:
   "add a bullet type which are todo bullets that can be checked or
   unchecked". It is GFM's task list in the file — `- [ ] ` and `- [x] ` —
@@ -913,7 +1091,8 @@ WriteMind/
   WriteMindApp.swift      @main; the window; the menus — File > New Note,
                           View > sidebar / preview toggles, and the
                           "Input Devices" menu (InputDevicesMenu) listing
-                          every camera with a checkmark on the live one
+                          every camera with a checkmark on the live one,
+                          and under them any Wacom tablet plugged in
   AppState.swift          UI state: sidebar shown, editor/preview mode, pen
   TestHost.swift          the unit-test host keeps out of ~/Documents
                           and off the camera
@@ -1099,6 +1278,44 @@ WriteMind/
   Views/CameraPane.swift  the preview, or a placeholder that says why not;
                           rotate buttons and the section selector (drag a
                           box, then Writing or Page)
+  Views/TabletPane.swift  the same pane when a tablet is the input: the page
+                          at the tablet's turned shape, the hover marker,
+                          the page's undo, redo and clear, the turn
+                          buttons, and one line on why the pen also moves
+                          the pointer when it does
+  Views/TabletPageView.swift
+                          the sheet's layers, each at its own rate: the
+                          paper and what its theme prints, the finished
+                          ink (Equatable), the stroke
+                          being written, and the box — SectionBox itself
+  Views/InputDevicePicker.swift
+                          the pane's copy of the Input Devices list
+  Tablet/WacomDriver.swift
+                          Wacom's Driver Request Interface, ported (MIT):
+                          the Apple Events for a context with Mvsc false,
+                          the typed failures, and the Wire that refuses
+                          under TestHost. Descriptors pure and tested
+  Tablet/TabletController.swift
+                          the tablets on the USB bus (IOKit notices), the
+                          pick, and the context made, kept and let go
+                          with the page;
+                          InputDevices.pick for both kinds of input
+  Tablet/TabletInput.swift
+                          the pen from every route through one funnel:
+                          the reading of an event, counts to the turned
+                          page, the pen's state, the sample stream
+  Tablet/TabletPage.swift the page: strokes in page fractions and page
+                          points, undo/redo/clear, the ink turned with
+                          the sheet, the file in Application Support (a
+                          bad one set aside, never wiped), PageTheme
+  Tablet/TabletWriting.swift
+                          samples to ink and boxes (TabletWriting, pure),
+                          TabletInk, TabletBox, and TabletScribe — the one
+                          consumer of the samples
+  Tablet/TabletSelection.swift
+                          what a box touches, Writing re-expressed on the
+                          notebook, and TabletRender: the page as a
+                          picture, the ink black on white for Text
   Support/Color+Hex.swift #RRGGBB both ways
   Assets.xcassets/AppIcon.appiconset
                           every size of the icon, RENDERED — never edited —
@@ -1120,7 +1337,8 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   chapter, author, section, subsection, subsubsection, body) · ⌘8 code
   block · ⌃⌘↑/↓ move section · ⌃G group/ungroup what is picked on the
   drawing layer · ⌥⌘Z / ⇧⌥⌘Z undo and redo the
-  DRAWING (⌘Z does it too while the pen is up) · ⌘D select next occurrence,
+  DRAWING (⌘Z does it too while the pen is up; ⌘Z and ⇧⌘Z are the
+  tablet page's straight after the pen wrote on it) · ⌘D select next occurrence,
   ⌃⌘G all of them · ⌥⌘R refresh cameras · ⇧⌘O open the notes folder.
 - **EVERY FORMATTING SHORTCUT LIVES IN THE FORMAT MENU**, not on the toolbar
   button that does the same thing. A button inside a collapsed section of the
@@ -1186,6 +1404,11 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
     shown only while the sidebar is hidden — the two are never both up.
   - ⌃⌘S / ⌃⌘E / ⌃⌘C in the View menu for all three. A MENU item is not a
     second button; a second button on screen is.
+  - the video's switch is the PAGE'S while the tablet is the input — one
+    pane, two faces — and says so: the button, its View menu item, the
+    panel under its chevron and the whole-window × take their words from
+    `InputSource.words`, and the panel drops the camera's own rows (the
+    page turns in its own corner).
   Moved 2026-09-21, on Sean's word ("move the markdown toggle and video
   button to the menubar above the sidebar"): the MARKDOWN toggle and the
   VIDEO switch are on the SIDEBAR's bar now, which reads edit · add
@@ -1200,7 +1423,9 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   (duplicate, trash); sidebar footer (the Folder menu); the tab bar (tabs,
   `+`, the overflow list); the editor bar (the six ToolGroups, then preview
   and video); the video's corner (select section, zoom, fit-when-zoomed,
-  rotate left, rotate right, notes pane); the drawing layer's handles
+  rotate left, rotate right, notes pane); the tablet page's corner (undo,
+  redo, clear, turn left, turn right, notes pane) and its box (Image,
+  Writing, Text — the video's own three); the drawing layer's handles
   (rotate, scale, move, trash, and per-kind: crop and read for a picture,
   style for a connector, a circle per segment for a routed one).
 - **A recursive SwiftUI view cannot be type-checked** — "opaque return type

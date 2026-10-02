@@ -1,0 +1,226 @@
+import AppKit
+import Combine
+
+// FROM THE PEN'S SAMPLES TO THE PAGE: the nib down is ink, the side switch
+// held down is a box. The rule is `TabletWriting`, a value tested sample by
+// sample; `TabletScribe` is its shell — it takes the funnel's stream
+// (`TabletInput.samples`, page fractions after the turn), keeps the stroke
+// being written where its own layer can redraw it at the pen's rate, and
+// hands a finished stroke to the page.
+//
+// It is the ONE consumer of the samples. Writing straight into the
+// notebook — a "Write on: Page | Notebook" switch, not built yet — would be
+// a second target chosen here; the funnel and the page stay as they are.
+
+/// What the pen writes with on the page.
+struct TabletInk: Equatable {
+    var colorHex: String
+    /// In the page's own points (`TabletPage.longSide`).
+    var width: Double
+    /// The pen, until the page has a pen picker of its own.
+    var tool: InkTool = .pen
+
+    /// The pen menu's width on a page drawn `viewScale` view points to a
+    /// page point. A 3-point pen WRITES 3 POINTS WHERE IT IS SEEN WRITING —
+    /// on the page as big as the pane shows it — and from then on the ink
+    /// is part of the picture of the page, and grows and shrinks with it.
+    static func width(penWidth: Double, viewScale: CGFloat) -> Double {
+        guard viewScale.isFinite, viewScale > 0 else { return penWidth }
+        return penWidth / Double(viewScale)
+    }
+}
+
+/// The rule, sample by sample.
+struct TabletWriting {
+    enum Outcome: Equatable {
+        case none
+        /// The nib went down: a stroke has begun.
+        case began
+        /// The stroke being written has another point.
+        case grew
+        /// The nib came up: this stroke is finished.
+        case finished(Stroke)
+        /// The side switch is being dragged: the box so far, page fractions.
+        case boxing(CGRect)
+        /// It came up: the box it drew.
+        case boxed(CGRect)
+        /// It came up where it went down: a click, which puts a box away.
+        case clicked
+    }
+
+    /// How far the side switch must move, in page fractions, before it is a
+    /// box and not a click — a hair more than a millimetre on the small One
+    /// by Wacom, about the four points a mouse is allowed.
+    static let clickSlop: CGFloat = 0.01
+
+    private(set) var stroke: Stroke?
+    private var boxStart: CGPoint?
+    private var boxMoved = false
+
+    mutating func consume(_ sample: TabletSample, ink: TabletInk) -> Outcome {
+        switch sample.phase {
+        case .hover:
+            return .none
+        case .down:
+            if sample.sideSwitch {
+                stroke = nil
+                boxStart = sample.page
+                boxMoved = false
+                return .none
+            }
+            boxStart = nil
+            // THE PEN'S OWN SAMPLE: ink from the first point, a pressure
+            // per point, exactly as the notebook's pen makes it
+            // (`PenSampleReader`, `Stroke.starting`).
+            var started = Stroke.starting(at: sample.page, colorHex: ink.colorHex, width: ink.width,
+                                          pen: .pen(pressure: sample.pressure))
+            started.tool = ink.tool
+            stroke = started
+            return .began
+        case .drag:
+            if let start = boxStart {
+                if !boxMoved {
+                    boxMoved = max(abs(sample.page.x - start.x), abs(sample.page.y - start.y)) >= Self.clickSlop
+                }
+                return boxMoved ? .boxing(Self.box(from: start, to: sample.page)) : .none
+            }
+            guard stroke != nil else { return .none }
+            stroke?.append(sample.page, pen: .pen(pressure: sample.pressure))
+            return .grew
+        case .up:
+            if let start = boxStart {
+                boxStart = nil
+                let moved = boxMoved
+                    || max(abs(sample.page.x - start.x), abs(sample.page.y - start.y)) >= Self.clickSlop
+                return moved ? .boxed(Self.box(from: start, to: sample.page)) : .clicked
+            }
+            // The lift itself is not a point: it reports no pressure, and a
+            // last point at none would pinch every stroke's end — the
+            // notebook's pen does not take its mouse-up either. A tap is
+            // therefore one point, which the ink draws as a dot.
+            guard let finished = stroke else { return .none }
+            stroke = nil
+            return .finished(finished)
+        }
+    }
+
+    /// A box between two page points, on the page.
+    static func box(from a: CGPoint, to b: CGPoint) -> CGRect {
+        CanvasGeometry.rect(from: a, to: b).intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+}
+
+/// The selection box on the page, in page fractions — its own object so
+/// that only the box's layer redraws while it is dragged.
+@MainActor
+final class TabletBox: ObservableObject {
+    @Published var rect: CGRect?
+
+    /// A box drawn on the page view (view points, `size` the page's frame)
+    /// as page fractions, cut to the page; nil when it misses it.
+    nonisolated static func fraction(_ rect: CGRect, in size: CGSize) -> CGRect? {
+        guard size.width > 0, size.height > 0 else { return nil }
+        let box = CGRect(x: rect.minX / size.width, y: rect.minY / size.height,
+                         width: rect.width / size.width, height: rect.height / size.height)
+            .standardized
+            .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        return box.isNull ? nil : box
+    }
+
+    /// And back, for drawing.
+    nonisolated static func points(_ rect: CGRect, in size: CGSize) -> CGRect {
+        CGRect(x: rect.minX * size.width, y: rect.minY * size.height,
+               width: rect.width * size.width, height: rect.height * size.height)
+    }
+
+    /// ESC PUTS THE BOX AWAY, as a click off it does — and is taken only
+    /// when there was a box, so at every other time Esc is still the
+    /// notebook's (it puts the pen down). And only an Esc meant for the
+    /// page: one for ANOTHER window — a popover, a sheet — or for a field
+    /// being typed in is theirs to call off (`elsewhere`), box or no box.
+    nonisolated static func putsAway(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, hasBox: Bool,
+                                     elsewhere: Bool) -> Bool {
+        hasBox && !elsewhere && keyCode == 53
+            && modifiers.intersection([.command, .control, .option, .shift]).isEmpty
+    }
+
+    /// Who asks the box about an Esc. While a drawing layer watches keys,
+    /// the box is a step in ITS chain, at the place that chain chose for it
+    /// (`DrawingCanvas.handleKey`); the page's own monitor answers only when
+    /// no layer is up — no note open, or the notes put away.
+    nonisolated static func paneAnswersEscape(layersWatching: Int) -> Bool { layersWatching == 0 }
+
+    /// The key is for a window that is not the page's, or for a field
+    /// editor in it.
+    static func isElsewhere(_ event: NSEvent) -> Bool {
+        guard let window = event.window else { return false }
+        if window !== NSApp?.mainWindow { return true }
+        return (window.firstResponder as? NSTextView)?.isFieldEditor == true
+    }
+
+    /// A key monitor's answer: nil for the Esc it took, the event itself —
+    /// unchanged — for everything else.
+    func key(_ event: NSEvent) -> NSEvent? {
+        guard event.type == .keyDown,
+              Self.putsAway(keyCode: event.keyCode, modifiers: event.modifierFlags, hasBox: rect != nil,
+                            elsewhere: Self.isElsewhere(event))
+        else { return event }
+        rect = nil
+        return nil
+    }
+}
+
+/// The shell round `TabletWriting`.
+@MainActor
+final class TabletScribe: ObservableObject {
+    static let shared = TabletScribe(page: .shared, input: .shared)
+
+    let page: TabletPage
+    let box = TabletBox()
+    /// THE STROKE BEING WRITTEN, published at the pen's rate (~120 a
+    /// second) and watched by one layer that draws it and nothing else.
+    /// The page's finished strokes change once a stroke, so a full page of
+    /// handwriting is not redrawn under every sample.
+    @Published private(set) var stroke: Stroke?
+    /// The colour, width and tool — set by the pane from the pen menu and
+    /// the page's size on screen.
+    var ink = TabletInk(colorHex: AppState.presetColors[0], width: 3)
+    /// A stroke went onto the page: ⌘Z is the page's now.
+    var onWrite: (() -> Void)?
+
+    private var writing = TabletWriting()
+    private var subscription: AnyCancellable?
+
+    /// `input` nil for a test that hands samples over itself.
+    init(page: TabletPage, input: TabletInput?) {
+        self.page = page
+        // The funnel publishes from its monitors, which run on the main
+        // thread.
+        subscription = input?.samples.sink { [weak self] sample in
+            MainActor.assumeIsolated { self?.consume(sample) }
+        }
+    }
+
+    func consume(_ sample: TabletSample) {
+        switch writing.consume(sample, ink: ink) {
+        case .none:
+            break
+        case .began:
+            // Writing on the page puts a box away, as a click would.
+            if box.rect != nil { box.rect = nil }
+            stroke = writing.stroke
+        case .grew:
+            stroke = writing.stroke
+        case .finished(let finished):
+            // In one breath, so the live layer lets go of the stroke in the
+            // same frame the page's layer takes it.
+            stroke = nil
+            page.commit(finished)
+            onWrite?()
+        case .boxing(let rect), .boxed(let rect):
+            box.rect = rect
+        case .clicked:
+            if box.rect != nil { box.rect = nil }
+        }
+    }
+}

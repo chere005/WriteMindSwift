@@ -52,6 +52,9 @@ struct DrawingCanvas: View {
     /// something to do; false hands the key on to the text underneath.
     var onUndo: (() -> Bool)?
     var onRedo: (() -> Bool)?
+    /// The tablet's page was written on last (`AppState.pageOwnsUndo`):
+    /// ⌘Z is the page's, and goes on to the Edit menu that gives it there.
+    var pageOwnsUndo: () -> Bool = { false }
     /// A shape or a mark armed by the palette: the next drag puts it down,
     /// from where the drag starts to where it ends (Sean, 2026-09-19).
     var placing: CanvasPlacement?
@@ -59,6 +62,9 @@ struct DrawingCanvas: View {
     var onPlaced: (() -> Void)?
     /// Esc with the pen up: the pen goes down. True when it was taken.
     var onEscapePen: (() -> Bool)?
+    /// Esc while the tablet's page has a box up: it is put away. True when
+    /// it was taken (`TabletBox.key`).
+    var onEscapeBox: ((NSEvent) -> Bool)?
     /// How far the text under the layer has scrolled. Objects live in the
     /// DOCUMENT — a picture sits beside the paragraph it was put next to and
     /// goes up with it — so everything is drawn and hit this far up.
@@ -1004,12 +1010,20 @@ struct DrawingCanvas: View {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
             handleKey(event) ? nil : event
         }
+        Self.keyWatchers += 1
     }
 
     private func unwatchKeys() {
-        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        keyMonitor = nil
+        guard let keyMonitor else { return }
+        NSEvent.removeMonitor(keyMonitor)
+        self.keyMonitor = nil
+        Self.keyWatchers -= 1
     }
+
+    /// How many layers are watching keys. While one is, the tablet page's
+    /// box is a step in ITS Esc chain; the page's own monitor answers only
+    /// when there is none (`TabletBox.paneAnswersEscape`).
+    static private(set) var keyWatchers = 0
 
     /// True when the layer took the key.
     private func handleKey(_ event: NSEvent) -> Bool {
@@ -1032,9 +1046,16 @@ struct DrawingCanvas: View {
             default: break
             }
         }
+        // The tablet page's box next, and BEFORE the pen: the box is a
+        // thing in hand, the pen a mode. ONE CHAIN, so the order is chosen
+        // here — two key monitors each taking Esc for itself took it in the
+        // order they happened to be added, which every rebuild of the panes
+        // changes.
+        if event.keyCode == 53, onEscapeBox?(event) == true { return true }
         // Esc puts the pen down (Sean, 2026-10-02: "esc should exit pen
-        // mode") — after a label, a style bar, an armed shape and a crop
-        // have had it, since each of those is the nearer thing to call off.
+        // mode") — after a label, a style bar, an armed shape, a crop and
+        // the page's box have had it, since each of those is the nearer
+        // thing to call off.
         if penActive, event.keyCode == 53, flags.isSubset(of: [.function, .numericPad]),
            onEscapePen?() == true {
             return true
@@ -1044,7 +1065,12 @@ struct DrawingCanvas: View {
         // the three times the last thing done was done HERE (Sean,
         // 2026-09-19: "add undo when drawing"). Any other time, and whenever
         // the drawing has nothing left to undo, it goes on to the text.
-        if canvasOwnsUndo, event.charactersIgnoringModifiers?.lowercased() == "z" {
+        // And never while the tablet's page was written on last: this
+        // monitor sees ⌘Z BEFORE the Edit menu's key equivalent does, so
+        // the menu's "the page first" is asked here too, or ⌘Z after a
+        // stroke on the tablet undid whatever was picked on the layer.
+        if event.charactersIgnoringModifiers?.lowercased() == "z",
+           Self.takesUndo(layerOwns: canvasOwnsUndo, pageOwns: pageOwnsUndo()) {
             if flags == .command, onUndo?() == true { return true }
             if flags == [.command, .shift], onRedo?() == true { return true }
         }
@@ -1114,6 +1140,10 @@ struct DrawingCanvas: View {
                         modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) -> CGPoint {
         CanvasGeometry.onAxis(to, from: from, locked: modifiers.contains(.shift))
     }
+
+    /// Whether the layer's key monitor takes ⌘Z / ⇧⌘Z for itself: while it
+    /// owns undo, and the tablet's page does not.
+    nonisolated static func takesUndo(layerOwns: Bool, pageOwns: Bool) -> Bool { layerOwns && !pageOwns }
 
     /// Whether ⌘Z is the layer's to take.
     private var canvasOwnsUndo: Bool {

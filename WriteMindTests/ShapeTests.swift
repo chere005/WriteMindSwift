@@ -152,7 +152,14 @@ final class SymbolTests: XCTestCase {
                      "arrow.down.right.and.arrow.up.left", "square.dashed", "video", "video.fill",
                      "video.slash", "video.badge.ellipsis", "exclamationmark.triangle",
                      "doc.viewfinder", "scribble.variable", "xmark",
-                     "rectangle.righthalf.inset.filled", "rectangle.lefthalf.inset.filled"]
+                     "rectangle.righthalf.inset.filled", "rectangle.lefthalf.inset.filled",
+                     // The tablet's pane, which stands where the camera's does.
+                     "pencil.tip", "cable.connector.slash", "hand.raised", "ellipsis.circle",
+                     // The page's undo, redo and clear, and the box's three.
+                     "arrow.uturn.backward", "arrow.uturn.forward", "trash",
+                     "photo", "text.viewfinder",
+                     // The pane's switch while it is the page.
+                     "pencil.tip.crop.circle", "pencil.slash"]
         for icon in icons {
             XCTAssertNotNil(NSImage(systemSymbolName: icon, accessibilityDescription: nil),
                             "the camera pane asks for the missing symbol \(icon)")

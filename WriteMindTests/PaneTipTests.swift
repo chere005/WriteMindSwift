@@ -95,7 +95,8 @@ final class PaneTipTests: XCTestCase {
         let details = ["A quarter turn anticlockwise",
                        "The whole camera picture again, at the size it comes in",
                        "Drag a box on the picture and the pane shows just that much",
-                       "Put the notes away and give the window to the video"]
+                       "Put the notes away and give the window to the video",
+                       AppState.PaneWords.page.wholeWindowHelp, AppState.PaneWords.page.sideBySideHelp]
         for detail in details {
             let width = BarTipBubble.detailWidth(detail, cap: PaneTipPlacement.detailCap(within: panel))
             XCTAssertLessThanOrEqual(width + PaneTipPlacement.chrome,

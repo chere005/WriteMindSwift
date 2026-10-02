@@ -324,6 +324,26 @@ is how the code is put together.
   camera you pick is remembered; a first launch never asks. Two buttons in
   the corner turn the picture a quarter turn either way, for a camera that
   is mounted sideways.
+- **A drawing tablet instead of the camera.** A Wacom tablet plugged in is
+  listed in **Input Devices** under the cameras; pick it and the pane that
+  showed the video shows a **page** — a sheet at the tablet's own shape,
+  read turned a quarter turn clockwise (the turn buttons in its corner
+  change that, and the ink turns with the sheet). The pen writes on it in
+  ink that follows its pressure, in the pen menu's colour and at its
+  width as you see it; a tap is a dot, and a ring follows the nib while
+  it hovers. The page is still there after a relaunch. **⌘Z** straight
+  after writing takes the last stroke back, and the corner has undo,
+  redo and a clear of its own. Hold the pen's **side switch** and drag —
+  or drag with the mouse or the trackpad — to box part of the page, and
+  the camera's three buttons bring it into the note: **Image** (that part
+  of the page as a picture, paper and all), **Writing** (the strokes the
+  box touches, as strokes in the note, pressure and colour kept, held
+  together as one group) or **Text** (read into the note as words). They
+  land under the caret, at the size a camera capture of a page would.
+  Esc, or a click off the box, puts it away. While the page is on screen
+  the pen stays off the pointer — and if macOS or the Wacom driver will
+  not allow that, the page says so in one line and still takes the pen;
+  put the page away (**Hide Page**, ⌘Y) and the pen is a pointer again.
 - **A bar you can put away a piece at a time.** The toolbar is in
   sections — Style, Structure, Insert, Maths, Flow Chart, Capture — and the
   grip at the end of each one folds it down to a single icon; right-click

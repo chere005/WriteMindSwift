@@ -15,44 +15,49 @@ struct VideoMenu: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Picture").font(.headline).foregroundStyle(.primary)
+            // The picture's own rows are the CAMERA'S — its turn, its zoom —
+            // and only ever greyed out over the tablet's page, which turns
+            // in its own corner.
+            if appState.inputSource == .camera {
+                Text("Picture").font(.headline).foregroundStyle(.primary)
 
-            HStack(spacing: 6) {
-                item("Turn Left", icon: "rotate.left", help: "A quarter turn anticlockwise",
-                     enabled: live) { appState.rotateCamera(by: -90) }
-                item("Turn Right", icon: "rotate.right", help: "A quarter turn clockwise",
-                     enabled: live) { appState.rotateCamera(by: 90) }
+                HStack(spacing: 6) {
+                    item("Turn Left", icon: "rotate.left", help: "A quarter turn anticlockwise",
+                         enabled: live) { appState.rotateCamera(by: -90) }
+                    item("Turn Right", icon: "rotate.right", help: "A quarter turn clockwise",
+                         enabled: live) { appState.rotateCamera(by: 90) }
+                }
+
+                item("Original Size", icon: "arrow.down.right.and.arrow.up.left",
+                     help: "The whole camera picture again, at the size it comes in",
+                     wide: true, enabled: live && appState.cameraZoom != nil) {
+                    appState.cameraZoom = nil
+                }
+
+                item("Resize by Square", icon: "square.dashed",
+                     help: "Drag a box on the picture and the pane shows just that much",
+                     wide: true, isOn: appState.cameraZooming, enabled: live) {
+                    appState.cameraZooming = true
+                    // This one is finished on the picture itself, so the panel
+                    // gets out of the way.
+                    isPresented = false
+                }
+
+                if let box = appState.cameraZoom {
+                    Text("Showing \(Int((box.width * box.height * 100).rounded()))% of the picture")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Divider()
             }
-
-            item("Original Size", icon: "arrow.down.right.and.arrow.up.left",
-                 help: "The whole camera picture again, at the size it comes in",
-                 wide: true, enabled: live && appState.cameraZoom != nil) {
-                appState.cameraZoom = nil
-            }
-
-            item("Resize by Square", icon: "square.dashed",
-                 help: "Drag a box on the picture and the pane shows just that much",
-                 wide: true, isOn: appState.cameraZooming, enabled: live) {
-                appState.cameraZooming = true
-                // This one is finished on the picture itself, so the panel
-                // gets out of the way.
-                isPresented = false
-            }
-
-            if let box = appState.cameraZoom {
-                Text("Showing \(Int((box.width * box.height * 100).rounded()))% of the picture")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Divider()
 
             item(appState.showEditor ? "Whole Screen" : "Back to Side by Side",
                  icon: appState.showEditor ? "rectangle.inset.filled" : "rectangle.lefthalf.inset.filled",
                  help: appState.showEditor
-                     ? "Put the notes away and give the window to the video"
-                     : "The notes and the video side by side again",
+                     ? appState.inputSource.words.wholeWindowHelp
+                     : appState.inputSource.words.sideBySideHelp,
                  wide: true, enabled: appState.showCamera) {
                 appState.toggleEditorPane()
                 // The bar this panel hangs off goes with the notes pane.

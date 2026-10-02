@@ -547,16 +547,24 @@ final class NoteStore: ObservableObject {
                                                    colour: .black, rememberedRatio: nil, region: region),
               let cgImage = result.image.cgImage(forProposedRect: nil, context: nil, hints: nil)
         else { notice("There is nothing to read in that box."); return }
+        readIntoNote(cgImage, anchor: caretAnchor?()?.maxY)
+    }
 
-        let anchor = caretAnchor?()?.maxY
+    /// The words in a picture that is NOT on the layer — a box on the
+    /// camera, a box on the tablet's page — read off the main thread and
+    /// put into the note under the caret's line (`anchor`, document
+    /// points), with a sketched chart beside them. One path for both, so
+    /// the tablet's Text arrives exactly where the camera's does.
+    private func readIntoNote(_ cgImage: CGImage, anchor: CGFloat?) {
         isCapturing = true
         Task {
             let reading = await Task.detached(priority: .userInitiated) {
                 TextRecognition.read(cgImage)
             }.value
             isCapturing = false
-            // The same for a box on the camera: a sketch in it arrives as
-            // a chart, placed where a capture would have landed.
+            // The same for a box on the camera or the tablet's page: a
+            // sketch in it arrives as a chart, placed where a capture
+            // would have landed.
             let landing = CGRect(x: paneSize.width * 0.1, y: (anchor ?? 0) + 12,
                                  width: paneSize.width * 0.8, height: paneSize.height * 0.5)
             let chart = flowChart(from: reading, under: CGRect(x: landing.minX, y: landing.minY - 12,
@@ -645,18 +653,88 @@ final class NoteStore: ObservableObject {
         guard let imported = vector ?? DrawingStore.importImage(result.image, in: folder,
                                                                 jpegQuality: mode == .ink ? nil : 0.85)
         else { return false }
-        let placement = NotebookCapture.placement(frame: result.frame, pageSize: result.pageSize,
-                                                  pane: paneSize, nudge: nudge)
+        let landing = pageScaleLanding(frame: result.frame, pageSize: result.pageSize, aspect: imported.aspect)
+        beginDrawingChange()
+        drawing.items.append(.image(ImageItem(file: imported.file, center: landing.center,
+                                              width: landing.width, aspect: imported.aspect)))
+        return true
+    }
+
+    /// WHERE SOMETHING CUT FROM A PAGE LANDS: at the page's scale
+    /// (`NotebookCapture.placement` — a whole page would fill 0.9 of the
+    /// pane, a part of it is that part of such a page) and under the
+    /// caret's line when there is one, else where it sat on the page. The
+    /// camera's captures and the tablet's page both come in through here,
+    /// so a box of writing is the same size whichever of the two it came
+    /// off. `frame` is the piece's box on its page and `pageSize` the page,
+    /// in the same units; `aspect` is height over width. The centre is in
+    /// fractions of the pane (document coordinates), the width a fraction
+    /// of the pane's width.
+    private func pageScaleLanding(frame: CGRect, pageSize: CGSize, aspect: Double) -> (center: CGPoint, width: Double) {
+        let placement = NotebookCapture.placement(frame: frame, pageSize: pageSize, pane: paneSize, nudge: nudge)
         let widthPoints = placement.width * paneSize.width
-        let (underCaret, atCaret) = placedCenter(width: widthPoints,
-                                                  height: widthPoints * imported.aspect)
+        let (underCaret, atCaret) = placedCenter(width: widthPoints, height: widthPoints * aspect)
         let center = atCaret
             ? underCaret
             : CGPoint(x: placement.center.x, y: placement.center.y + canvasScroll / paneSize.height)
-        beginDrawingChange()
-        drawing.items.append(.image(ImageItem(file: imported.file, center: center,
-                                              width: placement.width, aspect: imported.aspect)))
-        return true
+        return (center, placement.width)
+    }
+
+    // MARK: - The tablet's page
+
+    /// What the box on the tablet's page brings into the note — the
+    /// camera's three choices, made from ink that is already clean (Sean,
+    /// 2026-10-02: "anything drawn can be selected and inserted"). `strokes`
+    /// is the whole page and `box` the box on it, in page fractions;
+    /// `pageSize` is the page in its own points (`TabletPage.size`).
+    /// False when nothing went in, with a word in the footer about why.
+    @discardableResult
+    func takeFromTablet(_ choice: TabletChoice, strokes: [Stroke], box: CGRect, pageSize: CGSize,
+                        theme: PageTheme = .plain) -> Bool {
+        guard let note = selectedNote, pageSize.width > 0, pageSize.height > 0 else { return false }
+        switch choice {
+        case .image:
+            // The box as it is on the page, paper and all, as a PNG — the
+            // picture path every other picture takes, at the capture's
+            // scale.
+            let region = TabletSelection.pagePoints(box, pageSize: pageSize)
+            guard let picture = TabletRender.image(of: strokes, region: region, pageSize: pageSize, theme: theme),
+                  let imported = DrawingStore.importImage(DrawingStore.image(from: picture),
+                                                          in: owningFolder(for: note.url))
+            else { notice("That box is not on the page."); return false }
+            let landing = pageScaleLanding(frame: region, pageSize: pageSize, aspect: imported.aspect)
+            beginDrawingChange()
+            drawing.items.append(.image(ImageItem(file: imported.file, center: landing.center,
+                                                  width: landing.width, aspect: imported.aspect)))
+            notice("The page is in — drag it where it goes.")
+            return true
+        case .writing:
+            // The strokes themselves, crisp at any size, pressure, tool and
+            // colour kept: ONE group, ONE step back.
+            let touched = TabletSelection.touched(strokes, by: box, pageSize: pageSize)
+            guard let frame = TabletSelection.inkBounds(touched, pageSize: pageSize),
+                  frame.width > 0, frame.height > 0
+            else { notice("There is no writing in that box."); return false }
+            let landing = pageScaleLanding(frame: frame, pageSize: pageSize, aspect: frame.height / frame.width)
+            // A group of one is no group: ⌃G would read it as one to take
+            // apart.
+            let placed = TabletSelection.noteStrokes(touched, pageSize: pageSize, frame: frame,
+                                                     center: landing.center, width: landing.width,
+                                                     pane: paneSize, group: touched.count > 1 ? UUID() : nil)
+            beginDrawingChange()
+            drawing.items.append(contentsOf: placed.map(CanvasItem.stroke))
+            notice("The writing is in — drag it where it goes.")
+            return true
+        case .text:
+            // Rendered black on white and read — never through the camera's
+            // capture, which would threshold clean ink a second time.
+            guard !isCapturing else { return false }
+            let touched = TabletSelection.touched(strokes, by: box, pageSize: pageSize)
+            guard !touched.isEmpty, let ink = TabletRender.ink(of: touched, pageSize: pageSize)
+            else { notice("There is no writing in that box."); return false }
+            readIntoNote(ink, anchor: caretAnchor?()?.maxY)
+            return true
+        }
     }
 
     /// A line in the footer. Not private since 2026-09-21: an
