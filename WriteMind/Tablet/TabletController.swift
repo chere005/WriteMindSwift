@@ -473,11 +473,7 @@ final class TabletController: ObservableObject {
         IONotificationPortSetDispatchQueue(port, .main)
         let me = Unmanaged.passUnretained(self).toOpaque()
 
-        func matching() -> CFDictionary {
-            let dictionary = IOServiceMatching("IOUSBHostDevice") as NSMutableDictionary
-            dictionary["idVendor"] = TabletDevice.wacomVendorID
-            return dictionary as CFDictionary
-        }
+        func matching() -> CFDictionary { Self.usbMatching() as CFDictionary }
 
         IOServiceAddMatchingNotification(port, kIOFirstMatchNotification, matching(), { refcon, iterator in
             guard let refcon else { return }
@@ -519,6 +515,18 @@ final class TabletController: ObservableObject {
             if let gone = byRegistryID[registryID] { log("tablet: unplugged — \(gone.name)") }
             unplugged(registryID: registryID)
         }
+    }
+
+    /// Every USB device from Wacom, by a PROPERTY match. `idVendor` put
+    /// straight into the matching dictionary is read by the USB family's
+    /// own matching rules, which want a vendor AND a product (or a class)
+    /// and match nothing on a vendor alone — so the tablet was never found
+    /// and never listed (Sean, 2026-10-02: "i don't see the wacom page").
+    /// `IOPropertyMatch` compares the registry property itself.
+    nonisolated static func usbMatching(vendor: Int = TabletDevice.wacomVendorID) -> NSDictionary {
+        let dictionary = IOServiceMatching("IOUSBHostDevice") as NSMutableDictionary
+        dictionary[kIOPropertyMatchKey] = ["idVendor": vendor]
+        return dictionary
     }
 
     private static func property<T>(_ service: io_service_t, _ key: String) -> T? {

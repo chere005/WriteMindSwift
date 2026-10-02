@@ -1664,6 +1664,15 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
 
 ## Traps that have cost real time here
 
+- **A USB device is not found by its vendor alone.** `IOServiceMatching(
+  "IOUSBHostDevice")` with a bare `idVendor` is read by the USB family's
+  own matching rules, which want a vendor AND a product (or a class), and
+  it matched NOTHING — the One by Wacom plugged into Sean's Mac was never
+  listed, so there was no page to pick (Sean, 2026-10-02: "i don't see
+  the wacom page"). Put the vendor in `IOPropertyMatch`
+  (`TabletController.usbMatching`); `TabletUSBMatchingTests` finds every
+  USB device on the machine by its vendor alone.
+
 - **`@Published` fires in `willSet`.** Inside a `$selection.sink`,
   `self.selection` is still the OLD note. The first cut of `NoteStore` saved
   the outgoing note correctly and then re-loaded it instead of the new one.
