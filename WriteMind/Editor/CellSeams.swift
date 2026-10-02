@@ -195,15 +195,17 @@ enum CellSeams {
     /// whichever pane it is pressed in.
     ///
     /// Return opens an empty cell, ↑ and ↓ walk into the cell beside the
-    /// bar, Escape takes the bar back — and EVERYTHING ELSE takes the bar
-    /// back too and is not run at all, because the promise of the bar is
-    /// that clicking about the page and pressing keys at it leaves the note
-    /// byte for byte as it was (docs/FEATURES.md). The source pane used to
-    /// put the bar out and then run the command anyway, from the caret the
-    /// bar had parked at the start of the cell below: ⌫ there joined that
-    /// cell to the one above, ⌦ took its first letter, Tab indented it.
-    /// The rendered page has never run them — a seam has no text to run
-    /// them in — and that is the answer both give now.
+    /// bar, Escape takes the bar back — and everything else takes the bar
+    /// back too and is `.pass`: whoever else wants it can have it, which
+    /// in this pane is NSTextView, and it may have it only when the key
+    /// cannot edit (`handsOn`). The promise of the bar is that clicking
+    /// about the page and pressing keys at it leaves the note byte for
+    /// byte as it was (docs/FEATURES.md). The source pane used to put the
+    /// bar out and then run every command anyway, from the caret the bar
+    /// had parked at the start of the cell below: ⌫ there joined that cell
+    /// to the one above, ⌦ took its first letter, Tab indented it. The
+    /// rendered page has never run them — a seam has no text to run them
+    /// in — and that is the answer both give now.
     static func command(_ name: String) -> MarkdownPreview.SeamKey {
         switch name {
         // ⌃↩ and ⌥↩ are Return as well: on the rendered page they arrive
@@ -214,6 +216,37 @@ enum CellSeams {
         case "cancelOperation:": return .disarm
         default: return .pass
         }
+    }
+
+    /// Whether a `.pass` key goes on to NSTextView once the bar is out —
+    /// true only for one that moves the caret, extends a selection or
+    /// scrolls, because NSTextView runs it from the caret the bar parked
+    /// IN the cell below, and an edit there is the very thing the bar
+    /// promises never to make.
+    ///
+    /// The first cut ran none of them, so they went with the edits: every
+    /// ↓ through a note arms a bar on each separator, and from any of
+    /// them ⇧↓ could not start a selection, Page Down did not scroll and
+    /// ⌘↓ never reached the end (review, 2026-10-02). On the rendered page
+    /// the same keys are `.pass` too, and its scroll view takes the page
+    /// keys. ← and → are the exception, `moveBackward:` and `moveForward:`
+    /// (⌃B, ⌃F) being the same keys by their Emacs names: they put the bar
+    /// away and do nothing else, as on the rendered page, and whether they
+    /// should walk out of it the way ↑ and ↓ do is Sean's to say.
+    static func handsOn(_ name: String) -> Bool {
+        if ["moveLeft:", "moveRight:", "moveBackward:", "moveForward:"].contains(name) { return false }
+        return ["move", "page", "scroll", "select"].contains { name.hasPrefix($0) }
+            || name == "centerSelectionInVisibleArea:"
+    }
+
+    /// Whether the END of the note is inside its last cell: a fence whose
+    /// closing line has not been typed runs to the end of the note
+    /// (`Insertion.isClosed`), so a caret there is in its code and there
+    /// is no bar under it. A cell opened there went in as two more lines
+    /// of the same code.
+    static func endsInCode(_ markdown: String) -> Bool {
+        guard let last = MarkdownParser.positioned(from: markdown).last, case .code = last.block else { return false }
+        return !Insertion.isClosed(last.range, markdown as NSString)
     }
 
     /// Where ↑ or ↓ at a bar puts the caret: at the END of the cell above

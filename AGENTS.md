@@ -1288,18 +1288,36 @@ CoreMind's `bin/report-status.sh`.
   OFFSET and never the caret, because a click parks the caret at the
   start of the cell below and ↓ from there skipped that cell while ↑
   re-armed the same bar — and at the two ends of the note the bar
-  stays; EVERY OTHER KEY takes the bar back and is NOT RUN. It used to
-  be put out and then run from that parked caret: ⌫ joined the cell
-  below to the one above, ⌦ took its first letter, Tab indented it.
+  stays; EVERY OTHER KEY takes the bar back, and ONE THAT COULD EDIT IS
+  NOT RUN. It used to be put out and then run from that parked caret:
+  ⌫ joined the cell below to the one above, ⌦ took its first letter,
+  Tab indented it. A key that only moves the caret, extends a selection
+  or scrolls — ⌘↓, ⇧↓, ⌥↓, Page Down, Home, End — IS run afterwards
+  (`CellSeams.handsOn`): `.pass` is "whoever else wants the key can
+  have it", the rendered page's scroll view takes the page keys, and
+  the first cut swallowed them with the edits, so from any bar ↓ had
+  armed ⇧↓ started no selection and Page Down did not scroll (review,
+  2026-10-02). ← and → (and ⌃B, ⌃F) only put the bar away, as on the
+  rendered page; whether they should walk out of it is Sean's to say.
   The caret is then left IN A CELL — the start of the one below, under
   the last cell the end of it — never on the separator, where the next
-  character welded three cells into one paragraph. Between two cells
-  the caret reaches a bar by itself, on the blank line; the two ends
-  have no such line, so the coordinator arms them (`armEndSeam`, on ↑
-  from the first LAID-OUT line and ↓ from the last,
+  character welded three cells into one paragraph; it is SET there even
+  when a click already put it there, because NSTextView announces an
+  unchanged selection all the same and that announcement is the only
+  way the brackets and the marker hiding hear the bar has gone — the
+  first cut skipped it, and after Escape at a clicked bar "## Notes"
+  kept its hashes hidden with the caret in front of them. A key that
+  moves runs from that caret, so it starts in a cell too. Between two
+  cells the caret reaches a bar by itself, on the blank line; the two
+  ends have no such line, so the coordinator arms them (`armEndSeam`,
+  on ↑ from the first LAID-OUT line and ↓ from the last,
   `MarkdownTextView.isOnEndLine`), and `CellSeams.arm` reads the empty
   line after a final newline as the tail seam — so ↓ off the last cell
   and Return at the end of it give the bar, as on the rendered page.
+  Not under a fence that never closed: it runs to the end of the note,
+  so the end is in its code (`CellSeams.endsInCode`, which reads
+  `Insertion.isClosed`), and a bar armed there opened "a cell" two
+  lines further down the same code block.
 - **A funnel is not only keystrokes.** `insertText(_:replacementRange:)`
   opens an armed seam only when the range is `{NSNotFound, 0}`, which is
   what AppKit passes for typing. A caller that NAMES a range means that
@@ -2623,7 +2641,13 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   the first one's place — from the coordinator's `shouldChangeTextIn`,
   and only for an edit over the FIRST selected range, which is the
   user's keystroke; a whole-cell command's own spans go through as
-  made. ⌦ goes through `deleteHeldCells` as ⌫ does (NSTextView took the
+  made. That edit asks `shouldChangeText` of ITSELF and comes back to
+  the same delegate, which lets it through ahead of the hidden-marker
+  widening (`replacingHeld`): it is trimmed of what the note keeps at
+  either end, so it can start or stop inside a marker, and widened, it
+  was refused for the widening's own edit — a `#` typed over a section
+  was lost, and a cell nobody held lost its closing backtick (review,
+  2026-10-02). ⌦ goes through `deleteHeldCells` as ⌫ does (NSTextView took the
   words and left the blank lines), and Escape lets held cells go
   (`letGoOfHeldCells`), as on the rendered page. ⌘D's run has the same
   first-range hole and is NOT fixed (docs/TODO.md). The second:

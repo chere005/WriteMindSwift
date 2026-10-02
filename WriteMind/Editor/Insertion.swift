@@ -194,8 +194,9 @@ enum Insertion {
 
     /// Whether a fenced cell has its closing line. The parser closes one at
     /// any line that starts with three backticks, and runs one that never
-    /// meets such a line to the end of the note.
-    private static func isClosed(_ cell: NSRange, _ ns: NSString) -> Bool {
+    /// meets such a line to the end of the note. The bar asks it too
+    /// (`CellSeams.endsInCode`): there is none under a cell like that.
+    static func isClosed(_ cell: NSRange, _ ns: NSString) -> Bool {
         let last = line(at: NSMaxRange(cell), ns)
         return last.location > cell.location
             && ns.substring(with: last).trimmingCharacters(in: .whitespaces).hasPrefix("```")

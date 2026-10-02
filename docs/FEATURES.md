@@ -70,7 +70,9 @@ is how the code is put together.
   up, and the first thing typed becomes a cell of its own there, Return
   opens an empty one, and Escape or a click anywhere else takes the line
   back without leaving an empty cell behind — as does every other key:
-  ⌫, ⌦ and Tab at the line touch neither cell beside it. Press the `+`
+  ⌫, ⌦ and Tab at the line touch neither cell beside it, and a key that
+  only moves or scrolls, ⌘↓, ⇧↓ or Page Down, puts the line away and
+  then does just that. Press the `+`
   at the end of the line and it drops the kinds of cell down — Body Text, the heading
   ladder from Title to Subsubsection, the three lists, Quote, Code Block
   — and the next thing typed makes a cell of the kind you picked, with
@@ -89,7 +91,9 @@ is how the code is put together.
 - **The arrow keys walk cell, line, cell.** The line is not only what a
   click makes: ↓ off the bottom of a cell lands ON it, ↓ again goes into
   the next cell, and ↑ comes back the same way — the line above the first
-  cell and the one under the last included. Return at the end of a cell
+  cell and the one under the last included (not under a code block still
+  waiting for its closing fence: the end of the note is in its code, and
+  ↓ stays there). Return at the end of a cell
   leaves you on the line under it too, so what you type next is a cell
   of its own. Getting there by arrow and getting there by click leave
   the page in the same state — type and you get a new cell between the

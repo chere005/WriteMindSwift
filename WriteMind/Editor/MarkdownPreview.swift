@@ -1485,7 +1485,8 @@ struct MarkdownPreview: View {
             // cell somewhere he cannot see (docs/FEATURES.md: "Escape, an
             // arrow or a click anywhere else takes the line back without
             // leaving an empty cell behind"). The markdown pane's
-            // `doCommand(by:)` does exactly this for every selector.
+            // `doCommand(by:)` does the same, and hands the key on to
+            // NSTextView only when it cannot edit (`CellSeams.handsOn`).
             disarm()
             return .ignored
         case .disarm:

@@ -160,19 +160,97 @@ final class KeyAtTheBarTests: XCTestCase {
 
     func testTheTwoPanesReadEveryKeyAtABarTheSameWay() {
         // The source pane reads selectors, the rendered page characters;
-        // the same key has to mean the same thing in both.
+        // the same key has to mean the same thing in both. Each selector
+        // beside the characters ITS key arrives with: ⌫ is "\u{7F}" and ⌦
+        // is "\u{F728}" — this table had ⌦'s selector against ⌫'s
+        // character, and never asked about ⌫ at all.
         let keys: [(Selector, String)] = [
             (#selector(NSResponder.insertNewline(_:)), "\r"),
             (#selector(NSResponder.cancelOperation(_:)), "\u{1B}"),
             (#selector(NSResponder.moveUp(_:)), "\u{F700}"),
             (#selector(NSResponder.moveDown(_:)), "\u{F701}"),
-            (#selector(NSResponder.deleteForward(_:)), "\u{7F}"),
+            (#selector(NSResponder.moveLeft(_:)), "\u{F702}"),
+            (#selector(NSResponder.moveRight(_:)), "\u{F703}"),
+            (#selector(NSResponder.deleteBackward(_:)), "\u{7F}"),
+            (#selector(NSResponder.deleteForward(_:)), "\u{F728}"),
             (#selector(NSResponder.insertTab(_:)), "\t"),
+            (#selector(NSResponder.scrollPageUp(_:)), "\u{F72C}"),
+            (#selector(NSResponder.scrollPageDown(_:)), "\u{F72D}"),
+            (#selector(NSResponder.scrollToBeginningOfDocument(_:)), "\u{F729}"),
+            (#selector(NSResponder.scrollToEndOfDocument(_:)), "\u{F72B}"),
         ]
         for (selector, characters) in keys {
             XCTAssertEqual(CellSeams.command(NSStringFromSelector(selector)),
                            MarkdownPreview.seamKey(characters: characters, modifiers: []),
                            NSStringFromSelector(selector))
+        }
+    }
+
+    func testAKeyThatOnlyMovesStillMovesOnceTheBarIsOut() {
+        // "Whoever else wants the key can have it" (`SeamKey.pass`): on the
+        // rendered page the scroll view takes Page Down, and here NSTextView
+        // takes ⌘↓, ⇧↓, ⌥↓ — which were swallowed with the edits, so ↓
+        // onto any bar and then ⇧↓ could not start a selection, Page Down
+        // did not scroll and ⌘↓ did not reach the end of the note.
+        let end = SourcePane(note)
+        end.click(seam: 12)
+        end.key(#selector(NSResponder.moveToEndOfDocument(_:)))
+        XCTAssertNil(end.tv.armedSeam)
+        XCTAssertEqual(end.tv.selectedRange(), NSRange(location: 35, length: 0), "⌘↓ reaches the end")
+        let paragraph = SourcePane(note)
+        paragraph.click(seam: 12)
+        // ⌥↓ is two commands; the second arrives with the bar already out.
+        paragraph.key(#selector(NSResponder.moveForward(_:)))
+        paragraph.key(#selector(NSResponder.moveToEndOfParagraph(_:)))
+        XCTAssertEqual(paragraph.tv.selectedRange(), NSRange(location: 23, length: 0), "⌥↓: the end of the cell below")
+        let shifted = SourcePane(note)
+        shifted.click(seam: 12)
+        shifted.key(#selector(NSResponder.moveDownAndModifySelection(_:)))
+        XCTAssertNil(shifted.tv.armedSeam)
+        XCTAssertEqual(shifted.tv.selectedRange().location, 12, "from the start of the cell below")
+        XCTAssertGreaterThan(shifted.tv.selectedRange().length, 0, "⇧↓ starts a selection")
+        for pane in [end, paragraph, shifted] { XCTAssertEqual(pane.tv.string, note) }
+    }
+
+    func testOnlyAKeyThatCannotEditIsHandedOn() {
+        // The source pane's "whoever else" is NSTextView at the caret the
+        // bar parked IN the cell below, so a key is handed on only when it
+        // moves, selects or scrolls. ← and → put the bar away and no more,
+        // as on the rendered page.
+        for name in ["moveToEndOfDocument:", "moveToBeginningOfDocument:", "moveDownAndModifySelection:",
+                     "moveUpAndModifySelection:", "moveToEndOfParagraph:", "moveWordRight:", "pageDown:",
+                     "scrollPageDown:", "scrollPageUp:", "scrollToBeginningOfDocument:",
+                     "scrollToEndOfDocument:", "scrollLineDown:", "selectAll:", "centerSelectionInVisibleArea:"] {
+            XCTAssertTrue(CellSeams.handsOn(name), name)
+        }
+        for name in ["deleteBackward:", "deleteForward:", "deleteWordBackward:", "deleteToEndOfParagraph:",
+                     "insertTab:", "insertBacktab:", "transpose:", "yank:", "capitalizeWord:", "complete:",
+                     "noop:", "moveLeft:", "moveRight:", "moveBackward:", "moveForward:"] {
+            XCTAssertFalse(CellSeams.handsOn(name), name)
+        }
+    }
+
+    func testPuttingAClickedBarAwayTellsEveryReaderTheCaretIsInTheCellBelow() throws {
+        // A click parks the caret at the start of the cell below, so a key
+        // that put the bar away moved nothing, NSTextView said nothing, and
+        // the brackets and the marker hiding went on answering for a bar
+        // that was gone: "## Notes" kept its hashes hidden with the caret
+        // in front of them — the next character went before them, and the
+        // heading became a paragraph nobody saw coming.
+        let heading = "First\n\n## Notes"
+        let line = NSRange(location: 7, length: 8)
+        for selector in [#selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.cancelOperation(_:)),
+                         #selector(NSResponder.moveDown(_:))] {
+            let name = NSStringFromSelector(selector)
+            let pane = SourcePane(heading)
+            pane.click(seam: 7)
+            XCTAssertNil(pane.coordinator.hiding.revealed, "the premise: at the bar no cell shows its markers")
+            pane.key(selector)
+            XCTAssertNil(pane.tv.armedSeam, name)
+            XCTAssertEqual(pane.tv.selectedRange(), NSRange(location: 7, length: 0), name)
+            XCTAssertEqual(pane.coordinator.hiding.revealed, line, "\(name): the heading shows its ## ")
+            let bracket = try XCTUnwrap(pane.gutter.brackets.first { $0.isCell && NSEqualRanges($0.range, line) })
+            XCTAssertTrue(bracket.selected, "\(name): and its bracket is lit")
         }
     }
 }
@@ -266,6 +344,27 @@ final class ArrowAtTheBarTests: XCTestCase {
         XCTAssertEqual(pane.tv.armedSeam, 10)
         pane.type("x")
         XCTAssertEqual(pane.blocks, [.paragraph("Only cell"), .paragraph("x")])
+    }
+
+    func testDownOffAFenceThatNeverClosedStaysInItsCode() {
+        // An unclosed fence runs to the end of the note, so the end of the
+        // note is in its code and there is no bar under it: `CellSeams.arm`
+        // says so for the empty line after a final newline, and the arm
+        // off the last line did not ask. Typing at that bar opened "a cell"
+        // two newlines further down the same code block.
+        for (fence, caret) in [("```python\ncode", 12), ("```python\ncode\n", 15)] {
+            let pane = SourcePane(fence)
+            pane.caret(at: caret)
+            pane.key(#selector(NSResponder.moveDown(_:)))
+            XCTAssertNil(pane.tv.armedSeam, fence)
+            pane.type("x")
+            XCTAssertEqual(pane.tv.string, fence + "x", fence)
+        }
+        // A GUARD: once it is closed, the bar under it is a bar.
+        let closed = SourcePane("```python\ncode\n```")
+        closed.caret(at: 17)
+        closed.key(#selector(NSResponder.moveDown(_:)))
+        XCTAssertEqual(closed.tv.armedSeam, 18)
     }
 
     func testAWrappedFirstParagraphWalksItsOwnLinesFirst() {
@@ -403,6 +502,29 @@ final class HeldCellsTests: XCTestCase {
         pane.hold(CellSelection.cells(of: section.range, in: pane.cells))
         pane.type("x")
         XCTAssertEqual(pane.tv.string, "x\n\n# Next\n\nBody")
+    }
+
+    func testTheEditThatReplacesThemIsNotWidenedOverAMarker() {
+        // `CellCommands.typing` hands back the one span the note changed
+        // in, trimmed of what the two versions share at either end — so it
+        // can begin or end in the middle of a marker. It went in through
+        // the delegate's hidden-marker widening, which took the marker
+        // whole, applied ITS edit and refused this one. A `#` typed over a
+        // section kept "# " in common, the widening took the `#` back
+        // out: the `#` was lost and the note began with two blank lines.
+        let notebook = "# Head\n\none\n\ntwo\n\n# Next\n\nBody"
+        let section = SourcePane(notebook)
+        section.hold(CellSelection.cells(of: NotebookOutline.sections(in: notebook)[0].range, in: section.cells))
+        section.type("#")
+        XCTAssertEqual(section.tv.string, "#\n\n# Next\n\nBody")
+        // And a cell nobody held lost its closing backtick: the span ended
+        // just inside the shared "`", and the widening read the backtick
+        // of the HELD cell's pair as an orphan and removed the one after.
+        let code = "Intro\n\nUse `foo`\n\nUse `bar`"
+        let pair = SourcePane(code)
+        pair.hold([NSRange(location: 0, length: 5), NSRange(location: 18, length: 9)])
+        pair.type("x")
+        XCTAssertEqual(pair.tv.string, "x\n\nUse `foo`")
     }
 
     func testForwardDeleteTakesThemAllAsBackspaceDoes() {

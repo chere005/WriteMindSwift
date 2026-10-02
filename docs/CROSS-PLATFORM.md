@@ -21,15 +21,22 @@ ux behavior...". What a test pass across both views settled, each the same in
 the markdown view and the rendered one:
 - **A key at the bar.** Return makes an empty cell there; ↑ goes into the cell
   above (caret at its end), ↓ into the cell below (at its start), and at the
-  top or bottom of the note the bar stays; EVERY other key — Escape, ⌫, ⌦,
-  Tab — takes the bar back and does nothing else. A key pressed at a bar must
-  never edit the cell beside it. Where the caret is left, if the view has
-  one, is inside a cell, never on the empty line between two: a character
-  typed there joins the cells either side into one paragraph.
+  top or bottom of the note the bar stays; every other key takes the bar
+  back, and Escape, ←, → and every key that could edit — ⌫, ⌦, Tab — do
+  nothing else. A key pressed at a bar must never edit the cell beside it. A
+  key that only moves, selects or scrolls — Page Down, Home, End, ⌘↓, ⇧↓ —
+  still does that once the bar is out; swallowing those with the edits left
+  no way to start a selection or page down from a bar. Where the caret is
+  left, if the view has one, is inside a cell, never on the empty line
+  between two: a character typed there joins the cells either side into one
+  paragraph. And whatever shows the caret's cell — its lit bracket, its
+  markers shown for typing — has to hear about it even when the caret was
+  already there, as it is after a click on the bar.
 - **The arrows reach every bar**, the one above the first cell and the one
   under the last included, and Return at the end of a cell leaves you on the
   bar under it — what is typed next is a new cell, not a second line of the
-  one above.
+  one above. There is no bar under a code block whose closing fence has not
+  been typed: it runs to the end of the note, and ↓ off it stays in its code.
 - **A command that acts on a cell does nothing at a bar**: delete,
   duplicate, move, split, merge, move section. The bar is in no cell; a
   fallback to "the first cell" turns Delete Cell at a bar into deleting the
@@ -39,7 +46,9 @@ the markdown view and the rendered one:
   both take them and close the stack; Escape lets go; a click on a bracket
   that is already held, with no drag, takes that one alone. A text widget
   that edits only the first range of a multiple selection is not enough
-  here.
+  here — and the replacement is whole cells, never reshaped on its way in by
+  the editor's own tidying of markdown markers: that lost a `#` typed over a
+  section and a closing backtick from a cell nobody held.
 - **A drag from a bar** takes cells only — never the bracket round an
   evaluation pair as if it were one, which took the cell above the bar too.
 

@@ -1046,6 +1046,14 @@ struct MarkdownTextView: NSViewRepresentable {
                     return false
                 }
             }
+            // The edit that replaces held cells asks this of itself, and
+            // goes through as made: it is whole cells, but trimmed of what
+            // the note keeps at either end, so it can begin or end inside a
+            // marker — and widened over one, the widening applied ITS edit
+            // and refused this. A `#` typed over a section was lost and the
+            // note began with two blank lines; a cell nobody held lost its
+            // closing backtick (review, 2026-10-02).
+            if replacingHeld { return true }
             if let replacementString,
                !typeOverHeldCells(textView, range: affectedCharRange, replacement: replacementString) {
                 return false
@@ -1177,11 +1185,16 @@ struct MarkdownTextView: NSViewRepresentable {
         ///
         /// Armed first and then the caret moved, the way a click arms one,
         /// so `arm` keeps it. False — NSTextView's own move — anywhere but
-        /// the first or last line of the page.
+        /// the first or last line of the page, and under a fence that
+        /// never closed: the end of the note is in its code
+        /// (`CellSeams.endsInCode`, the rule `CellSeams.arm` keeps for the
+        /// empty line after a final newline), and what was typed at that
+        /// bar went in as two more lines of the code.
         private func armEndSeam(_ textView: NSTextView, up: Bool) -> Bool {
             guard parent.seamsEnabled, let tv = textView as? PasteAwareTextView, tv.armedSeam == nil,
                   tv.selectedRanges.count == 1, tv.selectedRange().length == 0,
-                  MarkdownTextView.isOnEndLine(of: tv, top: up) else { return false }
+                  MarkdownTextView.isOnEndLine(of: tv, top: up),
+                  up || !CellSeams.endsInCode(tv.string) else { return false }
             let seams = MarkdownTextView.seams(in: tv)
             guard let seam = up ? seams.first : seams.last else { return false }
             let offset = min(seam.offset, (tv.string as NSString).length)
@@ -1205,8 +1218,7 @@ struct MarkdownTextView: NSViewRepresentable {
         /// True: NSTextView goes ahead as asked. False: the edit was made
         /// here and NSTextView's is not wanted.
         private func typeOverHeldCells(_ tv: NSTextView, range: NSRange, replacement: String) -> Bool {
-            guard !replacingHeld, tv.selectedRanges.count > 1,
-                  tv.selectedRanges.first?.rangeValue == range else { return true }
+            guard tv.selectedRanges.count > 1, tv.selectedRanges.first?.rangeValue == range else { return true }
             let cells = MarkdownParser.positioned(from: tv.string).map(\.range)
             let held = CellSelection.picked(cells: cells, selection: tv.selectedRanges.map(\.rangeValue))
             guard let edit = CellCommands.typing(replacement, over: held, in: tv.string) else { return true }
@@ -1217,7 +1229,8 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         /// True while that edit is going in: it asks `shouldChangeText`
-        /// itself, with the held ranges still selected.
+        /// itself, with the held ranges still selected, and the delegate
+        /// lets it through untouched.
         private var replacingHeld = false
     }
 }
@@ -1309,14 +1322,16 @@ class PasteAwareTextView: NSTextView {
     /// with the same key, read through `CellSeams.command`. Return opens
     /// the empty cell there; ↑ and ↓ walk into the cell above or below,
     /// and at the two ends of the note, where there is none, the bar
-    /// stays; everything else — Escape, a delete, Tab — puts the bar out
-    /// and leaves the note exactly as it was, because clicking about the
-    /// page must never leave an empty cell behind, and a key pressed at a
-    /// bar must never edit the cell beside it.
+    /// stays; everything else — Escape, a delete, Tab, Page Down — puts
+    /// the bar out and leaves the note exactly as it was, because clicking
+    /// about the page must never leave an empty cell behind, and a key
+    /// pressed at a bar must never edit the cell beside it. A key that
+    /// only moves, selects or scrolls then does that (`CellSeams.handsOn`).
     override func doCommand(by selector: Selector) {
         guard let offset = armedSeam else { return super.doCommand(by: selector) }
         let type = armedType
-        switch CellSeams.command(NSStringFromSelector(selector)) {
+        let meaning = CellSeams.command(NSStringFromSelector(selector))
+        switch meaning {
         case .empty, .write:
             armedSeam = nil
             MarkdownTextView.openSeam(at: offset, as: type, in: self)
@@ -1336,8 +1351,19 @@ class PasteAwareTextView: NSTextView {
             // merge arming exists to stop.
             let caret = CellSeams.step(from: offset, up: false, in: string)
                 ?? CellSeams.step(from: offset, up: true, in: string) ?? offset
-            let parked = NSRange(location: min(caret, (string as NSString).length), length: 0)
-            if selectedRange() != parked { setSelectedRange(parked) }
+            // Set EVEN WHERE IT ALREADY IS. A click parks the caret right
+            // there, so putting the bar away moved nothing; skipping the
+            // set when nothing moved meant no selection change, and the
+            // brackets and the marker hiding — which hear that the bar has
+            // gone only through one — went on answering for it: no bracket
+            // lit, and "## Notes" kept its hashes hidden with the caret in
+            // front of them (review, 2026-10-02). NSTextView announces an
+            // unchanged selection all the same (measured, 2026-10-02).
+            setSelectedRange(NSRange(location: min(caret, (string as NSString).length), length: 0))
+            // From that caret, so a key that moves starts in a cell.
+            if meaning == .pass, CellSeams.handsOn(NSStringFromSelector(selector)) {
+                super.doCommand(by: selector)
+            }
         }
     }
 
