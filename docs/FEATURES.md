@@ -90,7 +90,14 @@ is how the code is put together.
   you get a new cell between the two, not a character that welds them
   into one.
 - **The same place, whichever mode.** Switching between the markdown and
-  the rendered page reopens on the cell you were looking at.
+  the rendered page (⌘T) reopens on the line you were looking at — the
+  same cell and the same way into it, or the same gap between two cells
+  — with the caret where it was (the cell it is in opens round it on the
+  rendered page), the bar between two cells still armed with whatever its
+  + chose, and the cells held by their brackets still held. A picture, a
+  stroke or a flow chart sits beside the same words in both modes, and on
+  paper: the two modes space the cells differently, and the drawing goes
+  with the cells rather than with a number of points down the page.
 - **Sections of a note are cells.** A heading owns everything under it
   until the next heading of its rank, and the brackets down the right-hand
   side show the nesting the way a Wolfram notebook does. Click one to fold

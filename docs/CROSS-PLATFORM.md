@@ -15,6 +15,49 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### ⌘T keeps everything where it was
+Sean, 2026-10-03: "preserve the position of things as much as possible
+between markdown and wysiwyg mode". The two modes lay the same cells out
+at different heights — the rendered page leaves a full blank line's air
+between two cells where the markdown view, markers hidden, leaves about
+half that; a code cell's fence lines are full lines in one and a little
+padding in the other — so anything carried across as a number of points
+lands somewhere else. Three things cross, all by the CELLS the two views
+share (a cell is known by the character offset it starts at):
+
+- **Drawings are kept in ONE view's frame and shown in the other through
+  the cells.** Keep them where the markdown view puts them (that is where
+  a launch opens and where captures land under the caret, so it is where
+  existing drawings were made). The rendered view maps a point
+  piecewise-linearly between the edges of the cells both views have laid
+  out: inside a cell by how far down it, in the gap between two by how far
+  across the gap, above the first cell by how far down the air above it,
+  past the last by the distance below it; across, linearly between the
+  two text columns. It must be monotone and exactly invertible (the same
+  knots, swapped) and the identity when the layouts agree; a cell only
+  one view has (folded, not measured yet) is no knot. An object moves
+  WHOLE by the top left of its box — never stretched — a group by the top
+  left of the whole group, and an arrow point by point with its ends put
+  back on its nodes. Whatever is drawn, dragged or dropped on the rendered
+  view goes back through the inverse; anything it did not touch is written
+  back exactly as stored. The PDF, laid out the rendered way, uses the
+  same mapping.
+- **The top of the window is a cell and how far into it**: 0 at its top,
+  1 at its bottom, between −1 and 0 in the gap above it. Both views read
+  it by one rule — the first cell whose bottom is below the top edge —
+  and put the same fraction back. It belongs to the open note (another
+  note opens at its top) and moves with its cell when an edit lands above
+  it.
+- **The cursor goes with it**: a caret or selection (in note offsets), the
+  cells held by their brackets, or the bar between two cells with the
+  kind its + chose. On the rendered view the cell round the caret opens
+  with the caret at the same character (after the fence line, for code;
+  in one reminder's words, for a checklist); on the markdown view the
+  caret is put back and takes the keyboard. With no cursor, the markdown
+  view's caret goes to the start of the cell at the top of the window,
+  and a command on the rendered view opens that cell — never the end or
+  the start of the note, which nobody is looking at.
+
 ### A drawn shape stays armed; a mark is one click
 Sean, 2026-10-02: "after drawing a rectangle dont exit rectangle mode..".
 - **What stays**: anything DRAWN — a flow-chart node (dragged corner to

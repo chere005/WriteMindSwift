@@ -74,57 +74,105 @@ final class CellBracketTests: XCTestCase {
 }
 
 /// The same place, whichever mode is showing (Sean, 2026-09-19: "positions
-/// stay the same in markdown and wysiwyg mode"). The two sides lay a note
-/// out at different heights, so what carries across is the CELL at the top,
-/// not the number of points scrolled.
+/// stay the same in markdown and wysiwyg mode"; 2026-10-03: "preserve the
+/// position of things as much as possible between markdown and wysiwyg
+/// mode"). The two sides lay a note out at different heights, so what
+/// carries across is the CELL at the top and how far into it — not the
+/// number of points scrolled.
 final class TopCellTests: XCTestCase {
-    private let places: [Int: (top: CGFloat, bottom: CGFloat)] = [
-        0: (top: 20, bottom: 80),
-        12: (top: 94, bottom: 180),
-        40: (top: 194, bottom: 600),
-        90: (top: 614, bottom: 700),
+    /// The rendered page's cells.
+    private let page: [CellSeams.Box] = [
+        (top: 20, bottom: 80, offset: 0),
+        (top: 94, bottom: 180, offset: 12),
+        (top: 194, bottom: 600, offset: 40),
+        (top: 614, bottom: 700, offset: 90),
+    ]
+    /// The same cells as the markdown pane lays them out: closer together,
+    /// the long one a little shorter.
+    private let source: [CellSeams.Box] = [
+        (top: 20, bottom: 74, offset: 0),
+        (top: 88, bottom: 170, offset: 12),
+        (top: 184, bottom: 560, offset: 40),
+        (top: 574, bottom: 660, offset: 90),
     ]
 
-    func testTheTopOfThePageIsTheFirstCell() {
-        XCTAssertEqual(PreviewLayout.topRow(positions: places, scroll: 0), 0)
+    func testTheTopOfThePageIsTheAirAboveTheFirstCell() {
+        XCTAssertEqual(CellPlace.at(0, in: page), CellPlace(cell: 0, fraction: -1))
+        XCTAssertEqual(CellPlace.top.y(in: source), 0)
     }
 
     func testScrollingPastACellMovesTheAnswerOn() {
-        XCTAssertEqual(PreviewLayout.topRow(positions: places, scroll: 100), 12)
-        XCTAssertEqual(PreviewLayout.topRow(positions: places, scroll: 300), 40)
-        XCTAssertEqual(PreviewLayout.topRow(positions: places, scroll: 5_000), 90)
+        XCTAssertEqual(CellPlace.at(100, in: page)?.cell, 12)
+        XCTAssertEqual(CellPlace.at(300, in: page)?.cell, 40)
+        XCTAssertEqual(CellPlace.at(5_000, in: page), CellPlace(cell: 90, fraction: 1),
+                       "past the last cell is its bottom")
     }
 
-    func testACellAlmostAtTheTopCountsAsTheTopOne() {
-        // A few points short of a cell's top, the window is showing that
-        // cell, not the sliver of the one before it — and a switch back
-        // lands on the same one, so modes do not walk the page.
-        XCTAssertEqual(PreviewLayout.topRow(positions: places, scroll: 194), 40)
-        XCTAssertEqual(PreviewLayout.topRow(positions: places, scroll: 190), 40, "within the tolerance")
-        XCTAssertEqual(PreviewLayout.topRow(positions: places, scroll: 180), 12, "outside it")
+    func testThePlaceInsideACellIsKept() {
+        // Half way down the long cell on the page is half way down it in
+        // the markdown pane — not its top, which is where the switch used
+        // to put it: 397 came back as 194, two hundred points up.
+        let place = CellPlace.at(397, in: page)
+        XCTAssertEqual(place, CellPlace(cell: 40, fraction: 0.5))
+        XCTAssertEqual(place?.y(in: source), 372)
     }
 
-    func testSwitchingBackAndForthStaysOnTheSameCell() {
-        let places = self.places
+    func testTheAirBetweenTwoCellsIsNotTheCellAbove() {
+        // Seven points above the long cell, in the 14-point seam over it:
+        // the window is showing the air before cell 40, and the switch
+        // used to read it as the cell above and open a whole cell up.
+        let place = CellPlace.at(187, in: page)
+        XCTAssertEqual(place?.cell, 40)
+        XCTAssertEqual(place?.fraction ?? 0, -0.5, accuracy: 1e-9)
+        XCTAssertEqual(place?.y(in: source) ?? 0, 177, accuracy: 1e-9, "half way across the seam there too")
+    }
+
+    func testSwitchingBackAndForthStaysOnTheSameLine() {
         var scroll: CGFloat = 300
         for _ in 0..<4 {
-            let cell = PreviewLayout.topRow(positions: places, scroll: scroll)
-            XCTAssertEqual(cell, 40)
-            scroll = places[cell ?? 0]?.top ?? 0
+            let there = CellPlace.at(scroll, in: page)?.y(in: source) ?? -1
+            scroll = CellPlace.at(there, in: source)?.y(in: page) ?? -1
+            XCTAssertEqual(scroll, 300, accuracy: 1e-9, "modes do not walk the page")
         }
     }
 
-    func testAnEmptyPageHasNoTopCell() {
-        XCTAssertNil(PreviewLayout.topRow(positions: [:], scroll: 0))
+    func testACellThePaneHasNotMeasuredFallsBackToTheCellBefore() {
+        // Folded away on the other side, or not measured yet: the top of
+        // the last cell before it, which is what the switch always did.
+        let place = CellPlace(cell: 40, fraction: 0.5)
+        let without = page.filter { $0.offset != 40 }
+        XCTAssertEqual(place.y(in: without), 94)
     }
 
-    func testTheCellIsFoundFromAnOffsetInsideIt() {
-        // What the rendered page scrolls to when the markdown pane hands it
-        // a character offset that is halfway through a block.
-        let text = "First cell\n\n## A heading\n\nWords under it"
-        let blocks = MarkdownParser.positioned(from: text)
-        XCTAssertEqual(blocks.last(where: { $0.range.location <= 30 })?.range.location, 26)
-        XCTAssertEqual(blocks.last(where: { $0.range.location <= 0 })?.range.location, 0)
+    func testAnEmptyPageHasNoPlace() {
+        XCTAssertNil(CellPlace.at(0, in: []))
+        XCTAssertNil(CellPlace.top.y(in: []))
+    }
+
+    func testAnEditAboveThePlaceMovesItWithItsCell() {
+        let before = "First cell\n\n## A heading\n\nWords under it"
+        let place = CellPlace(cell: 26, fraction: 0.25)
+        // Words added to the first cell: nine characters in front of it.
+        let after = "First cell and more\n\n## A heading\n\nWords under it"
+        XCTAssertEqual(place.shifted(from: before, to: after), CellPlace(cell: 35, fraction: 0.25))
+        // Taken out again.
+        XCTAssertEqual(CellPlace(cell: 35, fraction: 0.25).shifted(from: after, to: before), place)
+    }
+
+    func testAnEditInOrAfterThePlacesCellLeavesIt() {
+        let before = "First cell\n\n## A heading\n\nWords under it"
+        let place = CellPlace(cell: 12, fraction: 0.5)
+        XCTAssertEqual(place.shifted(from: before, to: before + " and more"), place)
+        XCTAssertEqual(place.shifted(from: before, to: "First cell\n\n## A heading!\n\nWords under it"), place)
+        XCTAssertEqual(CellPlace.top.shifted(from: before, to: "x" + before), .top)
+    }
+
+    func testAnEditThatTakesThePlacesCellLeavesItAtTheEdit() {
+        let before = "First cell\n\nSecond\n\nThird"
+        let place = CellPlace(cell: 12, fraction: 0.5)
+        // "Second" and the line after it gone: the place is where they were.
+        XCTAssertEqual(place.shifted(from: before, to: "First cell\n\nThird").cell, 12)
+        XCTAssertEqual(place.shifted(from: before, to: "First").cell, 5)
     }
 }
 

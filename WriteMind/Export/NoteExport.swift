@@ -31,10 +31,18 @@ enum NoteExport {
     ///
     /// `pane` is the editor pane the drawing's objects were placed against:
     /// the text is laid out at that width and the whole column is then
-    /// shrunk onto the paper, so a picture keeps the paragraph it was put
-    /// beside. Folded sections are NOT folded here — a note printed short
-    /// of the words it holds would be a note lost.
+    /// shrunk onto the paper. Folded sections are NOT folded here — a note
+    /// printed short of the words it holds would be a note lost.
+    ///
+    /// The objects are kept in the MARKDOWN pane's frame, and the paper is
+    /// laid out the rendered way, so each one goes onto the paper through
+    /// a `PaneMapping` from the markdown pane's cells to the paper's: a
+    /// picture put beside a paragraph is beside it on paper. `markers` and
+    /// `folds` are how that pane is laying the note out — its markers
+    /// shown or hidden, its sections closed — because that is the layout
+    /// the objects were put beside.
     static func pdf(markdown: String, drawing: Drawing, media: URL?, pane: CGSize,
+                    markers: Bool = true, folds: Set<String> = [],
                     paper: CGSize = PagePlan.paper, margin: CGFloat = PagePlan.margin) -> Data? {
         let size = pane.width > 40 && pane.height > 40 ? pane : fallbackPane
         let column = max(1, size.width - MarkdownPreview.sideInset * 2)
@@ -61,8 +69,10 @@ enum NoteExport {
                 spacing: MarkdownPreview.blockGap,
                 top: MarkdownPreview.topInset + MarkdownPreview.gapHeight)
 
+            var cells: [CellSeams.Box] = []
             for (index, block) in blocks.enumerated() {
                 guard heights[index] > 0, let place = places[block.range.location] else { continue }
+                cells.append(CellSeams.Box(top: place.top, bottom: place.bottom, offset: block.range.location))
                 let frame = CGRect(x: MarkdownPreview.sideInset, y: place.top,
                                    width: column, height: heights[index])
                 let renderer = renderers[index]
@@ -85,7 +95,9 @@ enum NoteExport {
             // long note to the bottom puts the whole note on one shrunken
             // sheet. That is the rule Sean asked for (2026-09-20: "free
             // floating… don't push other cells around") followed through.
-            for item in drawing.visibleItems {
+            let placed = drawingOnPaper(drawing, markdown: markdown, cells: cells, pane: size,
+                                        markers: markers, folds: folds)
+            for item in placed.visibleItems {
                 let box = item.bounds(in: size)
                 guard box.width.isFinite, box.height.isFinite, box.height > 0 else { continue }
                 pieces.append(NotePDF.Piece(frame: box) { context in
@@ -102,6 +114,18 @@ enum NoteExport {
             onPaper()
         }
         return data
+    }
+
+    /// The drawing as it goes on paper: kept in the markdown pane's frame
+    /// — that pane laying the note out with `markers` and `folds` — and
+    /// put beside the same words among the paper's own `cells`.
+    static func drawingOnPaper(_ drawing: Drawing, markdown: String, cells: [CellSeams.Box], pane size: CGSize,
+                               markers: Bool, folds: Set<String>) -> Drawing {
+        let source = MarkdownTextView.cellBoxes(of: markdown, pane: size, showMarkers: markers, collapsed: folds)
+        let mapping = PaneMapping(from: source.cells, to: cells,
+                                  fromColumn: MarkdownTextView.column(width: source.width),
+                                  toColumn: MarkdownPreview.column(width: size.width))
+        return drawing.shown(through: mapping, in: size)
     }
 
     /// One cell, as the preview draws it, on white paper.

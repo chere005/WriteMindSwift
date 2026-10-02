@@ -26,18 +26,23 @@ struct MarkdownPreview: View {
     /// How far the preview has scrolled, so the drawing layer can scroll
     /// with it and a picture stays beside the block it was put next to.
     var onScroll: ((CGFloat) -> Void)?
-    /// The cell at the top of the window, as a character offset — reported
-    /// as the page scrolls, and asked for when the page appears, so the
-    /// two modes show the same place (Sean, 2026-09-19: "positions stay
-    /// the same in markdown and wysiwyg mode").
     /// A click landed on this page rather than on the drawing layer over
     /// it, so whatever is picked up there is let go (Sean, 2026-09-21:
     /// "click away from selected object should deselect"). The source
     /// pane has had this since the text view's own `onClick`; this side
     /// never did, so an object stayed picked up whatever was clicked.
     var onClick: (() -> Void)?
-    var onTopCell: ((Int) -> Void)?
-    var topCell: Int = 0
+    /// The place at the top of the window — the cell and how far into it
+    /// (`CellPlace`) — reported as the page scrolls, and put back when the
+    /// page appears, so the two modes show the same place (Sean,
+    /// 2026-09-19: "positions stay the same in markdown and wysiwyg
+    /// mode"; 2026-10-03: "preserve the position of things as much as
+    /// possible between markdown and wysiwyg mode").
+    var onTopCell: ((CellPlace) -> Void)?
+    var topCell: CellPlace = .top
+    /// The cells' boxes on this page, each time they are measured again —
+    /// what the drawing layer is shown through (`PaneMapping`).
+    var onLayout: (([CellSeams.Box]) -> Void)?
     /// The notebook sections that are folded away — the same set the
     /// markdown editor uses, so the notebook is the same on both sides.
     var collapsed: Set<String> = []
@@ -189,6 +194,15 @@ struct MarkdownPreview: View {
     /// How far the page has been scrolled, in the document's own
     /// coordinates — the same number the drawing layer works in.
     @State private var scrolled: CGFloat = 0
+    /// The place the page is to open at, until its rows have been measured
+    /// and it has been scrolled there. Nothing is reported as the top of
+    /// the window meanwhile: the page is at its own top, and saying so
+    /// would overwrite the place it was asked to open at.
+    @State private var opening: CellPlace?
+    /// Where that place is on the page: a mark is put there, and the
+    /// page's scroll view is scrolled to put the mark at the top.
+    @State private var openingY: CGFloat = 0
+    @State private var openingMark = PageMark.Holder()
 
     /// What a seam is called when the page is scrolled to it. The rows
     /// are identified by their own offsets, which a seam has no unique
@@ -223,6 +237,11 @@ struct MarkdownPreview: View {
     static let topInset: CGFloat = 22
     /// The page's left and right margin, the same both sides.
     static let sideInset: CGFloat = 28
+
+    /// Where this page's words start and end across a pane `width` wide.
+    static func column(width: CGFloat) -> PaneMapping.Column {
+        PaneMapping.Column(left: sideInset, right: width - sideInset)
+    }
     /// The ONE gap between two cells — the same four points everywhere,
     /// whatever the cells are (Sean, 2026-09-19: "gaps should just be a
     /// small fixed padding, not some varying amount"). No block adds
@@ -273,11 +292,11 @@ struct MarkdownPreview: View {
     /// a code cell out to exactly the same height. That contract is
     /// deliberately given up here: a full line of air each side made a
     /// one-line cell three and a half lines tall, which is what Sean is
-    /// looking at. Nothing depends on the heights being EQUAL — the two
-    /// modes come back to the same cell by its id
-    /// (`PreviewLayout.topRow`, `NoteStore.topCell`), never by a
-    /// measurement — so what is lost is that a long note of code is a
-    /// different total height in the two modes, and that is all.
+    /// looking at. Nothing depends on the heights being EQUAL: the two
+    /// modes come back to the same place by the cell it is in and how far
+    /// through it (`CellPlace`, `NoteStore.topCell`), and the drawing
+    /// layer goes through the two panes' cells (`PaneMapping`) — never by
+    /// a number of points that means one thing on each side.
     static var codePadding: CGFloat { (MarkdownTextView.codeSize / 2).rounded() }
     /// The air under the last cell. All of it is the tail seam now — the
     /// gap, the strip the page used to offer a click on, and the margin
@@ -336,6 +355,14 @@ struct MarkdownPreview: View {
                     .id(SeamRow(index: cells.count))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Where the page is to open, as a point the scroll view can be
+            // scrolled to.
+            .background(alignment: .topLeading) {
+                PageMark(holder: openingMark)
+                    .frame(width: 0, height: 0)
+                    .padding(.top, openingY)
+                    .allowsHitTesting(false)
+            }
             // No padding above or below either: the air at the two ends
             // of the page is SEAM, not margin, and the head and tail
             // seams carry it themselves (`topInset` in the one,
@@ -379,21 +406,35 @@ struct MarkdownPreview: View {
         }
         .coordinateSpace(name: Self.space)
         .onPreferenceChange(PreviewRowHeights.self) { heights in
-            for (id, height) in heights {
-                if abs((rowHeights[id] ?? -1) - height) > 0.5 { rowHeights[id] = height }
+            var measured = rowHeights
+            for (id, height) in heights where abs((measured[id] ?? -1) - height) > 0.5 {
+                measured[id] = height
+                rowHeights[id] = height
             }
+            // Only a page every row of which has been measured: a row
+            // still at no height puts every cell under it a row too high.
+            guard let cells = Self.cells(of: items.map { ($0.id, measured[$0.id]) }) else { return }
+            onLayout?(cells)
+            // And the place it was asked to open at, now that it can be
+            // found.
+            markOpening(in: cells)
         }
+        // AFTER the update that moved the mark, and a turn after that:
+        // asked in the same breath as the move, the page scrolled to where
+        // the mark WAS.
+        .onChange(of: openingY) { _, _ in if opening != nil { openAtPlace() } }
         .onPreferenceChange(PreviewScrollKey.self) { offset in
             onScroll?(offset)
             // Kept, because the page has to know whether a bar armed
             // from outside it is already on screen before it moves for
             // one (`bringIntoView`).
             if scrolled != offset { scrolled = offset }
-            // Which cell the fold is on, for the other mode to open at.
-            let places = PreviewLayout.positions(rows: items.map { ($0.id, rowHeights[$0.id] ?? 0) },
-                                                 spacing: Self.blockGap,
-                                                 top: Self.topInset + Self.gapHeight)
-            if let top = PreviewLayout.topRow(positions: places, scroll: offset) { onTopCell?(top) }
+            // Which place the fold is on, for the other mode to open at.
+            guard opening == nil,
+                  let cells = Self.cells(of: items.map { ($0.id, rowHeights[$0.id]) }),
+                  let top = CellPlace.at(offset, in: cells)
+            else { return }
+            onTopCell?(top)
         }
         .background(Color(nsColor: .textBackgroundColor))
         .onChange(of: cursor) { _, cursor in onEditingChanged?(cursor != .none) }
@@ -445,13 +486,20 @@ struct MarkdownPreview: View {
             }
         }
         .onAppear {
-            // Open where the markdown pane was left, on the same cell.
-            if topCell > 0,
-               let block = MarkdownParser.positioned(from: markdown)
-                .last(where: { $0.range.location <= topCell }) {
-                DispatchQueue.main.async { page.scrollTo(block.range.location, anchor: .top) }
+            // Open where the markdown pane was left: the same place in the
+            // same cell, once the rows have been measured — which they can
+            // be already, the heights arriving before the page appears.
+            if topCell != .top {
+                opening = topCell
+                if let cells = Self.cells(of: items.map { ($0.id, rowHeights[$0.id]) }) { markOpening(in: cells) }
             }
             guard editable else { return }
+            // The cursor, read on the way out of this page by ⌘T — and
+            // the one the markdown pane was holding, put back.
+            bridge.paneCaret = { EditorBridge.Carried(caret: paneCaret, text: markdown) }
+            if let carried = bridge.takeCarried(for: markdown), let caret = carried.caret {
+                reopen(caret)
+            }
             // Every button on the bar works on this side: pressing one with
             // nothing clicked opens a block first (Sean, 2026-09-19: "allow
             // wysiwyg editing including all the buttons on the bar").
@@ -1082,6 +1130,59 @@ struct MarkdownPreview: View {
                    noteLength: (markdown as NSString).length, pageHeight: pageHeight)
     }
 
+    /// The mark moved to the place the page is to open at, and scrolled to
+    /// once it is there (`openingY`'s watcher) — or now, when it already is.
+    private func markOpening(in cells: [CellSeams.Box]) {
+        guard let wanted = opening else { return }
+        let y = max(0, wanted.y(in: cells) ?? 0)
+        if y == openingY { openAtPlace() } else { openingY = y }
+    }
+
+    /// Scroll to the place the page was asked to open at, and from then on
+    /// say where the top of the window is. Through the page's own scroll
+    /// view, to the point.
+    ///
+    /// And SAID, once it is there, to the drawing layer and the store: a
+    /// scroll view moved by hand is not one SwiftUI moved, and its scroll
+    /// preference was not seen to follow it in a window off the screen —
+    /// left to it, the layer could sit a whole page off the words.
+    private func openAtPlace() {
+        DispatchQueue.main.async {
+            defer { opening = nil }
+            guard let mark = openingMark.view, let scroll = mark.enclosingScrollView,
+                  let document = scroll.documentView else { return }
+            document.layoutSubtreeIfNeeded()
+            let at = mark.convert(NSPoint.zero, to: document)
+            let clip = scroll.contentView
+            var wanted = clip.bounds
+            wanted.origin.y = document.isFlipped ? at.y : at.y - wanted.height
+            clip.scroll(to: clip.constrainBoundsRect(wanted).origin)
+            scroll.reflectScrolledClipView(clip)
+            let y = document.isFlipped ? clip.bounds.origin.y : document.bounds.height - clip.bounds.maxY
+            onScroll?(y)
+            scrolled = y
+            if let cells = Self.cells(of: items.map { ($0.id, rowHeights[$0.id]) }),
+               let top = CellPlace.at(y, in: cells) {
+                onTopCell?(top)
+            }
+        }
+    }
+
+    /// The cells' boxes on the page, from the rows' measured heights — nil
+    /// while any row has yet to be measured, because a row at no height
+    /// puts every cell under it a row too high.
+    static func cells(of rows: [(id: Int, height: CGFloat?)]) -> [CellSeams.Box]? {
+        var measured: [(id: Int, height: CGFloat)] = []
+        for row in rows {
+            guard let height = row.height else { return nil }
+            measured.append((id: row.id, height: height))
+        }
+        let places = PreviewLayout.positions(rows: measured, spacing: blockGap, top: topInset + gapHeight)
+        return measured.compactMap { row in
+            places[row.id].map { CellSeams.Box(top: $0.top, bottom: $0.bottom, offset: row.id) }
+        }
+    }
+
     /// The same seams the markdown pane has, measured off the stack
     /// instead of off the glyphs: `CellSeams` is the one model, and the
     /// two panes only differ in how they find the cells' boxes.
@@ -1471,10 +1572,11 @@ struct MarkdownPreview: View {
 
     /// Open ONE item's words, with its box left alone. The other cursors
     /// go out the way `beginEditing` puts them out — two cursors is what
-    /// he was looking at before.
-    private func openItem(_ words: NSRange, caret: BlockEditor.Caret) {
+    /// he was looking at before. `clicked` is false for the one way in
+    /// that is not a click (`reopen`).
+    private func openItem(_ words: NSRange, caret: BlockEditor.Caret, clicked: Bool = true) {
         guard editable else { return }
-        onClick?()
+        if clicked { onClick?() }
         disarm()
         selectedCells = []
         itemDraft = (markdown as NSString).substring(with: words)
@@ -1574,9 +1676,9 @@ struct MarkdownPreview: View {
         }
     }
 
-    private func beginEditing(_ range: NSRange, caret: BlockEditor.Caret = .end) {
+    private func beginEditing(_ range: NSRange, caret: BlockEditor.Caret = .end, clicked: Bool = true) {
         guard editable else { return }
-        onClick?()
+        if clicked { onClick?() }
         // Two cursors is what he was looking at before: a block with a
         // caret in it is not a seam with a bar in it, and neither of them
         // is a handful of cells held by their brackets.
@@ -1599,19 +1701,69 @@ struct MarkdownPreview: View {
         focusToken += 1
     }
 
-    /// Something to type in: whatever is already open, else the block the
-    /// caret was last in, else the first one — and a new one when the note
-    /// is empty.
+    /// Something to type in: whatever is already open, else the cell at
+    /// the top of the window — where the eye is, and not the note's first
+    /// cell, which a command pressed straight after ⌘T used to open and
+    /// restyle wherever the page was scrolled — and a new one when the
+    /// note is empty.
     private func openSomething() -> Bool {
         guard editable else { return false }
         if cursor != .none { return true }
-        let parsed = MarkdownParser.positioned(from: markdown)
-        if let first = parsed.first {
-            beginEditing(first.range)
-        } else {
+        let shown = items
+        guard let first = shown.first else {
             insertBlock(at: (markdown as NSString).length)
+            return true
         }
+        let top = Self.cells(of: shown.map { ($0.id, rowHeights[$0.id]) })
+            .flatMap { CellPlace.at(scrolled, in: $0) }
+        beginEditing((shown.first { $0.id == top?.cell } ?? first).range)
         return true
+    }
+
+    /// This page's cursor, as ⌘T carries it (`PaneCaret`): the armed bar,
+    /// the cells held, or the caret in whatever is open.
+    private var paneCaret: PaneCaret? {
+        if let seam = armedSeam { return .bar(offset: seam.offset, kind: armedType) }
+        if !selectedCells.isEmpty { return .cells(selectedCells) }
+        let inside = bridge.textView?.selectedRange() ?? NSRange(location: 0, length: 0)
+        switch cursor {
+        case .none: return nil
+        case .cell(let range): return PaneCaret.rendered(open: range, inside: inside, fence: fence?.open)
+        case .item(let words): return PaneCaret.rendered(open: words, inside: inside, fence: nil)
+        }
+    }
+
+    /// The cursor the markdown pane was holding when ⌘T was pressed, put
+    /// back on this page — without the click every other way of opening
+    /// a cell is, which would let go of whatever the drawing layer has
+    /// picked up (it is kept across the switch).
+    private func reopen(_ caret: PaneCaret) {
+        switch caret.opening(in: markdown) {
+        case .cell(let range, let selection)?:
+            beginEditing(range, caret: .range(selection), clicked: false)
+        case .item(let words, let selection)?:
+            openItem(words, caret: .range(selection), clicked: false)
+        case .cells(let ranges)?:
+            selectedCells = ranges
+            DispatchQueue.main.async { focusedBrackets = true }
+        case .bar(let offset, let kind)?:
+            guard seamsEnabled else { return }
+            let found = seams.firstIndex { $0.offset == offset }
+                ?? items.firstIndex { $0.range.location == offset }
+                ?? (offset >= (markdown as NSString).length ? items.count : nil)
+            guard let index = found else { return }
+            let id = SeamID(index: index, offset: offset)
+            // A turn late, the way the brackets take the keyboard: the
+            // seam has to be on the page before it can be focused, and a
+            // focus that does not take reads as the bar being put out.
+            DispatchQueue.main.async {
+                armedSeam = id
+                armedType = kind
+                focusedSeam = id
+            }
+        case nil:
+            break
+        }
     }
 
     /// Moving a section from the preview moves it in the whole note, with
@@ -2120,4 +2272,25 @@ private struct PreviewRowHeights: PreferenceKey {
 private struct PreviewScrollKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// A point on the rendered page that its scroll view can be scrolled to
+/// exactly: an NSView of NO SIZE, so the window's hit test never finds it
+/// and no cursorUpdate is ever routed to it (the eighth cause, AGENTS.md).
+struct PageMark: NSViewRepresentable {
+    /// The view, for the page to measure — held weakly, so a page torn
+    /// down takes it with it.
+    final class Holder {
+        weak var view: NSView?
+    }
+
+    let holder: Holder
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        holder.view = view
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) { holder.view = view }
 }

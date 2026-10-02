@@ -1221,10 +1221,60 @@ CoreMind's `bin/report-status.sh`.
   document's top** — a stroke a screen and a half down is at y 1.5. Its
   old clamp to 1, from before the layer scrolled, flattened every stroke
   and arrow drawn below the first screen of a long note onto that
-  screen's bottom edge (found 2026-10-02; `CanvasNormaliseTests`). The preview does not scroll the layer (its
-  offset is 0 there). The first cut kept objects on the pane and the text's
+  screen's bottom edge (found 2026-10-02; `CanvasNormaliseTests`). Both
+  panes scroll the layer: the rendered page reports how far its content
+  has moved (`MarkdownPreview.onScroll`) exactly as the markdown pane
+  does. The first cut kept objects on the pane and the text's
   exclusion bands moved with the scroll — a picture taller than the pane
   then pushed the text out of reach for good.
+- **THE SIDECAR KEEPS THE MARKDOWN PANE'S FRAME, AND THE RENDERED PAGE
+  SHOWS IT THROUGH THE CELLS.** Sean, 2026-10-03: "preserve the position
+  of things as much as possible between markdown and wysiwyg mode". The
+  two panes lay the same cells out at different heights — `blockGap` (26)
+  between cells on the page against about 14 in the markdown pane with
+  its markers hidden, a code cell's two 22-point fence lines against 7
+  points of padding each side, the page starting ten points lower — so
+  with one frame for both, a picture put beside a paragraph in one mode
+  was a cell or more off it in the other, further the further down
+  (measured on a twelve-cell note: 82 points by the last cell; a
+  thirty-cell page of prose, about 400). Objects are stored as they always
+  were, in the MARKDOWN pane's document — the launch always opens there,
+  and a capture lands under that pane's caret, so that is where nearly
+  everything in Sean's sidecars was put; old sidecars open where they
+  were in that mode, and the format did not change. The rendered page
+  shows them through `PaneMapping`, from the markdown pane's cells to its
+  own by the character offset each starts at: piecewise linear down the
+  page — inside a cell by how far down it, in a seam by how far across
+  it, above the first cell by how far down the air above it, past the
+  last by the distance below it — and linear across between the two text
+  columns. Monotone, exact to invert, the identity when the layouts
+  agree; a cell one pane has no box for (folded, not measured yet) is no
+  knot. **ONE PLACE CONVERTS, AND IT IS THE LAYER'S BINDING**:
+  `EditorPane.layerDrawing` hands `DrawingCanvas` the drawing SHOWN in
+  the page's frame (`Drawing.shown`) and takes back what the layer did
+  through the inverse (`Drawing.stored`), so drawing, hit testing, the
+  handles, a drag, a new stroke, a placement and the crop all happen in
+  the frame on screen and the canvas knows nothing of two panes — do not
+  add a conversion inside it. An object moves WHOLE, by where the mapping
+  puts the top left of its box, and a GROUP by the top left of all of it
+  (letters of a word must not part where the word crosses a cell's
+  edge); a connector goes point by point, x and y apart so a routed
+  line's corners stay square, and `reconnect` puts its ends back on its
+  nodes. An item the layer did not change comes back bit for bit — a
+  drag writes the whole drawing every frame, and every write is a save.
+  What the STORE puts on the layer by a place on the pane — the middle
+  of the window, a capture's landing, the tablet's nib, the chart read
+  off the camera — goes through `NoteStore.landed` (`paneMapping`, set by
+  the editor pane). The markdown pane's cells, which the rendered page
+  needs with that pane not on screen, are laid out offscreen by the very
+  same TextKit 1 stack and styling (`MarkdownTextView.cellBoxes(of:pane:…)`,
+  `style`), cached in `PaneFrames` per note, size, markers and folds, and
+  only when there is a drawing to show. The PDF lays the note out the
+  rendered way, so it puts the drawing on paper through the same mapping
+  (`NoteExport.drawingOnPaper`). `ModeRenderTests` draws one note with a
+  picture and strokes beside its third paragraph in both modes (and the
+  page without the mapping, where the line under that paragraph's first
+  line sat under the second paragraph's last).
 - **A new picture goes under the caret, and the note does not move for
   it.** `NoteStore.caretAnchor` (set by `EditorPane`, nil outside the
   source editor) gives the caret's line from `EditorBridge.caretLineFrame`
@@ -1234,7 +1284,9 @@ CoreMind's `bin/report-status.sh`.
   seam between two cells is, so the landing and the seam cannot drift
   apart. Nothing is typed into the note and nothing is pushed aside; the
   picture floats over the words. Shapes and text boxes still land in the
-  middle of what is on screen.
+  middle of what is on screen, and so does a picture on the rendered page,
+  which has no caret line to give — from where it is on that page into
+  the frame the sidecar keeps (`NoteStore.landed`).
 - **THE RENDERED PAGE'S RHYTHM IS THE SOURCE PANE'S, AND IT IS NOT
   `gapHeight`.** Sean, 2026-09-22: "make the spacing more uniform.. it's
   ok on markdown mode but in rendered mode things get scrunched
@@ -1265,9 +1317,43 @@ CoreMind's `bin/report-status.sh`.
   exactly as tall as the other pane's `` ``` body ``` `` — a contract
   given up on purpose, because a full line of air each side made a
   one-line cell three and a half lines tall and nothing depended on the
-  heights being equal: the two modes come back to the same CELL by its
-  id (`PreviewLayout.topRow`, `NoteStore.topCell`), never by a
-  measurement.
+  heights being equal: the two modes come back to the same place by the
+  cell it is in and how far through it (`CellPlace`), and the drawing
+  layer goes through the two panes' cells (`PaneMapping`).
+- **⌘T KEEPS THE PLACE, THE CURSOR AND WHAT IS HELD.** Sean, 2026-10-03:
+  "preserve the position of things as much as possible between markdown
+  and wysiwyg mode". The two panes are two views torn down and built
+  again on every switch; what crosses is in the store and the bridge.
+  **The top of the window is a `CellPlace`** (`NoteStore.topCell`): the
+  cell, by its offset, and how far into it — 0…1 down the cell, below 0
+  in the seam above it — read by both panes by the ONE rule, "the first
+  cell whose bottom is below the fold", with no tolerance on either side.
+  It used to be the cell alone, put back with its top at the fold: line
+  three of a paragraph came back two lines up, a long code cell up to its
+  whole height, a round trip settled on the cell's first line, and a
+  window resting in a seam opened a whole cell up because the two panes
+  read the fold with different slack (1 point against 8). The place is
+  the open note's — a note switch resets it — and moves with its cell
+  when an edit lands above it without a scroll (`CellPlace.shifted`).
+  The rendered page puts it back once its rows are measured (they can be
+  BEFORE `onAppear`, so it checks there too), through its own scroll
+  view (`PageMark`, a zero-size NSView — never one with a size, see the
+  eighth cause), and says nothing of its own top until it has.
+  **The cursor is a `PaneCaret`**: a caret or selection in the note's
+  offsets, cells held by their brackets, or the bar and its + choice.
+  `AppState.toggleMode` reads it off the pane going (`EditorBridge.
+  carryCaret`, before the switch: the pane coming up can be built first)
+  and the pane coming up takes it once, for the same text only
+  (`takeCarried`). The markdown pane puts the caret back and takes the
+  keyboard; with no cursor carried it puts the caret at the start of the
+  top cell rather than the end of the note, where ⌘1 titled the last
+  cell and a pasted picture landed under the last line. The rendered page
+  opens the cell round the caret with the same selection in its editor
+  (after the fence, for code; one reminder's words, for a checklist), arms
+  the bar, or holds the cells — without the click every other way in is,
+  which would drop the drawing layer's selection, kept across the switch.
+  With nothing open, a command there opens the cell at the top of the
+  window, not the note's first.
 - **Nothing on the drawing layer moves the text.** Objects float: no
   exclusion band, no per-block push, no anchor, no re-homing, no bracket
   (Sean, 2026-09-20: "all drawing, captured or drawn with the pen tool,
@@ -1662,6 +1748,17 @@ WriteMind/
   Editor/PreviewEditing.swift
                           the document surgery — insert, split, remove, list
                           continuation. Pure, tested
+  Editor/PaneMapping.swift
+                          a point on one pane on the other, through the
+                          cells both have (PaneMapping), and the top of the
+                          window as a cell and how far into it (CellPlace).
+                          Pure, tested
+  Editor/PaneCaret.swift  the cursor ⌘T carries: a caret, cells held, or the
+                          bar; read off one pane, opened on the other. Pure
+  Drawing/DrawingPanes.swift
+                          the drawing shown on the rendered page and written
+                          back: items whole, groups as one, connectors point
+                          by point (Drawing.shown, Drawing.stored)
   Editor/MarkdownSourceStyle.swift
                           the block's markdown styled as it is typed: markers
                           fade, bold is bold, headings are their size, maths
@@ -1779,7 +1876,8 @@ WriteMind/
                           another section
   Views/EditorPane.swift  editor or preview with the DrawingCanvas over it,
                           the tablet's layer over that, and a status line
-                          (file, words, saved time)
+                          (file, words, saved time); PaneFrames, the two
+                          panes' cells and the drawing shown between them
   Views/NotebookTabletLayer.swift
                           the tablet writing in the note: its live stroke
                           and marquee, the area's outline and the hover
@@ -2014,6 +2112,23 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   — and the driver is never asked. The same goes for anything else it
   reports about geometry: its mapping and orientation are its own
   business, upstream of nothing WriteMind reads.
+- **A LEGACY SCROLLER TAKES 17 POINTS OF THE TEXT.** With a mouse plugged
+  in macOS shows legacy scrollers, and the markdown pane's scroller hides
+  itself only while the note fits: beside a long note the text view is the
+  pane less 17 points (measured 2026-10-03, a 600-point pane's clip view
+  583 wide), and a layout made at the pane's width wraps somewhere else.
+  `MarkdownTextView.cellBoxes(of:pane:…)` lays out at the narrower width
+  when the note is taller than the pane and the scrollers are legacy.
+- **A SCROLL VIEW MOVED BY HAND IS NOT ONE SWIFTUI MOVED.** The rendered
+  page opens at its place by scrolling its own NSScrollView's clip view
+  (`MarkdownPreview.openAtPlace`); in a window off the screen its scroll
+  preference never followed, so the drawing layer would have been told 0
+  with the page a screen down. It says where it went itself. The mark it
+  scrolls to is moved by state, so it is read a turn after the update
+  that moved it (`onChange(of: openingY)`) — read in the same breath it
+  is where it WAS — and the rows' heights can arrive BEFORE `onAppear`
+  (measured: a place asked for in `onAppear` alone was never put back),
+  so both ask.
 - **IOKit's HID open asks for Input Monitoring by itself.** A HID device
   that is a keyboard, a mouse or a touchpad to macOS carries
   `RequiresTCCAuthorization`, and `IOHIDDeviceOpen` on one calls

@@ -109,7 +109,7 @@ struct WriteMindApp: App {
                     .disabled(store.selection == nil)
             }
 
-            ExportMenu(store: store, projects: projects)
+            ExportMenu(store: store, projects: projects, appState: appState)
 
             ProjectMenu(store: store, projects: projects, cacheSession: cacheSession)
 

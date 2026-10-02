@@ -9,22 +9,6 @@ import CoreGraphics
 /// cells and no block ever carries a push of its own. Pure, and over
 /// HEIGHTS rather than positions.
 enum PreviewLayout {
-    /// Which row is at the top of the window, given how far the page has
-    /// scrolled: the last one that starts at or above the fold. It is what
-    /// the two modes agree on when you switch between them (Sean,
-    /// 2026-09-19: "positions stay the same in markdown and wysiwyg mode")
-    /// — the same cell is put back at the top, whatever height the other
-    /// side happens to lay the note out at.
-    static func topRow(positions: [Int: (top: CGFloat, bottom: CGFloat)],
-                       scroll: CGFloat) -> Int? {
-        let ordered = positions.sorted { $0.value.top < $1.value.top }
-        guard let first = ordered.first else { return nil }
-        // A tolerance of a line, so a page scrolled a hair past a cell's
-        // top still counts as being on that cell rather than the one before.
-        let fold = scroll + 8
-        return ordered.last { $0.value.top <= fold }?.key ?? first.key
-    }
-
     /// Whether a place on the page is in front of the reader right now.
     ///
     /// Asked before the page is moved for a cursor that was armed from

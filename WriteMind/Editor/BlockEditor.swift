@@ -52,6 +52,9 @@ struct BlockEditor: NSViewRepresentable {
         case end
         /// A character offset into this editor's own text.
         case at(Int)
+        /// A selection of this editor's own text — the one the markdown
+        /// pane was holding when ⌘T was pressed (`PaneCaret`).
+        case range(NSRange)
         /// The x a click landed on, in the editor's own coordinates — so
         /// clicking the middle of a word puts the caret in the middle of
         /// that word, the way clicking text does everywhere else.
@@ -132,7 +135,7 @@ struct BlockEditor: NSViewRepresentable {
             DispatchQueue.main.async {
                 guard let window = view.window else { return }
                 window.makeFirstResponder(view)
-                view.setSelectedRange(NSRange(location: view.offset(for: caret), length: 0))
+                view.setSelectedRange(view.selection(for: caret))
             }
         }
     }
@@ -390,6 +393,15 @@ final class BlockTextView: PasteAwareTextView {
     /// of leading is what would push it off.
     var paragraphStyle: NSParagraphStyle { Self.paragraphStyle(metrics) }
 
+    /// What is selected for a `BlockEditor.Caret`: the range it names, or
+    /// the caret where `offset(for:)` puts it.
+    func selection(for caret: BlockEditor.Caret) -> NSRange {
+        if case .range(let range) = caret {
+            return MarkdownFormatting.clamp(range, to: (string as NSString).length)
+        }
+        return NSRange(location: offset(for: caret), length: 0)
+    }
+
     /// Where the caret goes for a `BlockEditor.Caret`.
     func offset(for caret: BlockEditor.Caret) -> Int {
         let length = (string as NSString).length
@@ -397,6 +409,7 @@ final class BlockTextView: PasteAwareTextView {
         case .start: return 0
         case .end: return length
         case .at(let offset): return min(max(offset, 0), length)
+        case .range(let range): return min(max(range.location, 0), length)
         case .atX(let x):
             guard let layout = layoutManager, let container = textContainer, length > 0 else {
                 return length

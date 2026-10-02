@@ -25,6 +25,9 @@ import UniformTypeIdentifiers
 struct ExportMenu: Commands {
     @ObservedObject var store: NoteStore
     @ObservedObject var projects: ProjectStore
+    /// How the markdown pane lays the note out — its markers — which is
+    /// the frame the drawing's objects are kept in.
+    @ObservedObject var appState: AppState
 
     var body: some Commands {
         CommandGroup(after: .importExport) {
@@ -104,7 +107,9 @@ struct ExportMenu: Commands {
         guard let data = NoteExport.pdf(markdown: store.text,
                                         drawing: store.drawing,
                                         media: store.owningFolder(for: note.url),
-                                        pane: store.canvasSize) else {
+                                        pane: store.canvasSize,
+                                        markers: appState.showMarkers,
+                                        folds: store.collapsedHere) else {
             report("WriteMind could not make a PDF of this note.", url: url)
             return
         }

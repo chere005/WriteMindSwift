@@ -11,6 +11,8 @@ struct EditorPane: View {
 
     /// How far the source editor has scrolled: the drawing layer follows.
     @State private var scrollOffset: CGFloat = 0
+    /// The two panes' frames for the drawing layer, and the way between.
+    @StateObject private var frames = PaneFrames()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,6 +69,7 @@ struct EditorPane: View {
                                         onClick: { textClicks += 1 },
                                         onTopCell: { store.topCell = $0 },
                                         topCell: store.topCell,
+                                        onLayout: { frames.rendered = $0 },
                                         collapsed: store.collapsedHere,
                                         onToggleSection: { store.toggleSection($0) },
                                         // The same switch, off the same
@@ -81,7 +84,7 @@ struct EditorPane: View {
                     // modes. In pen and select mode it takes the whole pane;
                     // in cursor mode it takes only the objects on it, and the
                     // text underneath gets everything else.
-                    DrawingCanvas(drawing: $store.drawing,
+                    DrawingCanvas(drawing: layerDrawing,
                                   mode: appState.canvasMode,
                                   color: appState.penColor,
                                   width: appState.penWidth,
@@ -134,12 +137,23 @@ struct EditorPane: View {
                     // Pictures land under the caret while the source editor
                     // is up; the preview's blocks have their own text views.
                     store.caretAnchor = { appState.mode == .editor ? appState.editor.caretLineFrame() : nil }
+                    // And whatever lands by its place on the pane — the
+                    // middle of the window, the tablet's nib — lands in the
+                    // frame the sidecar keeps.
+                    store.paneMapping = { [frames] in paneMapping(frames) }
                     store.insertBelow = { text, y in
                         guard appState.mode == .editor else { return false }
                         appState.editor.insert(text, belowDocumentY: y)
                         return true
                     }
                 }
+                // The rendered page's cells belong to the page that
+                // measured them: another note's, or a page about to be
+                // built again, would map the layer through cells it does
+                // not have. Until the page measures its own the layer is
+                // shown in the stored frame.
+                .onChange(of: appState.mode) { _, _ in frames.rendered = nil }
+                .onChange(of: note.id) { _, _ in frames.forget() }
                 .onChange(of: store.pendingLinkInsertion) { _, range in
                     guard let range else { return }
                     appState.editor.select(range)
@@ -198,6 +212,37 @@ struct EditorPane: View {
         }
     }
 
+    /// The drawing as the layer works on it: the stored one in the
+    /// markdown pane, and on the rendered page that one shown through the
+    /// page's own cells, every change the layer makes going back the same
+    /// way (`Drawing.shown`, `Drawing.stored`).
+    private var layerDrawing: Binding<Drawing> {
+        guard appState.mode == .preview else { return $store.drawing }
+        let frames = frames, store = store
+        return Binding(
+            get: {
+                let size = store.canvasSize
+                // Nothing to show is nothing to lay out for.
+                guard !store.drawing.isEmpty else { return store.drawing }
+                return frames.shown(store.drawing, through: paneMapping(frames), in: size)
+            },
+            set: { shown in
+                let stored = frames.stored(shown, over: store.drawing, through: paneMapping(frames),
+                                           in: store.canvasSize)
+                // Every write is a save: one that changes nothing is none.
+                if stored != store.drawing { store.drawing = stored }
+            })
+    }
+
+    /// From the stored frame to the pane on screen: the identity in the
+    /// markdown pane, and through the two panes' cells on the rendered
+    /// page.
+    private func paneMapping(_ frames: PaneFrames) -> PaneMapping {
+        guard appState.mode == .preview else { return .identity }
+        return frames.mapping(text: store.text, size: store.canvasSize, showMarkers: appState.showMarkers,
+                              collapsed: store.collapsedHere)
+    }
+
     private var wordCount: Int {
         store.text.split { $0.isWhitespace || $0.isNewline }.count
     }
@@ -207,5 +252,97 @@ struct EditorPane: View {
             appState.pendingLink = AppState.PendingLink(
                 sourceNoteID: note.id, sourceTitle: note.title, caret: caret)
         }
+    }
+}
+
+/// THE TWO FRAMES THE DRAWING LAYER LIVES IN, and the way between them.
+///
+/// The sidecar keeps objects in the markdown pane's frame and the rendered
+/// page shows them through a `PaneMapping` from that pane's cells to its
+/// own. This holds what that needs, and pays for each piece once: the
+/// rendered page's cells as it last measured them; the markdown pane's
+/// cells for the same note, laid out offscreen
+/// (`MarkdownTextView.cellBoxes(of:pane:showMarkers:collapsed:)`, a whole
+/// TextKit layout, so kept until the note, the size, the markers or the
+/// folds change — and NEVER ON A KEYSTROKE: styling a long note is tens of
+/// milliseconds, so while the note is typed into the cells laid out last
+/// are carried along by the edit (`PaneMapping.shifted`) and laid out
+/// again once the typing stops); and the last drawing shown, so a drag's
+/// every frame is not the whole drawing mapped there and back again.
+@MainActor
+final class PaneFrames: ObservableObject {
+    /// The rendered page's cells, or nil until it has measured them.
+    @Published var rendered: [CellSeams.Box]?
+    private var laidOut: (text: String, pane: CGSize, markers: Bool, folds: Set<String>,
+                          cells: [CellSeams.Box], width: CGFloat)?
+    private var relayout: DispatchWorkItem?
+    private var last: (stored: Drawing, mapping: PaneMapping, size: CGSize, shown: Drawing)?
+
+    /// Another note: nothing measured for the last one is this one's, and
+    /// carrying its cells along "by the edit" would be nonsense.
+    func forget() {
+        relayout?.cancel()
+        relayout = nil
+        laidOut = nil
+        last = nil
+        rendered = nil
+    }
+
+    /// From the markdown pane's frame to the rendered page's, for this
+    /// note at this size — the identity until the page has measured.
+    func mapping(text: String, size: CGSize, showMarkers: Bool, collapsed: Set<String>) -> PaneMapping {
+        guard let rendered, size.width > 1 else { return .identity }
+        let source = sourceCells(text: text, size: size, showMarkers: showMarkers, collapsed: collapsed)
+        // The page has a scroller beside it whenever the markdown pane
+        // would — the same note, near enough the same height.
+        return PaneMapping(from: source.cells, to: rendered,
+                           fromColumn: MarkdownTextView.column(width: source.width),
+                           toColumn: MarkdownPreview.column(width: source.width))
+    }
+
+    /// The markdown pane's cells for this note, laid out offscreen — or,
+    /// while it is being typed into, the last layout carried along by the
+    /// edit, with a fresh one coming once the typing stops.
+    private func sourceCells(text: String, size: CGSize, showMarkers: Bool,
+                             collapsed: Set<String>) -> (cells: [CellSeams.Box], width: CGFloat) {
+        if let laidOut, laidOut.pane == size, laidOut.markers == showMarkers, laidOut.folds == collapsed {
+            if laidOut.text == text { return (laidOut.cells, laidOut.width) }
+            let carried = PaneMapping.shifted(laidOut.cells, from: laidOut.text, to: text)
+            self.laidOut = (text, size, showMarkers, collapsed, carried, laidOut.width)
+            relayout?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, let now = self.laidOut, now.text == text, now.pane == size else { return }
+                let fresh = MarkdownTextView.cellBoxes(of: text, pane: size, showMarkers: showMarkers,
+                                                       collapsed: collapsed)
+                self.laidOut = (text, size, showMarkers, collapsed, fresh.cells, fresh.width)
+                self.objectWillChange.send()
+            }
+            relayout = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+            return (carried, laidOut.width)
+        }
+        let fresh = MarkdownTextView.cellBoxes(of: text, pane: size, showMarkers: showMarkers, collapsed: collapsed)
+        laidOut = (text, size, showMarkers, collapsed, fresh.cells, fresh.width)
+        return fresh
+    }
+
+    /// The stored drawing as the pane on screen shows it.
+    func shown(_ stored: Drawing, through mapping: PaneMapping, in size: CGSize) -> Drawing {
+        guard !mapping.isIdentity else { return stored }
+        if let last, last.stored == stored, last.mapping == mapping, last.size == size { return last.shown }
+        let shown = stored.shown(through: mapping, in: size)
+        last = (stored, mapping, size, shown)
+        return shown
+    }
+
+    /// What the layer did on the pane on screen, as the sidecar keeps it —
+    /// and what the layer wrote is what it is shown next, so a drag never
+    /// sees its own move come back a rounding error away.
+    func stored(_ shown: Drawing, over stored: Drawing, through mapping: PaneMapping, in size: CGSize) -> Drawing {
+        guard !mapping.isIdentity else { return shown }
+        let before = self.shown(stored, through: mapping, in: size)
+        let result = stored.stored(shown, wasShown: before, through: mapping, in: size)
+        last = (result, mapping, size, shown)
+        return result
     }
 }

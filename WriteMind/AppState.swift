@@ -637,6 +637,9 @@ final class AppState: ObservableObject {
     }
 
     func toggleMode() {
+        // The cursor goes with the note: read now, while the pane it is
+        // in is still up (`PaneCaret`).
+        editor.carryCaret()
         withAnimation(.easeInOut(duration: 0.15)) {
             mode = (mode == .editor) ? .preview : .editor
         }

@@ -187,6 +187,38 @@ final class NotePDFTests: XCTestCase {
                        "something is printed in the left margin")
     }
 
+    /// A picture put beside a paragraph in the markdown pane is beside it
+    /// on paper, which is laid out the rendered way (Sean, 2026-10-03:
+    /// "preserve the position of things as much as possible between
+    /// markdown and wysiwyg mode") — without the mapping it went on paper
+    /// a growing distance above the words it was put beside.
+    @MainActor
+    func testAnObjectGoesOnPaperBesideTheWordsItWasPutBeside() throws {
+        let markdown = (1...8).map {
+            "Paragraph \($0) of a note, with words enough in it to run onto a second line at this width, and on."
+        }.joined(separator: "\n\n")
+        let pane = CGSize(width: 600, height: 700)
+        let source = MarkdownTextView.cellBoxes(of: markdown, width: pane.width, showMarkers: false, collapsed: [])
+        guard source.count == 8 else { return XCTFail("the premise: eight cells laid out, not \(source.count)") }
+        XCTAssertGreaterThan(source[6].bottom - source[6].top, 30, "the premise: two lines, the stroke under the first")
+        // The paper's own stack: the same cells, `blockGap` apart from
+        // where the page starts them.
+        var y = MarkdownPreview.topInset + MarkdownPreview.gapHeight
+        let paper: [CellSeams.Box] = source.map { cell in
+            defer { y += cell.bottom - cell.top + MarkdownPreview.blockGap }
+            return (top: y, bottom: y + cell.bottom - cell.top, offset: cell.offset)
+        }
+        let seventh = source[6]
+        let drawing = Drawing(strokes: [Stroke(colorHex: "#D62828", width: 2,
+                                               points: [CGPoint(x: 0.1, y: (seventh.top + 12) / pane.height),
+                                                        CGPoint(x: 0.5, y: (seventh.top + 12) / pane.height)])])
+        let placed = NoteExport.drawingOnPaper(drawing, markdown: markdown, cells: paper, pane: pane,
+                                               markers: false, folds: [])
+        XCTAssertEqual(placed.items[0].bounds(in: pane).minY - paper[6].top,
+                       drawing.items[0].bounds(in: pane).minY - seventh.top, accuracy: 0.01)
+        XCTAssertGreaterThan(paper[6].top - seventh.top, 50, "the premise: the paper puts the words well lower")
+    }
+
     // MARK: - Ink that can be read on paper
 
     func testAPenColourThatWouldVanishOnPaperIsDarkened() {

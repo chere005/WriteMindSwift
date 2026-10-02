@@ -43,6 +43,38 @@ final class EditorBridge {
     /// its armed state itself.
     var armBarInDocument: ((NSRange) -> Void)?
 
+    /// THE CURSOR OF WHICHEVER PANE IS UP (`PaneCaret`), and the note it is
+    /// a cursor in. Each pane installs its own reader and takes it away
+    /// when it goes.
+    var paneCaret: (() -> Carried)?
+
+    /// What a switch carried from the pane that went to the one that
+    /// came up.
+    struct Carried {
+        /// Nil when the pane that went had no cursor at all.
+        var caret: PaneCaret?
+        var text: String
+    }
+
+    /// Held from the switch until the pane that comes up takes it.
+    private(set) var carried: Carried?
+
+    /// ⌘T, on the way out of a pane: read before it goes, because the
+    /// pane coming up can be built before the one going is taken down.
+    func carryCaret() {
+        carried = paneCaret?()
+    }
+
+    /// The pane that came up takes what was carried — once, and only for
+    /// the note it was read in: offsets into another note, or into this
+    /// one after it changed, would put the caret somewhere nobody chose.
+    /// Nil when there was no switch (a launch, another note).
+    func takeCarried(for text: String) -> Carried? {
+        defer { carried = nil }
+        guard let carried, carried.text == text else { return nil }
+        return carried
+    }
+
     /// THE CURSOR A NOTEBOOK LEAVES YOU WITH when a cell has finished:
     /// the horizontal bar under its output, ready for the next thing
     /// (Sean, 2026-09-21: "after evaluating a cell, the text cursor

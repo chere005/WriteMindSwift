@@ -38,13 +38,22 @@ final class NoteStore: ObservableObject {
     var canvasSize: CGSize = .zero
     /// How far the editor has scrolled, so a new object lands in view.
     var canvasScroll: CGFloat = 0
-    /// The cell at the top of the window, as a character offset into the
-    /// note. The two sides lay the same note out at different heights, so
-    /// a scroll POSITION does not carry across a switch between them; the
-    /// cell does (Sean, 2026-09-19: "positions stay the same in markdown
-    /// and wysiwyg mode"). Whichever pane comes up puts this cell back at
-    /// the top.
-    var topCell: Int = 0
+    /// The place at the top of the window: the cell, by the character
+    /// offset it starts at, and how far into it (`CellPlace`). The two
+    /// sides lay the same note out at different heights, so a scroll
+    /// POSITION does not carry across a switch between them; the place
+    /// does (Sean, 2026-09-19: "positions stay the same in markdown and
+    /// wysiwyg mode"; 2026-10-03: "preserve the position of things as much
+    /// as possible"). Whichever pane comes up puts it back at the top. It
+    /// is the open note's: another note opens at its own top, and an edit
+    /// above the place moves it with the cell it names.
+    var topCell: CellPlace = .top
+    /// From the frame the sidecar keeps to the pane on screen
+    /// (`PaneMapping`) — the identity in the markdown pane. Set by the
+    /// editor pane; everything put on the layer by a place on the pane —
+    /// the middle of the window, a capture's landing, the tablet's nib —
+    /// goes through it on the way in (`landed`).
+    var paneMapping: () -> PaneMapping = { .identity }
     /// Where the caret's line is, in the pane's document coordinates — set
     /// by the editor pane, nil while the source editor is not up.
     var caretAnchor: (() -> CGRect?)?
@@ -172,6 +181,7 @@ final class NoteStore: ObservableObject {
             .sink { [weak self] newSelection in
                 guard let self else { return }
                 self.flushPendingSave()
+                self.topCell = .top
                 self.loadText(for: newSelection)
                 // Selecting a note opens its tab — there is no other way in.
                 if let newSelection, !self.openNoteIDs.contains(newSelection) {
@@ -182,7 +192,12 @@ final class NoteStore: ObservableObject {
 
         $text
             .dropFirst()
-            .sink { [weak self] _ in self?.scheduleSave() }
+            .sink { [weak self] new in
+                guard let self else { return }
+                // In `willSet`: `self.text` is still the text before.
+                self.topCell = self.topCell.shifted(from: self.text, to: new)
+                self.scheduleSave()
+            }
             .store(in: &cancellables)
 
         $drawing
@@ -499,7 +514,7 @@ final class NoteStore: ObservableObject {
     func inkFromTablet(_ stroke: Stroke) -> Bool {
         guard selectedNote != nil else { return false }
         beginDrawingChange()
-        drawing.items.append(.stroke(stroke))
+        drawing.items.append(contentsOf: landed([.stroke(stroke)]))
         return true
     }
 
@@ -592,7 +607,10 @@ final class NoteStore: ObservableObject {
             // would have landed.
             let landing = CGRect(x: paneSize.width * 0.1, y: (anchor ?? 0) + 12,
                                  width: paneSize.width * 0.8, height: paneSize.height * 0.5)
-            let chart = flowChart(from: reading, under: CGRect(x: landing.minX, y: landing.minY - 12,
+            // The caret's line is a place on the pane; the chart is put
+            // down in the frame the sidecar keeps.
+            let under = paneMapping().inverse.point(CGPoint(x: landing.minX, y: landing.minY - 12))
+            let chart = flowChart(from: reading, under: CGRect(x: under.x, y: under.y,
                                                                width: landing.width, height: 0))
             let lines = reading.lines
             guard !lines.isEmpty else {
@@ -680,8 +698,8 @@ final class NoteStore: ObservableObject {
         else { return false }
         let landing = pageScaleLanding(frame: result.frame, pageSize: result.pageSize, aspect: imported.aspect)
         beginDrawingChange()
-        drawing.items.append(.image(ImageItem(file: imported.file, center: landing.center,
-                                              width: landing.width, aspect: imported.aspect)))
+        drawing.items.append(contentsOf: landed([.image(ImageItem(file: imported.file, center: landing.center,
+                                                                  width: landing.width, aspect: imported.aspect))]))
         return true
     }
 
@@ -731,8 +749,9 @@ final class NoteStore: ObservableObject {
             else { notice("That box is not on the page."); return false }
             let landing = pageScaleLanding(frame: region, pageSize: pageSize, aspect: imported.aspect)
             beginDrawingChange()
-            drawing.items.append(.image(ImageItem(file: imported.file, center: landing.center,
-                                                  width: landing.width, aspect: imported.aspect)))
+            drawing.items.append(contentsOf: landed([.image(ImageItem(file: imported.file, center: landing.center,
+                                                                      width: landing.width,
+                                                                      aspect: imported.aspect))]))
             notice("The page is in — drag it where it goes.")
             return true
         case .writing:
@@ -749,7 +768,7 @@ final class NoteStore: ObservableObject {
                                                      center: landing.center, width: landing.width,
                                                      pane: paneSize, group: touched.count > 1 ? UUID() : nil)
             beginDrawingChange()
-            drawing.items.append(contentsOf: placed.map(CanvasItem.stroke))
+            drawing.items.append(contentsOf: landed(placed.map(CanvasItem.stroke)))
             notice("The writing is in — drag it where it goes.")
             return true
         case .text:
@@ -822,10 +841,10 @@ final class NoteStore: ObservableObject {
         }
         let (center, _) = placedCenter(width: width, height: height)
         beginDrawingChange()
-        drawing.items.append(.image(ImageItem(file: imported.file,
-                                              center: center,
-                                              width: width / pane.width,
-                                              aspect: imported.aspect)))
+        drawing.items.append(contentsOf: landed([.image(ImageItem(file: imported.file,
+                                                                  center: center,
+                                                                  width: width / pane.width,
+                                                                  aspect: imported.aspect))]))
     }
 
     // MARK: - Shapes
@@ -840,7 +859,7 @@ final class NoteStore: ObservableObject {
         let box = ShapeItem(kind: .text, center: visibleCenter, width: width,
                             aspect: TextBoxStyle.aspect(for: "", boxWidth: width * paneSize.width),
                             colorHex: colorHex, lineWidth: 1)
-        drawing.items.append(.shape(box))
+        drawing.items.append(contentsOf: landed([.shape(box)]))
         pendingLabelEdit = box.id
     }
 
@@ -850,10 +869,10 @@ final class NoteStore: ObservableObject {
         guard selectedNote != nil else { return }
         beginDrawingChange()
         let y = visibleCenter.y
-        drawing.items.append(.connector(ConnectorItem(start: CGPoint(x: 0.42 + nudge, y: y),
-                                                      end: CGPoint(x: 0.58 + nudge, y: y),
-                                                      startHead: startHead, endHead: endHead, line: line,
-                                                      colorHex: colorHex, lineWidth: min(max(lineWidth, 1.5), 6))))
+        drawing.items.append(contentsOf: landed([.connector(ConnectorItem(
+            start: CGPoint(x: 0.42 + nudge, y: y), end: CGPoint(x: 0.58 + nudge, y: y),
+            startHead: startHead, endHead: endHead, line: line,
+            colorHex: colorHex, lineWidth: min(max(lineWidth, 1.5), 6)))]))
     }
 
     /// The pane pictures are sized against — a plausible one before the
@@ -864,6 +883,17 @@ final class NoteStore: ObservableObject {
 
     /// A little along each time, so a second picture is not hidden by the first.
     private var nudge: Double { Double(drawing.images.count % 6) * 0.03 }
+
+    /// Items placed by where they are on the pane on screen — the middle
+    /// of the window, a capture's landing, the tablet's nib — into the
+    /// frame the sidecar keeps: the rendered page's own cells back to the
+    /// markdown pane's, so the picture dropped beside a paragraph there is
+    /// beside it here.
+    private func landed(_ items: [CanvasItem]) -> [CanvasItem] {
+        let mapping = paneMapping()
+        guard !mapping.isIdentity else { return items }
+        return Drawing.carried(items, through: mapping.inverse, in: paneSize)
+    }
 
     /// The middle of what is on screen, as fractions of the pane — the
     /// layer scrolls with the text, so "the middle" moves with the scroll.

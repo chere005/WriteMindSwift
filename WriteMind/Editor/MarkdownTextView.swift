@@ -22,10 +22,10 @@ struct MarkdownTextView: NSViewRepresentable {
     var cursor: NSCursor?
     /// How far the text has scrolled, so the drawing layer can scroll with it.
     var onScroll: ((CGFloat) -> Void)?
-    /// The cell at the top of the window, reported as it scrolls, and
-    /// asked for once when the pane appears.
-    var onTopCell: ((Int) -> Void)?
-    var topCell: Int = 0
+    /// The place at the top of the window — the cell and how far into it
+    /// — reported as it scrolls, and put back once when the pane appears.
+    var onTopCell: ((CellPlace) -> Void)?
+    var topCell: CellPlace = .top
     /// The notebook sections that are closed, by key. Their bodies are laid
     /// out with no height and never drawn, and the note's text is not
     /// touched (Sean, 2026-09-19: "show the notebook grouping and
@@ -82,7 +82,7 @@ struct MarkdownTextView: NSViewRepresentable {
         // What the caret goes back to: it is hidden while a seam is armed,
         // because the line across the page IS the cursor then.
         tv.caretColour = tv.insertionPointColor
-        tv.textContainerInset = NSSize(width: 24, height: 20)
+        tv.textContainerInset = Self.inset
         tv.minSize = NSSize(width: 0, height: 0)
         tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         tv.isVerticallyResizable = true
@@ -180,8 +180,19 @@ struct MarkdownTextView: NSViewRepresentable {
 
         context.coordinator.documentID = documentID
         context.coordinator.watchScrolling(of: scroll)
-        // Whatever cell the rendered page was showing, show that one.
-        context.coordinator.restore(topCell, in: scroll)
+        // The cursor, read on the way out of this pane by ⌘T.
+        bridge.paneCaret = { [weak tv] in
+            guard let tv else { return EditorBridge.Carried(caret: nil, text: "") }
+            return EditorBridge.Carried(caret: Coordinator.caret(of: tv), text: tv.string)
+        }
+        // Whatever the rendered page was showing, show that: the same
+        // place at the top of the window, and its cursor where it was.
+        let carried = bridge.takeCarried(for: text)
+        let place = topCell
+        context.coordinator.restore(place, in: scroll) { [weak coordinator = context.coordinator] tv in
+            guard let carried else { return }
+            coordinator?.put(carried.caret, at: place, in: tv)
+        }
         // The glyphs already exist by now (the string was set above), so
         // the styling and the hiding have to invalidate them by hand —
         // without this nothing is styled and nothing hides.
@@ -271,12 +282,19 @@ struct MarkdownTextView: NSViewRepresentable {
     /// character is on the last line they occupy.
     static func cellBoxes(in tv: NSTextView) -> [CellSeams.Box] {
         guard let layout = tv.layoutManager, let container = tv.textContainer else { return [] }
-        let text = tv.string as NSString
+        return cellBoxes(of: tv.string, layout: layout, container: container, origin: tv.textContainerOrigin)
+    }
+
+    /// The same boxes off any layout of the note — the text view's own,
+    /// or the one `cellBoxes(of:width:showMarkers:collapsed:)` makes with
+    /// no text view at all.
+    private static func cellBoxes(of string: String, layout: NSLayoutManager, container: NSTextContainer,
+                                  origin: CGPoint) -> [CellSeams.Box] {
+        let text = string as NSString
         guard text.length > 0 else { return [] }
         layout.ensureLayout(for: container)
-        let origin = tv.textContainerOrigin
         var boxes: [CellSeams.Box] = []
-        for block in MarkdownParser.positioned(from: tv.string) {
+        for block in MarkdownParser.positioned(from: string) {
             let start = min(max(block.range.location, 0), text.length - 1)
             let end = min(max(NSMaxRange(block.range), start), text.length - 1)
             let lines = NSUnionRange(text.lineRange(for: NSRange(location: start, length: 0)),
@@ -297,6 +315,110 @@ struct MarkdownTextView: NSViewRepresentable {
         return boxes
     }
 
+    /// THE BOXES THIS PANE WOULD GIVE THE NOTE, with no text view on
+    /// screen — what the rendered page needs to show the drawing layer
+    /// where this pane put it (`PaneMapping`), and what the PDF needs to
+    /// put it on paper. The same TextKit 1 stack `makeNSView` builds — the
+    /// folding typesetter, the marker hiding, the styling of `restyle` —
+    /// at a pane `width` wide, so the lines wrap where this pane wraps
+    /// them. What it cannot know is the caret: in the text view the cell
+    /// the caret is in shows its markers, which can wrap that one cell
+    /// differently.
+    static func cellBoxes(of text: String, width: CGFloat, showMarkers: Bool,
+                          collapsed: Set<String>) -> [CellSeams.Box] {
+        guard !text.isEmpty, width > inset.width * 2 else { return [] }
+        let storage = NSTextStorage(string: text, attributes: [.font: font, .paragraphStyle: paragraphStyle])
+        let layout = FoldingLayoutManager()
+        layout.typesetter = FoldingTypesetter(layout.folding)
+        layout.folding.hidden = NotebookOutline.hiddenRanges(in: text, collapsed: collapsed)
+        let hiding = MarkerHiding()
+        hiding.isEnabled = !showMarkers
+        layout.delegate = hiding
+        let container = NSTextContainer(size: NSSize(width: width - inset.width * 2,
+                                                     height: .greatestFiniteMagnitude))
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        style(storage, with: hiding)
+        let whole = NSRange(location: 0, length: storage.length)
+        layout.invalidateGlyphs(forCharacterRange: whole, changeInLength: 0, actualCharacterRange: nil)
+        layout.invalidateLayout(forCharacterRange: whole, actualCharacterRange: nil)
+        return cellBoxes(of: text, layout: layout, container: container,
+                         origin: CGPoint(x: inset.width, y: inset.height))
+    }
+
+    /// The same, for a PANE of `size`: the text view is the pane's width
+    /// less a scroller when one stands beside a note too long for the pane
+    /// — with a mouse plugged in macOS shows legacy scrollers, which take
+    /// room (17 points, measured), and a line laid out 17 points wider
+    /// wraps somewhere else. Returns the width it was laid out at.
+    static func cellBoxes(of text: String, pane size: CGSize, showMarkers: Bool,
+                          collapsed: Set<String>) -> (cells: [CellSeams.Box], width: CGFloat) {
+        let cells = cellBoxes(of: text, width: size.width, showMarkers: showMarkers, collapsed: collapsed)
+        let tall = (cells.last?.bottom ?? 0) + inset.height > size.height
+        guard tall, NSScroller.preferredScrollerStyle == .legacy else { return (cells, size.width) }
+        let width = size.width - NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+        return (cellBoxes(of: text, width: width, showMarkers: showMarkers, collapsed: collapsed), width)
+    }
+
+    /// The air round the text: the text container's inset, the same in
+    /// the text view and in `cellBoxes(of:width:showMarkers:collapsed:)`.
+    static let inset = NSSize(width: 24, height: 20)
+
+    /// Where this pane's words start and end across a pane `width` wide:
+    /// the inset and the line fragment's own padding, each side.
+    static func column(width: CGFloat) -> PaneMapping.Column {
+        let padding = NSTextContainer().lineFragmentPadding
+        return PaneMapping.Column(left: inset.width + padding, right: width - inset.width - padding)
+    }
+
+    /// The note's styling, put on the text: the source styled the way the
+    /// rendered blocks are and the markers that may vanish handed to
+    /// `hiding` — or, with the markers showing (`hiding` off), plain
+    /// attributes and nothing to hide. One description for the text view
+    /// (`Coordinator.restyle`) and the offscreen layout.
+    static func style(_ storage: NSTextStorage, with hiding: MarkerHiding) {
+        let source = storage.string
+        let text = source as NSString
+        let whole = NSRange(location: 0, length: text.length)
+        if hiding.isEnabled {
+            MarkdownSourceStyle.apply(to: storage, base: MarkdownTextView.font,
+                                      paragraph: MarkdownTextView.paragraphStyle)
+            // The blank line between two cells, and a fence's own
+            // line, are drawn a few points tall: the gap between two
+            // cells is then the same on this side as on the rendered
+            // page, and a note is nearly the same height in both.
+            let small = NSFont.systemFont(ofSize: MarkdownSourceStyle.structuralSize)
+            let tight = NSMutableParagraphStyle()
+            tight.setParagraphStyle(MarkdownTextView.paragraphStyle)
+            tight.lineSpacing = 0
+            tight.paragraphSpacing = 0
+            // The gap belongs to the cell above it, not to the blank
+            // lines between: one cell, one gap, whatever the file has
+            // between them (Sean, 2026-09-20: "cells still aren't
+            // stacked with an even small spacing between them").
+            let spaced = NSMutableParagraphStyle()
+            spaced.setParagraphStyle(MarkdownTextView.paragraphStyle)
+            spaced.paragraphSpacing = MarkdownPreview.gapHeight
+            for line in MarkdownSourceStyle.cellEndLines(in: source) {
+                let range = NSIntersectionRange(line, whole)
+                guard range.length > 0 else { continue }
+                storage.addAttribute(.paragraphStyle, value: spaced, range: range)
+            }
+            for line in MarkdownSourceStyle.structuralLines(in: source) {
+                let range = NSIntersectionRange(line, whole)
+                guard range.length > 0 else { continue }
+                storage.addAttributes([.font: small, .paragraphStyle: tight], range: range)
+            }
+            hiding.setMarkers(MarkerHiding.hideable(MarkdownSourceStyle.runs(in: source), in: text))
+        } else {
+            storage.setAttributes([.font: MarkdownTextView.font,
+                                   .foregroundColor: NSColor.textColor,
+                                   .paragraphStyle: MarkdownTextView.paragraphStyle],
+                                  range: whole)
+            hiding.setMarkers([])
+        }
+    }
+
     /// The spaces between those cells: where the pointer is horizontal and
     /// where a click opens a new cell (Sean, 2026-09-20: "the cursor
     /// should be horizontal any space between the two cells").
@@ -306,10 +428,10 @@ struct MarkdownTextView: NSViewRepresentable {
     /// so it takes the origin too, or the tail seam starts an inset too
     /// high — or to the bottom of the view when the note is shorter than
     /// the window, so the empty space under the last cell is all seam.
-    static func seams(in tv: NSTextView) -> [CellSeams.Seam] {
+    static func seams(in tv: NSTextView, cells: [CellSeams.Box]? = nil) -> [CellSeams.Seam] {
         guard let layout = tv.layoutManager, let container = tv.textContainer else { return [] }
         let bottom = layout.usedRect(for: container).maxY + tv.textContainerOrigin.y
-        return CellSeams.seams(cells: cellBoxes(in: tv), pageTop: 0,
+        return CellSeams.seams(cells: cells ?? cellBoxes(in: tv), pageTop: 0,
                                pageBottom: max(tv.bounds.height, bottom),
                                noteLength: (tv.string as NSString).length,
                                // On a note with no cells at all there is
@@ -345,33 +467,6 @@ struct MarkdownTextView: NSViewRepresentable {
         }
         tv.setSelectedRange(NSRange(location: min(caret, (tv.string as NSString).length), length: 0))
         tv.window?.makeFirstResponder(tv)
-    }
-
-    /// The character at the top of the window: the first one on or below
-    /// the fold. A switch to the rendered page puts THIS cell back at the
-    /// top, which is how a position survives a mode it was not measured in
-    /// (Sean, 2026-09-19: "positions stay the same in markdown and wysiwyg
-    /// mode").
-    static func cell(atTop offset: CGFloat, in tv: NSTextView) -> Int {
-        guard let layout = tv.layoutManager, let container = tv.textContainer else { return 0 }
-        layout.ensureLayout(for: container)
-        let inside = CGPoint(x: container.lineFragmentPadding + 1,
-                             y: max(0, offset - tv.textContainerOrigin.y) + 1)
-        let glyph = layout.glyphIndex(for: inside, in: container)
-        return layout.characterIndexForGlyph(at: glyph)
-    }
-
-    /// Where that character's line starts, in the scroll view's own
-    /// coordinates — what to scroll to to put it back at the top.
-    static func offset(ofCell character: Int, in tv: NSTextView) -> CGFloat {
-        guard let layout = tv.layoutManager, let container = tv.textContainer else { return 0 }
-        let length = (tv.string as NSString).length
-        guard length > 0 else { return 0 }
-        layout.ensureLayout(for: container)
-        let clamped = min(max(character, 0), length - 1)
-        let glyph = layout.glyphIndexForCharacter(at: clamped)
-        let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-        return max(0, line.minY + tv.textContainerOrigin.y)
     }
 
     static let font = NSFont.systemFont(ofSize: 15)
@@ -424,9 +519,11 @@ struct MarkdownTextView: NSViewRepresentable {
         private var lastStyled: String?
         private var lastStyledRendered = true
 
-        /// True while a tidy is already on its way — the edit it makes
-        /// comes back through the same notifications that asked for it.
-        private var tidying = false
+        /// The cells' boxes as `refreshBrackets` last measured them, and how
+        /// wide the text view was then: the first measure is made before
+        /// the view has a size, and a resize relays every line.
+        private(set) var cells: [CellSeams.Box] = []
+        private var cellsWidth: CGFloat = 0
         /// The notebook's closed sections, and what was last folded away.
         var collapsed: Set<String> = []
         private var lastHidden: [NSRange] = []
@@ -478,45 +575,8 @@ struct MarkdownTextView: NSViewRepresentable {
             lastStyledRendered = hiding.isEnabled
 
             let selection = tv.selectedRanges
-            let text = source as NSString
-            let whole = NSRange(location: 0, length: text.length)
-            if hiding.isEnabled {
-                MarkdownSourceStyle.apply(to: storage, base: MarkdownTextView.font,
-                                          paragraph: MarkdownTextView.paragraphStyle)
-                // The blank line between two cells, and a fence's own
-                // line, are drawn a few points tall: the gap between two
-                // cells is then the same on this side as on the rendered
-                // page, and a note is nearly the same height in both.
-                let small = NSFont.systemFont(ofSize: MarkdownSourceStyle.structuralSize)
-                let tight = NSMutableParagraphStyle()
-                tight.setParagraphStyle(MarkdownTextView.paragraphStyle)
-                tight.lineSpacing = 0
-                tight.paragraphSpacing = 0
-                // The gap belongs to the cell above it, not to the blank
-                // lines between: one cell, one gap, whatever the file has
-                // between them (Sean, 2026-09-20: "cells still aren't
-                // stacked with an even small spacing between them").
-                let spaced = NSMutableParagraphStyle()
-                spaced.setParagraphStyle(MarkdownTextView.paragraphStyle)
-                spaced.paragraphSpacing = MarkdownPreview.gapHeight
-                for line in MarkdownSourceStyle.cellEndLines(in: source) {
-                    let range = NSIntersectionRange(line, whole)
-                    guard range.length > 0 else { continue }
-                    storage.addAttribute(.paragraphStyle, value: spaced, range: range)
-                }
-                for line in MarkdownSourceStyle.structuralLines(in: source) {
-                    let range = NSIntersectionRange(line, whole)
-                    guard range.length > 0 else { continue }
-                    storage.addAttributes([.font: small, .paragraphStyle: tight], range: range)
-                }
-                hiding.setMarkers(MarkerHiding.hideable(MarkdownSourceStyle.runs(in: source), in: text))
-            } else {
-                storage.setAttributes([.font: MarkdownTextView.font,
-                                       .foregroundColor: NSColor.textColor,
-                                       .paragraphStyle: MarkdownTextView.paragraphStyle],
-                                      range: whole)
-                hiding.setMarkers([])
-            }
+            let whole = NSRange(location: 0, length: (source as NSString).length)
+            MarkdownTextView.style(storage, with: hiding)
             tv.typingAttributes = [.font: MarkdownTextView.font,
                                    .foregroundColor: NSColor.textColor,
                                    .paragraphStyle: MarkdownTextView.paragraphStyle]
@@ -617,8 +677,7 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         /// The caret moved: the paragraph it left hides its markers again
-        /// and the one it arrived in shows them — and the empty cell it
-        /// left, if it never became one, goes.
+        /// and the one it arrived in shows them.
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let tv = notification.object as? NSTextView else { return }
             // Where the caret IS says whether a seam is armed (the plan's
@@ -651,17 +710,69 @@ struct MarkdownTextView: NSViewRepresentable {
             refreshBrackets(in: tv)
         }
 
-        /// Put `character`'s line at the top of the window. The layout has
-        /// to exist first, and at makeNSView it does not, so this waits a
-        /// turn — the same turn the brackets wait for.
-        func restore(_ character: Int, in scroll: NSScrollView) {
-            guard character > 0 else { return }
+        /// Put that place in that cell back at the top of the window — the
+        /// line the rendered page had at its fold, or the air between two
+        /// cells it was resting in. The layout has to exist first, and at
+        /// makeNSView it does not, so this waits a turn — the same turn the
+        /// brackets wait for. `then` runs in that turn, before the scroll
+        /// is measured: putting the caret back reveals its cell's markers,
+        /// which can move every line under it.
+        func restore(_ place: CellPlace, in scroll: NSScrollView, then: @escaping (NSTextView) -> Void) {
             DispatchQueue.main.async { [weak scroll] in
                 guard let scroll, let tv = scroll.documentView as? NSTextView else { return }
-                let y = MarkdownTextView.offset(ofCell: character, in: tv)
-                scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+                then(tv)
+                guard place != .top, let y = place.y(in: MarkdownTextView.cellBoxes(in: tv)) else { return }
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, y)))
                 scroll.reflectScrolledClipView(scroll.contentView)
             }
+        }
+
+        /// This pane's cursor, as ⌘T carries it: the armed bar, the cells
+        /// held, or the caret — the caret only while this pane has the
+        /// keyboard, since one left behind by a click elsewhere is not
+        /// where anybody is typing.
+        static func caret(of tv: NSTextView) -> PaneCaret? {
+            let pane = tv as? PasteAwareTextView
+            let caret = PaneCaret.source(selection: tv.selectedRanges.map(\.rangeValue), armed: pane?.armedSeam,
+                                         kind: pane?.armedType ?? .text, in: tv.string)
+            if case .text = caret, tv.window?.firstResponder !== tv { return nil }
+            return caret
+        }
+
+        /// The cursor ⌘T carried, put back, and the keyboard with it — the
+        /// pane that went was being typed in. With NO cursor carried the
+        /// caret goes to the start of the cell at the top of the window,
+        /// where the eye is, and not the end of the note where a new text
+        /// view leaves it: ⌘1 and a pasted picture both go by the caret,
+        /// and titled the last cell and landed under the last line. The
+        /// keyboard stays where it was then.
+        func put(_ caret: PaneCaret?, at place: CellPlace, in tv: NSTextView) {
+            let length = (tv.string as NSString).length
+            guard let caret else {
+                tv.setSelectedRange(NSRange(location: min(max(place.cell, 0), length), length: 0))
+                return
+            }
+            switch caret {
+            case .text(let range):
+                tv.setSelectedRange(MarkdownFormatting.clamp(range, to: length))
+            case .cells(let ranges):
+                // Not `select`, which scrolls a lone cell into view: the
+                // window is already where the other pane had it.
+                let held = MarkdownFormatting.normalise(ranges, in: tv.string as NSString).filter { $0.length > 0 }
+                guard !held.isEmpty else { return }
+                tv.selectedRanges = held.map { NSValue(range: $0) }
+            case .bar(let offset, let kind):
+                guard let tv = tv as? PasteAwareTextView else { return }
+                // The way a click in a seam arms it (`CellInsertions.onArm`):
+                // the bar first, so the caret parked at its offset reads
+                // as the bar standing and not as a caret in the cell below.
+                let at = min(max(offset, 0), length)
+                tv.armedSeam = at
+                tv.setSelectedRange(NSRange(location: at, length: 0))
+                // After it: arming afresh puts the kind back to plain text.
+                if tv.armedSeam == at { tv.armedType = kind }
+            }
+            tv.window?.makeFirstResponder(tv)
         }
 
         /// The drawing layer scrolls with the text, so it is told how far.
@@ -674,9 +785,12 @@ struct MarkdownTextView: NSViewRepresentable {
                 guard let self, let scroll = self.scrollView else { return }
                 let offset = scroll.contentView.bounds.origin.y
                 self.parent.onScroll?(offset)
-                if let tv = scroll.documentView as? NSTextView {
-                    self.parent.onTopCell?(MarkdownTextView.cell(atTop: offset, in: tv))
+                guard let tv = scroll.documentView as? NSTextView else { return }
+                if self.cellsWidth != tv.bounds.width {
+                    self.cells = MarkdownTextView.cellBoxes(in: tv)
+                    self.cellsWidth = tv.bounds.width
                 }
+                if let place = CellPlace.at(offset, in: self.cells) { self.parent.onTopCell?(place) }
             }
         }
 
@@ -797,12 +911,18 @@ struct MarkdownTextView: NSViewRepresentable {
                 }
             }
             gutter.brackets = brackets
+            // Measured once here, where every change to the layout comes
+            // through, and read by the scroll: the top of the window is a
+            // place among these (`CellPlace`), on every tick of a scroll.
+            let cells = MarkdownTextView.cellBoxes(in: tv)
+            self.cells = cells
+            cellsWidth = tv.bounds.width
 
             if let insertions {
                 let wanted = NSRect(origin: .zero, size: NSSize(width: tv.bounds.width,
                                                                 height: max(tv.bounds.height, 1)))
                 if insertions.frame != wanted { insertions.frame = wanted }
-                insertions.measure(MarkdownTextView.seams(in: tv))
+                insertions.measure(MarkdownTextView.seams(in: tv, cells: cells))
                 // The same boxes the gutter's brackets are drawn from, so
                 // a drag down a bar picks up exactly what a drag down the
                 // brackets does.
