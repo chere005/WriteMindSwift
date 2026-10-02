@@ -909,7 +909,11 @@ CoreMind's `bin/report-status.sh`.
   new object lands in the visible part (`visibleCenter`). Every incoming
   gesture point goes through `doc(_:)` and every handle position through
   `screen(_:)`/`clamp`; a new gesture or overlay must do the same or it will
-  be a scroll's worth off. The preview does not scroll the layer (its
+  be a scroll's worth off. **And `normalise` holds y only at the
+  document's top** — a stroke a screen and a half down is at y 1.5. Its
+  old clamp to 1, from before the layer scrolled, flattened every stroke
+  and arrow drawn below the first screen of a long note onto that
+  screen's bottom edge (found 2026-10-02; `CanvasNormaliseTests`). The preview does not scroll the layer (its
   offset is 0 there). The first cut kept objects on the pane and the text's
   exclusion bands moved with the scroll — a picture taller than the pane
   then pushed the text out of reach for good.

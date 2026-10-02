@@ -841,6 +841,12 @@ exit pen mode"). It is asked after the nearer things Esc already calls off — a
 label being typed, a connector's style bar, an armed shape, a crop — and it is
 taken only when the pen was up, so Esc in cursor mode is still the text's.
 
+### A point on the drawing layer is held only at the document's top
+Points are pane fractions measured from the DOCUMENT's top, so anything drawn
+further down a long note than one screen has y > 1. Clamp x to the pane's
+width and y at 0 only — a clamp to 0…1 flattens every stroke drawn below the
+first screen onto that screen's bottom edge (fixed here 2026-10-02).
+
 ## Done there
 
 Nothing yet.

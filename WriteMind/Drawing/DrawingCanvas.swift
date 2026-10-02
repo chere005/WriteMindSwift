@@ -1292,9 +1292,14 @@ struct DrawingCanvas: View {
 
     // MARK: - Geometry
 
+    /// A DOCUMENT point as pane fractions: x held to the pane's width, y
+    /// held only at the document's top. The layer scrolls with the text, so
+    /// a stroke a screen and a half down a note is at y 1.5 — the old clamp
+    /// to 1, from before the layer scrolled, flattened everything drawn
+    /// below the first screen onto its bottom edge.
     static func normalise(_ point: CGPoint, in size: CGSize) -> CGPoint {
         guard size.width > 0, size.height > 0 else { return .zero }
-        return CGPoint(x: min(max(point.x / size.width, 0), 1), y: min(max(point.y / size.height, 0), 1))
+        return CGPoint(x: min(max(point.x / size.width, 0), 1), y: max(point.y / size.height, 0))
     }
 }
 
