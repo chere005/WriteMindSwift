@@ -251,7 +251,12 @@ struct CellBrackets: View {
     /// The cells' brackets, down the page. A section's is not one of them:
     /// a drag reaches cells, and the section round them lights up by itself
     /// once they are all in.
-    private var cellSpans: [CellSelection.Span] {
+    private var cellSpans: [CellSelection.Span] { Self.cellSpans(of: brackets) }
+
+    /// The same reading for whatever else on the page walks the cells — a
+    /// drag from a bar (`MarkdownPreview.seamDrag`), which asked its own
+    /// way and counted an In/Out pair's bracket as one of them.
+    static func cellSpans(of brackets: [Bracket]) -> [CellSelection.Span] {
         brackets.filter(\.isCell)
             .sorted { $0.top < $1.top }
             .map { CellSelection.Span(top: $0.top, bottom: $0.bottom, range: $0.range) }

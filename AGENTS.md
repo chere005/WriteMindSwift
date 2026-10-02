@@ -1107,9 +1107,17 @@ CoreMind's `bin/report-status.sh`.
   `Insertion` (the rule after the next), as one edit and one step of
   undo. `perform(opensACell:)` tells those from the third
   sort, the commands that act ON a cell — delete, duplicate, move,
-  split, merge — which still do nothing at a bar, because an empty cell
-  made to be deleted is churn in the note and a step on the undo stack
-  for a gesture that did nothing. It used to record the kind and wait
+  split, merge, Move Section — which still do nothing at a bar, because
+  an empty cell made to be deleted is churn in the note and a step on
+  the undo stack for a gesture that did nothing. IN BOTH PANES, and
+  asked FIRST (`EditorBridge.isAtArmedBar`, at the top of `cellEdit`,
+  `mergeCells`, `splitCell`, `moveSection`): the rendered page's hooks
+  were asked before it, and they fall back to the note's FIRST cell
+  when nothing is held or open — so Delete Cell at a bar took the top
+  of the note, ⌃⇧D copied it, ⌃M joined its first two cells (found
+  2026-10-02, Sean: "do a thorough test of cell selection and input
+  insertion ux behavior..."), and Move Section moved the first section
+  there and the section of the cell below the bar in the source pane. It used to record the kind and wait
   for a character, which is what the + on the bar does and goes on
   doing; a BUTTON pressed has to do something the moment it is pressed,
   and one that named no kind did nothing whatsoever. Left alone it restyled whatever cell the caret was
@@ -1239,6 +1247,35 @@ CoreMind's `bin/report-status.sh`.
   through `onArmChanged` and looks the geometry up in its own `seams`
   every time it draws, because a stored rectangle goes stale — the old
   one was left painted across the next note at a y that meant nothing.
+  **The arm is checked against seams measured THEN**
+  (`MarkdownTextView.seams(in:)`), never the layer's: NSTextView moves
+  the caret inside its own edit, before `textDidChange` measures the
+  layer again, so Return at the end of a cell put the caret on the new
+  separator, asked the seams from before the Return, found none there,
+  and the next character joined the cell above as a second line of it.
+- **A KEY AT THE BAR MEANS WHAT IT MEANS ON THE RENDERED PAGE, AND THE
+  ARROWS REACH EVERY BAR.** Sean, 2026-10-02: "do a thorough test of
+  cell selection and input insertion ux behavior...". The source pane
+  reads its selectors into the rendered page's own answers
+  (`CellSeams.command` → `MarkdownPreview.SeamKey`, and a test holds
+  the two readings of the same keys together): Return, ⌃↩ and ⌥↩ open
+  an empty cell; ↑ and ↓ walk into the cell above, at its end, or the
+  cell below, at its start — `CellSeams.step`, read off the BAR'S
+  OFFSET and never the caret, because a click parks the caret at the
+  start of the cell below and ↓ from there skipped that cell while ↑
+  re-armed the same bar — and at the two ends of the note the bar
+  stays; EVERY OTHER KEY takes the bar back and is NOT RUN. It used to
+  be put out and then run from that parked caret: ⌫ joined the cell
+  below to the one above, ⌦ took its first letter, Tab indented it.
+  The caret is then left IN A CELL — the start of the one below, under
+  the last cell the end of it — never on the separator, where the next
+  character welded three cells into one paragraph. Between two cells
+  the caret reaches a bar by itself, on the blank line; the two ends
+  have no such line, so the coordinator arms them (`armEndSeam`, on ↑
+  from the first LAID-OUT line and ↓ from the last,
+  `MarkdownTextView.isOnEndLine`), and `CellSeams.arm` reads the empty
+  line after a final newline as the tail seam — so ↓ off the last cell
+  and Return at the end of it give the bar, as on the rendered page.
 - **A funnel is not only keystrokes.** `insertText(_:replacementRange:)`
   opens an armed seam only when the range is `{NSNotFound, 0}`, which is
   what AppKit passes for typing. A caller that NAMES a range means that
@@ -1734,7 +1771,11 @@ CoreMind's `bin/report-status.sh`.
   drawn `overhang` proud at each end and at a section's weight. The
   drawn depth is CLAMPED to the column (`deepest`): six heading levels
   plus a group is more nesting than 22 points of gutter can hold, and a
-  bracket past the left edge is not drawn at all.
+  bracket past the left edge is not drawn at all. A drag from a BAR on
+  the rendered page asked `!foldable` too, and the pair's bracket is
+  listed before the cells: a drag over a pair took the cell ABOVE the
+  bar it started from. `MarkdownPreview.seamDrag` reads
+  `CellBrackets.cellSpans(of:)`, the column's own reading.
   **THE NEAREST CELL, NOT THE FIRST.** `EvalCells.landing(of:in:startedAt:)`
   re-finds the cell that ran by its own text — the note is editable
   while it runs — and breaks a tie with the offset the run started
@@ -2541,7 +2582,36 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   reads `held`. Reading `selected` made a drag from the caret's own
   bracket reorder the note, a plain click on it do nothing whatever, and
   a cmd-click quietly add a cell nobody had clicked — three reviewers,
-  one root (2026-09-20). Both panes carry both flags.
+  one root (2026-09-20). Both panes carry both flags. And a press on a
+  bracket that IS held begins a move — which a press that never moves
+  is not: it is a click, and takes that bracket's cells alone
+  (`NotebookGutter.mouseUp`). It did nothing at all, three cells held
+  and one clicked, where the rendered column has always called it a
+  click.
+- **NSTEXTVIEW TYPES OVER THE FIRST OF SEVERAL SELECTED RANGES, AND IT
+  WANTS SEVERAL RANGES IN ORDER.** Both measured 2026-10-02. Typing or
+  pasting over a discontiguous selection replaces the FIRST range and
+  keeps the rest (docs/PLAN-cell-selection.md assumed it typed over all
+  of them), so a section's bracket clicked and a word typed replaced
+  the heading and kept the section. Held cells go through
+  `CellCommands.typing` — the rendered page's rule, one function for
+  both: every held cell goes, one plain cell with what was typed takes
+  the first one's place — from the coordinator's `shouldChangeTextIn`,
+  and only for an edit over the FIRST selected range, which is the
+  user's keystroke; a whole-cell command's own spans go through as
+  made. ⌦ goes through `deleteHeldCells` as ⌫ does (NSTextView took the
+  words and left the blank lines), and Escape lets held cells go
+  (`letGoOfHeldCells`), as on the rendered page. ⌘D's run has the same
+  first-range hole and is NOT fixed (docs/TODO.md). The second:
+  `shouldChangeText(inRanges:)` handed ranges BACK TO FRONT — the order
+  every multi-part edit here is made in, so each applies without moving
+  the next — throws NSInvalidArgumentException when the delegate
+  answers only the singular question, as both coordinators do:
+  NSTextView builds one combined change for it and runs off the end of
+  its own string. ⌫ over two cells held with a hole, a move of two such
+  cells, and typing over half a hidden `**` pair all raised and did
+  nothing. `NSTextView.shouldChangeText(over:)` asks in order, and every
+  multi-range edit goes through it.
   **AN OUTER BRACKET IS HELD BY ITS CELLS, not by its own characters.**
   `CellSelection.covers` asks whether ONE selected range holds the whole
   of a range — deliberately, because the union of two cells picked up

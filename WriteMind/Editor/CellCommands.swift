@@ -105,6 +105,60 @@ enum CellCommands {
         return MarkdownFormatting.Edit(range: span, replacement: swapped, selection: landing)
     }
 
+    /// TYPING OVER CELLS THAT ARE HELD: every one of them goes, the stack
+    /// closes up behind them, and ONE cell with what was typed in it takes
+    /// the place of the first — or nothing does, for a delete. As one edit,
+    /// so it is one step of undo in the source pane.
+    ///
+    /// The rendered page has always done this ("on the rendered page it
+    /// means delete-then-open-one", docs/PLAN-cell-selection.md). The plan
+    /// left the markdown pane to NSTextView, on the belief that it types
+    /// over every range of a discontiguous selection; it types over the
+    /// FIRST and leaves the rest (measured, 2026-10-02). So a section's
+    /// bracket clicked and a word typed replaced its heading and kept every
+    /// cell under it, and two cells cmd-clicked kept the second. Now both
+    /// panes ask this (Sean, 2026-09-20: "make cells behave like
+    /// mathematica cells" — in a notebook, typing over a selection of
+    /// cells replaces the selection).
+    static func typing(_ typed: String, over cells: [NSRange], in text: String) -> MarkdownFormatting.Edit? {
+        let deletions = edits(over: cells, in: text) { delete($0, in: $1) }
+        // The front-most deletion is applied last, and its landing is the
+        // place the first held cell began — nothing before it has moved.
+        guard let landing = deletions.last?.selection.location else { return nil }
+        var left = text as NSString
+        for edit in deletions { left = left.replacingCharacters(in: edit.range, with: edit.replacement) as NSString }
+        var after = left as String
+        var caret = min(landing, left.length)
+        if !typed.isEmpty {
+            // Always a plain text cell, whatever the cells it replaces
+            // were (Sean, 2026-09-19: "default is always just text").
+            let opened = CellTypes.open(.text, writing: typed, in: after, at: caret)
+            after = opened.markdown
+            caret = opened.caret
+        }
+        return change(from: text, to: after, caret: caret)
+    }
+
+    /// The one span two versions of a note differ in, as an edit of the
+    /// first: everything they share at the front and at the back is left
+    /// alone, so undo and the restyle see only what changed.
+    private static func change(from old: String, to new: String, caret: Int) -> MarkdownFormatting.Edit {
+        let was = old as NSString, now = new as NSString
+        var front = 0
+        while front < was.length, front < now.length, was.character(at: front) == now.character(at: front) {
+            front += 1
+        }
+        var back = 0
+        while back < was.length - front, back < now.length - front,
+              was.character(at: was.length - 1 - back) == now.character(at: now.length - 1 - back) {
+            back += 1
+        }
+        return MarkdownFormatting.Edit(
+            range: NSRange(location: front, length: was.length - front - back),
+            replacement: now.substring(with: NSRange(location: front, length: now.length - front - back)),
+            selection: NSRange(location: caret, length: 0))
+    }
+
     /// Every held cell moved one place — a bracket dragged up or down
     /// with more than one lit, and ⌃⇧↑/⌃⇧↓.
     ///

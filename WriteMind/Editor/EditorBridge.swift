@@ -336,6 +336,10 @@ final class EditorBridge {
     /// sibling before it, or below the one after (Sean, 2026-09-19). In the
     /// preview a block is only part of a section, so the note does it.
     func moveSection(up: Bool) {
+        // Nothing at a bar: see `cellEdit`. In the source pane the caret a
+        // bar parks at the start of the cell below moved THAT cell's
+        // section, and on the rendered page the note's first one moved.
+        guard !isAtArmedBar else { return }
         if let moveSectionInDocument { moveSectionInDocument(up); return }
         guard let tv = textView,
               let edit = NotebookOutline.moveSection(text: tv.string, selection: tv.selectedRange(), up: up)
@@ -357,6 +361,7 @@ final class EditorBridge {
     /// takes: arming follows the caret, so the bar appears there by
     /// itself and there is still one writer of the armed state.
     func splitCell() {
+        guard !isAtArmedBar else { return }
         if let splitCellInDocument { splitCellInDocument(); return }
         maybe(NotebookCells.split)
     }
@@ -364,6 +369,7 @@ final class EditorBridge {
     /// Join the caret's cell to the one after it — the whole note's job on
     /// the rendered side, where the seam is outside every block.
     func mergeCells() {
+        guard !isAtArmedBar else { return }
         if let mergeCellsInDocument { mergeCellsInDocument(); return }
         maybe(NotebookCells.merge)
     }
@@ -406,6 +412,20 @@ final class EditorBridge {
         return true
     }
 
+    /// ESCAPE OVER CELLS THAT ARE HELD lets go of them and leaves the note
+    /// alone — the rendered page's answer (`MarkdownPreview.cellKey`). The
+    /// caret goes to the start of the first of them. False when nothing
+    /// is held, so the key keeps NSTextView's own meaning.
+    @discardableResult
+    func letGoOfHeldCells() -> Bool {
+        guard let tv = textView else { return false }
+        let cells = MarkdownParser.positioned(from: tv.string).map(\.range)
+        let picked = CellSelection.picked(cells: cells, selection: tv.selectedRanges.map(\.rangeValue))
+        guard let first = picked.first else { return false }
+        tv.setSelectedRange(NSRange(location: first.location, length: 0))
+        return true
+    }
+
     /// Take the whole cell away and close the stack behind it.
     func deleteCell() {
         cellEdit { CellCommands.delete($0, in: $1) }
@@ -439,7 +459,17 @@ final class EditorBridge {
     }
 
     /// One edit per selected cell, in whichever pane is up.
+    ///
+    /// NOTHING AT A BAR, IN EITHER PANE — the bar is in no cell, and a
+    /// command that acts on one has none to act on (Sean, 2026-09-21, the
+    /// rule that made the bar make cells, kept the other sort out). The
+    /// rendered page's hook used to be asked before that was: it reads the
+    /// cells held, else the cell open, else the note's FIRST cell — and
+    /// at a bar nothing is held or open, so Delete Cell there took the top
+    /// of the note, ⌃⇧D copied it and ⌃⇧↑/↓ moved it. Split, merge and
+    /// Move Section had the same hole and the same answer.
     private func cellEdit(_ make: @escaping (NSRange, String) -> MarkdownFormatting.Edit?) {
+        guard !isAtArmedBar else { return }
         if let cellEditInDocument { cellEditInDocument(make); return }
         perform(opensACell: false) { [weak self] in
             guard let self, let tv = textView else { return }
@@ -643,8 +673,7 @@ final class EditorBridge {
     private func apply(_ edits: [MarkdownFormatting.Edit]) {
         guard let tv = textView, let storage = tv.textStorage, !edits.isEmpty else { return }
         tv.window?.makeFirstResponder(tv)
-        guard tv.shouldChangeText(inRanges: edits.map { NSValue(range: $0.range) },
-                                  replacementStrings: edits.map(\.replacement)) else { return }
+        guard tv.shouldChangeText(over: edits.map { ($0.range, $0.replacement) }) else { return }
         storage.beginEditing()
         for edit in edits { storage.replaceCharacters(in: edit.range, with: edit.replacement) }
         storage.endEditing()
@@ -679,5 +708,26 @@ final class EditorBridge {
                 NSValue(range: EvalCells.shifted($0.rangeValue, by: edit))
             }
         }
+    }
+}
+
+extension NSTextView {
+    /// `shouldChangeText(inRanges:replacementStrings:)` with the ranges in
+    /// the ASCENDING order it needs, however they were made.
+    ///
+    /// Every multi-part edit here is MADE back to front, so that each can
+    /// be applied without moving the characters the next one names
+    /// (`CellCommands.edits`, `MarkerDeletion.deletions`). Handed over in
+    /// that order, NSTextView — which builds one combined change for a
+    /// delegate that answers only the singular question, as both editors'
+    /// coordinators do — walked off the end of its own string and threw
+    /// (NSInvalidArgumentException, "Range or index out of bounds",
+    /// measured 2026-10-02): ⌫ over two cells held with a hole between
+    /// them did nothing at all but raise. Asked in order, nothing about
+    /// the edit changes; it is still applied back to front.
+    func shouldChangeText(over changes: [(range: NSRange, replacement: String)]) -> Bool {
+        let ordered = changes.sorted { $0.range.location < $1.range.location }
+        return shouldChangeText(inRanges: ordered.map { NSValue(range: $0.range) },
+                                replacementStrings: ordered.map(\.replacement))
     }
 }

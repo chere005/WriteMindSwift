@@ -347,17 +347,23 @@ final class NotebookGutter: NSView {
             gesture = .moving(cell: bracket.range, from: point.y)
             return
         }
-        // Only a press that picks anchors. A press that moves a cell is
-        // not "the last bracket clicked plainly", and the range it would
-        // leave behind means nothing the moment the move rewrites the
-        // note round it.
-        anchor = held.first
         gesture = .picking(anchor: held.first ?? bracket.range, cells: held)
+        pick(bracket.range)
+    }
+
+    /// What a plain click takes: the cells a bracket holds, and nothing
+    /// else held beside them. Only a press that picks anchors — a press
+    /// that moves a cell is not "the last bracket clicked plainly", and the
+    /// range it would leave behind means nothing the moment the move
+    /// rewrites the note round it.
+    private func pick(_ range: NSRange) {
+        let held = CellSelection.cells(of: range, in: cellRanges)
+        anchor = held.first
         // One cell goes through `onSelect`, which is what opens it for
         // typing on the rendered page; a section goes through the many,
         // because there is nothing there to open.
-        if held.count == 1, NSEqualRanges(held[0], bracket.range) {
-            onSelect?(bracket.range)
+        if held.count == 1, NSEqualRanges(held[0], range) {
+            onSelect?(range)
         } else {
             onSelectCells?(held)
         }
@@ -380,7 +386,13 @@ final class NotebookGutter: NSView {
         defer { gesture = nil }
         guard case .moving(let cell, let from) = gesture else { return }
         let travelled = convert(event.locationInWindow, from: nil).y - from
-        guard abs(travelled) >= Self.dragThreshold else { return }
+        // A PRESS ON A HELD BRACKET THAT NEVER MOVED IS A CLICK, and takes
+        // that bracket's cells alone. It did nothing at all: three cells
+        // held, one of them clicked, and all three stayed held — where the
+        // rendered page's column, which settles a drag only once it has
+        // moved, has always treated the same press as a click (Sean,
+        // 2026-09-20: "make cells behave like mathematica cells").
+        guard abs(travelled) >= Self.dragThreshold else { return pick(cell) }
         onMoveCell?(cell, travelled < 0)
     }
 

@@ -49,11 +49,13 @@ is how the code is put together.
   clicked to the one under the pointer; cmd-click puts a cell in or takes
   it out, so a selection can have a hole in it. Everything a single cell
   answers to, a handful answers to together: type and all of them are
-  replaced by what you typed, ⌫ takes exactly them and closes the stack,
-  ⌃⇧D copies the run, and ⌃⇧↑/⌃⇧↓ walk the whole run up or down the page
-  and leave it held, so pressing again moves the same run again. A drag
+  replaced by one cell holding what you typed, ⌫ or ⌦ takes exactly them
+  and closes the stack, Escape lets go of them, ⌃⇧D copies the run, and
+  ⌃⇧↑/⌃⇧↓ walk the whole run up or down the page and leave it held, so
+  pressing again moves the same run again. A drag
   that starts on a bracket that is ALREADY HELD moves the run instead —
-  that is how both gestures live on one column. The bracket the caret is
+  that is how both gestures live on one column — and a click on one that
+  is held, with no drag, takes that one alone. The bracket the caret is
   merely sitting in does not count as held, or there would be nowhere to
   start a selection from; and a click on the column where there is no
   bracket goes to the text behind it, the way the right margin always has.
@@ -67,8 +69,9 @@ is how the code is put together.
   the cursor: the caret stops being drawn, no bracket is lit while it is
   up, and the first thing typed becomes a cell of its own there, Return
   opens an empty one, and Escape or a click anywhere else takes the line
-  back without leaving an empty cell behind. Press the `+` at the end of
-  the line and it drops the kinds of cell down — Body Text, the heading
+  back without leaving an empty cell behind — as does every other key:
+  ⌫, ⌦ and Tab at the line touch neither cell beside it. Press the `+`
+  at the end of the line and it drops the kinds of cell down — Body Text, the heading
   ladder from Title to Subsubsection, the three lists, Quote, Code Block
   — and the next thing typed makes a cell of the kind you picked, with
   its marker already written and the caret after it. The Format menu is
@@ -85,10 +88,12 @@ is how the code is put together.
   does on both.
 - **The arrow keys walk cell, line, cell.** The line is not only what a
   click makes: ↓ off the bottom of a cell lands ON it, ↓ again goes into
-  the next cell, and ↑ comes back the same way. Getting there by arrow
-  and getting there by click leave the page in the same state — type and
-  you get a new cell between the two, not a character that welds them
-  into one.
+  the next cell, and ↑ comes back the same way — the line above the first
+  cell and the one under the last included. Return at the end of a cell
+  leaves you on the line under it too, so what you type next is a cell
+  of its own. Getting there by arrow and getting there by click leave
+  the page in the same state — type and you get a new cell between the
+  two, not a character that welds them into one.
 - **The same place, whichever mode.** Switching between the markdown and
   the rendered page (⌘T) reopens on the line you were looking at — the
   same cell and the same way into it, or the same gap between two cells

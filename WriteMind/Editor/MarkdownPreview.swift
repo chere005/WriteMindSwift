@@ -1057,16 +1057,30 @@ struct MarkdownPreview: View {
     /// bar goes out — a cursor between two cells and three cells held at
     /// once are two different answers to "where am I".
     private func dragSeam(from seam: CellSeams.Seam, by travelled: CGFloat, to y: CGFloat) {
-        let spans = cellBrackets
-            .filter { !$0.foldable && $0.range.location != NSNotFound }
-            .map { (top: $0.top, bottom: $0.bottom, range: $0.range) }
-        let anchor = seamDragAnchor
-            ?? CellSelection.cell(fromSeamAt: seam.line, goingDown: travelled > 0, in: spans)
-        guard let anchor, let over = CellSelection.cell(at: y, in: spans) else { return }
-        seamDragAnchor = anchor
+        guard let drag = Self.seamDrag(from: seam, by: travelled, to: y, anchor: seamDragAnchor,
+                                       brackets: cellBrackets) else { return }
+        seamDragAnchor = drag.anchor
         armedSeam = nil
         editingRange = nil
-        selectedCells = CellSelection.between(anchor, over, in: spans.map(\.range))
+        selectedCells = drag.cells
+    }
+
+    /// The cells a drag from a bar has passed, and the one it is growing
+    /// from — settled by its first movement (`anchor`, once there is one).
+    ///
+    /// CELLS, read the column's own way (`CellBrackets.cellSpans`). This
+    /// asked `!foldable`, which counts an In/Out pair's bracket as a cell:
+    /// it is listed before the cells, so a drag down from the bar over a
+    /// pair anchored on the pair's range, a drag up over it stopped on it,
+    /// and `between` — reading positions in that list — took every
+    /// bracket listed between, the cell ABOVE the bar included.
+    static func seamDrag(from seam: CellSeams.Seam, by travelled: CGFloat, to y: CGFloat, anchor: NSRange?,
+                         brackets: [CellBrackets.Bracket]) -> (anchor: NSRange, cells: [NSRange])? {
+        let spans = CellBrackets.cellSpans(of: brackets)
+        let anchor = anchor
+            ?? CellSelection.cell(fromSeamAt: seam.line, goingDown: travelled > 0, in: spans)
+        guard let anchor, let over = CellSelection.cell(at: y, in: spans) else { return nil }
+        return (anchor, CellSelection.between(anchor, over, in: spans.map(\.range)))
     }
 
     /// The + on the bar, in the seam view's OWN coordinates — the same
@@ -1352,29 +1366,21 @@ struct MarkdownPreview: View {
     /// The held cells taken away, and — for a character typed — one cell
     /// put where they were with that character already in it.
     ///
-    /// Delete then open one, because "typing replaces the selection" has
-    /// no other meaning on a page of rendered blocks: the markdown pane
-    /// gets it from NSTextView, which types over a discontiguous selection
-    /// by itself.
+    /// Delete then open one — `CellCommands.typing`, the one rule both
+    /// panes follow. The markdown pane used to leave this to NSTextView,
+    /// which types over the first range of a discontiguous selection and
+    /// keeps the rest.
     private func replaceCells(with typed: String) {
-        let cells = selectedCells
-        guard !cells.isEmpty else { return }
-        let edits = CellCommands.edits(over: cells, in: markdown) { CellCommands.delete($0, in: $1) }
-        guard let landing = edits.last?.selection.location else { return }
-        var text = markdown as NSString
-        for edit in edits { text = text.replacingCharacters(in: edit.range, with: edit.replacement) as NSString }
+        guard let edit = CellCommands.typing(typed, over: selectedCells, in: markdown) else { return }
         selectedCells = []
         editingRange = nil
-        markdown = text as String
-        guard !typed.isEmpty,
-              let opened = Self.opened(.write(typed), at: min(landing, text.length), in: text as String)
-        else { return }
-        markdown = opened.markdown
-        // Always a plain text cell, whatever the cells it replaced were
-        // (Sean, 2026-09-19: "default is always just text").
+        markdown = (markdown as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+        guard !typed.isEmpty else { return }
+        // The cell the character went into, open with the caret after it.
+        let cell = CellTypes.cell(at: edit.selection.location, in: markdown)
         fence = nil
-        draft = opened.draft
-        editingRange = opened.editing
+        draft = (markdown as NSString).substring(with: cell)
+        editingRange = cell
         caret = .end
         focusToken += 1
     }

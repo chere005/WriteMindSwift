@@ -15,6 +15,34 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### Keys at the insertion bar, and cells held by their brackets
+Sean, 2026-10-02: "do a thorough test of cell selection and input insertion
+ux behavior...". What a test pass across both views settled, each the same in
+the markdown view and the rendered one:
+- **A key at the bar.** Return makes an empty cell there; ↑ goes into the cell
+  above (caret at its end), ↓ into the cell below (at its start), and at the
+  top or bottom of the note the bar stays; EVERY other key — Escape, ⌫, ⌦,
+  Tab — takes the bar back and does nothing else. A key pressed at a bar must
+  never edit the cell beside it. Where the caret is left, if the view has
+  one, is inside a cell, never on the empty line between two: a character
+  typed there joins the cells either side into one paragraph.
+- **The arrows reach every bar**, the one above the first cell and the one
+  under the last included, and Return at the end of a cell leaves you on the
+  bar under it — what is typed next is a new cell, not a second line of the
+  one above.
+- **A command that acts on a cell does nothing at a bar**: delete,
+  duplicate, move, split, merge, move section. The bar is in no cell; a
+  fallback to "the first cell" turns Delete Cell at a bar into deleting the
+  top of the note.
+- **Cells held by their brackets**: typing (or pasting) replaces ALL of them
+  with one plain cell holding what was typed, where the first was; ⌫ and ⌦
+  both take them and close the stack; Escape lets go; a click on a bracket
+  that is already held, with no drag, takes that one alone. A text widget
+  that edits only the first range of a multiple selection is not enough
+  here.
+- **A drag from a bar** takes cells only — never the bracket round an
+  evaluation pair as if it were one, which took the cell above the bar too.
+
 ### A code block, an evaluation cell or maths always lands as a cell of its own
 Sean, 2026-10-02: "make math and code block insertion sensible..". One rule
 for the code button / its key, the evaluation-cell key and the maths palette,

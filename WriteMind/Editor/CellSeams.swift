@@ -150,6 +150,21 @@ enum CellSeams {
         let offset = caret.location
         if let current, current == offset { return current }
         let ns = markdown as NSString
+        // THE EMPTY LINE UNDER THE LAST CELL. A note that ends in a newline
+        // has a line after it with nothing on it, and a caret there is
+        // under every cell — the tail seam, which no reading of the offset
+        // can mistake for the end of the last cell, because the newline is
+        // between them. Return at the end of the last cell and ↓ off it
+        // both leave the caret there, and a character typed on it went
+        // into the last cell as a second line (`- a` and `x` under it,
+        // "Only cell x" on the page) where the rendered page makes a cell.
+        // Not when the last cell reaches the very end: a fence with no
+        // closing line runs to the end of the note, and a caret there is
+        // in its code.
+        if offset == ns.length, offset > 0, ns.character(at: offset - 1) == 10 {
+            guard let last = MarkdownParser.positioned(from: markdown).last else { return offset }
+            return NSMaxRange(last.range) < offset ? offset : nil
+        }
         guard offset > 0, offset < ns.length else { return nil }
         // Cheap first. This runs on every caret move, which means on every
         // keystroke, and parsing the whole note for each of them would sit
@@ -172,6 +187,51 @@ enum CellSeams {
         guard !blocks.contains(where: { $0.range.location < offset && offset < NSMaxRange($0.range) })
         else { return nil }
         return blocks.first { $0.range.location >= offset }?.range.location ?? ns.length
+    }
+
+    /// What a command arriving at an armed bar means in the SOURCE pane —
+    /// the same five answers the rendered page reads its keys into
+    /// (`MarkdownPreview.seamKey`), so one key does one thing at a bar
+    /// whichever pane it is pressed in.
+    ///
+    /// Return opens an empty cell, ↑ and ↓ walk into the cell beside the
+    /// bar, Escape takes the bar back — and EVERYTHING ELSE takes the bar
+    /// back too and is not run at all, because the promise of the bar is
+    /// that clicking about the page and pressing keys at it leaves the note
+    /// byte for byte as it was (docs/FEATURES.md). The source pane used to
+    /// put the bar out and then run the command anyway, from the caret the
+    /// bar had parked at the start of the cell below: ⌫ there joined that
+    /// cell to the one above, ⌦ took its first letter, Tab indented it.
+    /// The rendered page has never run them — a seam has no text to run
+    /// them in — and that is the answer both give now.
+    static func command(_ name: String) -> MarkdownPreview.SeamKey {
+        switch name {
+        // ⌃↩ and ⌥↩ are Return as well: on the rendered page they arrive
+        // as the same "\r".
+        case "insertNewline:", "insertLineBreak:", "insertNewlineIgnoringFieldEditor:": return .empty
+        case "moveUp:": return .step(up: true)
+        case "moveDown:": return .step(up: false)
+        case "cancelOperation:": return .disarm
+        default: return .pass
+        }
+    }
+
+    /// Where ↑ or ↓ at a bar puts the caret: at the END of the cell above
+    /// it, or the START of the cell below — the rendered page's `walk`,
+    /// which opens those same cells with the caret at those same ends.
+    /// Nil at the two ends of the note, where there is no cell that way and
+    /// the bar stays where it is.
+    ///
+    /// Read off the bar's OFFSET, never off the caret: a click parks the
+    /// caret at the first character of the cell below, so ↓ from there
+    /// went to that cell's second line — on a one-line cell, the bar under
+    /// it, skipping the cell altogether — and ↑ went to the blank line the
+    /// bar stands for and armed the same bar again, which looked like the
+    /// key doing nothing.
+    static func step(from offset: Int, up: Bool, in markdown: String) -> Int? {
+        let cells = MarkdownParser.positioned(from: markdown).map(\.range)
+        if up { return cells.last { $0.location < offset }.map(NSMaxRange) }
+        return cells.first { $0.location >= offset }?.location
     }
 
     /// A stretch of the page as the POINTER reads it: a seam, where the

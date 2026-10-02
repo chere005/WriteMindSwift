@@ -455,6 +455,27 @@ struct MarkdownTextView: NSViewRepresentable {
                                firstCellTop: tv.textContainerOrigin.y)
     }
 
+    /// Whether the caret is on the first line of the page (`top`) or the
+    /// last — the LINE AS LAID OUT, so a long first paragraph that wraps
+    /// still takes ↑ to its own first line before it takes it to the bar.
+    /// An empty note has one line, which is both.
+    static func isOnEndLine(of tv: NSTextView, top: Bool) -> Bool {
+        guard let layout = tv.layoutManager, let container = tv.textContainer else { return false }
+        let length = (tv.string as NSString).length
+        guard length > 0 else { return true }
+        layout.ensureLayout(for: container)
+        let caret = min(tv.selectedRange().location, length)
+        // A caret after a final newline is on the line under it — the extra
+        // line fragment, which has no glyph to ask about.
+        if caret == length, (tv.string as NSString).character(at: length - 1) == 10 { return !top }
+        func line(_ character: Int) -> CGRect {
+            layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: character), effectiveRange: nil)
+        }
+        let here = line(min(caret, length - 1))
+        let end = line(top ? 0 : length - 1)
+        return abs(here.minY - end.minY) < 0.5
+    }
+
     /// Open a cell at an armed seam: the blank lines that make what is
     /// typed next a block of its own, the marker for whatever kind the +
     /// chose, and the caret where the words go.
@@ -626,8 +647,7 @@ struct MarkdownTextView: NSViewRepresentable {
         /// moving three cells was one gesture.
         func apply(_ edits: [MarkdownFormatting.Edit], in tv: NSTextView) {
             guard let storage = tv.textStorage, !edits.isEmpty,
-                  tv.shouldChangeText(inRanges: edits.map { NSValue(range: $0.range) },
-                                      replacementStrings: edits.map(\.replacement)) else { return }
+                  tv.shouldChangeText(over: edits.map { ($0.range, $0.replacement) }) else { return }
             storage.beginEditing()
             for edit in edits { storage.replaceCharacters(in: edit.range, with: edit.replacement) }
             storage.endEditing()
@@ -717,8 +737,18 @@ struct MarkdownTextView: NSViewRepresentable {
                 // text and is not one on the page — the cells inside the
                 // fold are not laid out — and arming it would turn the
                 // caret off with no bar drawn in its place.
+                //
+                // MEASURED NOW, and not read off the layer: the layer is
+                // measured again once the text has changed, and NSTextView
+                // moves the caret INSIDE its own edit, before that. Return
+                // at the end of a cell put the caret on the new separator
+                // and asked the seams from before the Return, which had no
+                // seam there — so the bar never came up, and the next
+                // character joined the cell above as a second line of it.
+                // Only while the caret is on a separator at all, which is
+                // the one time this is asked.
                 tv.armedSeam = wanted.flatMap { offset in
-                    insertions?.seams.contains { $0.offset == offset } == true ? offset : nil
+                    MarkdownTextView.seams(in: tv).contains { $0.offset == offset } ? offset : nil
                 }
             }
             // AFTER the arming, never before it: whether a paragraph
@@ -1016,6 +1046,10 @@ struct MarkdownTextView: NSViewRepresentable {
                     return false
                 }
             }
+            if let replacementString,
+               !typeOverHeldCells(textView, range: affectedCharRange, replacement: replacementString) {
+                return false
+            }
             return widenedEdit(textView, range: affectedCharRange, replacement: replacementString)
         }
 
@@ -1041,8 +1075,10 @@ struct MarkdownTextView: NSViewRepresentable {
             guard ranges != [range] else { return true }
             let asked = MarkerDeletion.asked(range, in: ranges)
             let strings = ranges.map { $0 == asked ? replacement : "" }
-            guard tv.shouldChangeText(inRanges: ranges.map { NSValue(range: $0) },
-                                      replacementStrings: strings) else { return false }
+            // In order (`shouldChangeText(over:)`): the deletions come back
+            // to front, and "**bo" typed over in "**bold** here" threw
+            // instead of leaving "xld here".
+            guard tv.shouldChangeText(over: zip(ranges, strings).map { ($0, $1) }) else { return false }
             // Back to front, so an earlier range's location still means
             // what it meant when it was worked out.
             storage.beginEditing()
@@ -1094,6 +1130,12 @@ struct MarkdownTextView: NSViewRepresentable {
                 // through to the ordinary delete.
                 if parent.bridge.deleteHeldCells() { return true }
                 return parent.bridge.outdentForBackspace()
+            case #selector(NSResponder.deleteForward(_:)):
+                // ⌦ the same, as the rendered page's column has it
+                // (`MarkdownPreview.cellKey`). Left to NSTextView it took
+                // the words of every held cell and left the blank lines
+                // between them standing — the stack never closed.
+                return parent.bridge.deleteHeldCells()
             case #selector(NSResponder.insertNewline(_:)),
                  #selector(NSResponder.insertLineBreak(_:)),
                  #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
@@ -1107,10 +1149,76 @@ struct MarkdownTextView: NSViewRepresentable {
                 guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
                 // Return on a list item carries the list on (Sean, 2026-09-18).
                 return parent.bridge.continueList()
+            case #selector(NSResponder.cancelOperation(_:)):
+                // Escape lets go of cells HELD by their brackets, the way
+                // the rendered page's column does (`MarkdownPreview.cellKey`).
+                // NSTextView's own answer to Escape is word completion over
+                // whatever is selected.
+                return parent.bridge.letGoOfHeldCells()
+            case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.moveDown(_:)):
+                return armEndSeam(textView, up: selector == #selector(NSResponder.moveUp(_:)))
             default:
                 return false
             }
         }
+
+        /// ↑ OFF THE TOP OF THE FIRST CELL AND ↓ OFF THE BOTTOM OF THE LAST
+        /// LAND ON THE BAR THERE, as they do off every other cell (Sean,
+        /// 2026-09-20: "the mouse cursor and text cursor should both become
+        /// horizontal between cells"; docs/FEATURES.md: "↓ off the bottom
+        /// of a cell lands ON it"). Between two cells the caret gets there
+        /// by itself — there is a blank line for it to land on, and
+        /// `CellSeams.arm` reads it — but above the first cell there is no
+        /// line at all, and under the last there is none unless the note
+        /// ends in a newline: NSTextView put the caret at the very start or
+        /// the very end of the note instead, an ordinary caret, so the bar
+        /// above the first cell and under the last could only be clicked.
+        /// The rendered page has always armed them (`armSeam(beside:)`).
+        ///
+        /// Armed first and then the caret moved, the way a click arms one,
+        /// so `arm` keeps it. False — NSTextView's own move — anywhere but
+        /// the first or last line of the page.
+        private func armEndSeam(_ textView: NSTextView, up: Bool) -> Bool {
+            guard parent.seamsEnabled, let tv = textView as? PasteAwareTextView, tv.armedSeam == nil,
+                  tv.selectedRanges.count == 1, tv.selectedRange().length == 0,
+                  MarkdownTextView.isOnEndLine(of: tv, top: up) else { return false }
+            let seams = MarkdownTextView.seams(in: tv)
+            guard let seam = up ? seams.first : seams.last else { return false }
+            let offset = min(seam.offset, (tv.string as NSString).length)
+            tv.armedSeam = offset
+            tv.setSelectedRange(NSRange(location: offset, length: 0))
+            tv.scrollRangeToVisible(tv.selectedRange())
+            return true
+        }
+
+        /// Typing over SEVERAL held cells — or pasting over them — replaces
+        /// them all with one cell, the rendered page's rule, through
+        /// `CellCommands.typing`. NSTextView left to itself replaces only
+        /// the first of the ranges and keeps the rest. One range is left to
+        /// NSTextView, which already does the same thing with it.
+        ///
+        /// Only an edit OVER THE FIRST SELECTED RANGE is the user's: that
+        /// is the one range NSTextView hands over for a keystroke or a
+        /// paste. A whole-cell command moving or copying the same held
+        /// cells asks about its own spans, and must go through as made.
+        ///
+        /// True: NSTextView goes ahead as asked. False: the edit was made
+        /// here and NSTextView's is not wanted.
+        private func typeOverHeldCells(_ tv: NSTextView, range: NSRange, replacement: String) -> Bool {
+            guard !replacingHeld, tv.selectedRanges.count > 1,
+                  tv.selectedRanges.first?.rangeValue == range else { return true }
+            let cells = MarkdownParser.positioned(from: tv.string).map(\.range)
+            let held = CellSelection.picked(cells: cells, selection: tv.selectedRanges.map(\.rangeValue))
+            guard let edit = CellCommands.typing(replacement, over: held, in: tv.string) else { return true }
+            replacingHeld = true
+            defer { replacingHeld = false }
+            apply(edit, in: tv)
+            return false
+        }
+
+        /// True while that edit is going in: it asks `shouldChangeText`
+        /// itself, with the held ranges still selected.
+        private var replacingHeld = false
     }
 }
 
@@ -1197,18 +1305,40 @@ class PasteAwareTextView: NSTextView {
         super.insertText(string, replacementRange: NSRange(location: NSNotFound, length: 0))
     }
 
-    /// A key while a seam is armed. Return opens the empty cell there;
-    /// everything else — an arrow, Escape, a delete — puts the bar out and
-    /// leaves the note exactly as it was, because clicking about the page
-    /// must never leave an empty cell behind.
+    /// A key while a seam is armed — what the rendered page's seam does
+    /// with the same key, read through `CellSeams.command`. Return opens
+    /// the empty cell there; ↑ and ↓ walk into the cell above or below,
+    /// and at the two ends of the note, where there is none, the bar
+    /// stays; everything else — Escape, a delete, Tab — puts the bar out
+    /// and leaves the note exactly as it was, because clicking about the
+    /// page must never leave an empty cell behind, and a key pressed at a
+    /// bar must never edit the cell beside it.
     override func doCommand(by selector: Selector) {
         guard let offset = armedSeam else { return super.doCommand(by: selector) }
         let type = armedType
-        armedSeam = nil
-        guard selector == #selector(NSResponder.insertNewline(_:)) else {
-            return super.doCommand(by: selector)
+        switch CellSeams.command(NSStringFromSelector(selector)) {
+        case .empty, .write:
+            armedSeam = nil
+            MarkdownTextView.openSeam(at: offset, as: type, in: self)
+        case .step(let up):
+            guard let caret = CellSeams.step(from: offset, up: up, in: string) else { return }
+            armedSeam = nil
+            setSelectedRange(NSRange(location: caret, length: 0))
+            scrollRangeToVisible(selectedRange())
+        case .disarm, .pass:
+            armedSeam = nil
+            // THE CARET IN A CELL, NEVER ON THE LINE THE BAR STANDS FOR: at
+            // the start of the cell below, where a click on the bar leaves
+            // it, and under the last cell at the end of that one. Arrowed
+            // onto the bar it sat on the blank line between two cells, and
+            // once the bar was out the next character went in on that line
+            // and welded the cells either side into one paragraph — the
+            // merge arming exists to stop.
+            let caret = CellSeams.step(from: offset, up: false, in: string)
+                ?? CellSeams.step(from: offset, up: true, in: string) ?? offset
+            let parked = NSRange(location: min(caret, (string as NSString).length), length: 0)
+            if selectedRange() != parked { setSelectedRange(parked) }
         }
-        MarkdownTextView.openSeam(at: offset, as: type, in: self)
     }
 
     /// The layer that knows where the seams are. It is this view's own

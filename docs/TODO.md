@@ -53,3 +53,12 @@ had to say it. Verification is the job, not an item.
   its parsing, the grid you typed in, the toolbar button and ⌃⌘T, and
   reading a ruled table off a photograph, which existed only to write one.
   `git show` the removal commit for the old one when the new one is wanted.
+- **⌘D's run types over the first occurrence only.** Found in the cell
+  test pass (2026-10-02, Sean: "do a thorough test of cell selection and
+  input insertion ux behavior..."): NSTextView types over the FIRST range
+  of a multiple selection and keeps the rest, so ⌘D twice over "cat and
+  cat" and "dog" typed leaves "dog and cat" — against what
+  `EditorBridge.selectNextOccurrence` promises. Held cells were given
+  their own rule that pass; Sublime's run needs every range replaced and
+  a caret left in each, and NSTextView does not keep several empty
+  carets, so it wants a design of its own rather than a patch.
