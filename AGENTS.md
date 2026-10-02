@@ -151,26 +151,16 @@ CoreMind's `bin/report-status.sh`.
   so a big picture costs the note nothing. It stays ONE number for
   every capture — matching the viewfinder exactly, by the page's real
   share of the video frame, would make every capture a different size,
-  which is what `notebookPageShape` exists to prevent. **AND THE INK IS
-  THINNED TO A THIRD OF ITS OWN MEASURED WIDTH** (Sean, same day: "the
-  scale is correct, but the thickness of the writing is too thick", and
-  again at half: "the grabbed text is still too thick") — a trace
-  is faithful, so twice the size is twice the weight beside the note's
-  text. `NotebookCapture.strokeWidth` is twice the ink's area over its
-  boundary, which is the width of anything long and thin whatever shape
-  it is; `thinned` erodes one pixel off every side per pass and never
-  past `strokeFloor`, so a pencil line already that fine comes through
-  untouched — a capture with holes in it is worse than a heavy one. Not
-  a fixed number of pixels: a fine pencil and a marker are four times
-  apart and one erosion would break the first and barely touch the
-  second. And the order is CLEAN, THIN, CLEAN AGAIN: the first
-  `keepingMarks` drops the specks, the dot lattice and the page edge and
-  is what the width is measured off (raw ink would be measuring the dots
-  as much as the pen), and the SECOND is there because of the thinning —
-  a printed dot that got past the lattice is a few pixels across and two
-  passes of erosion leave it under the speck limit, which is how the
-  stragglers go (Sean, same day: "now some of the background dots are
-  getting picked up by mistake").
+  which is what `notebookPageShape` exists to prevent. **THE TRACE IS
+  NOT THINNED.** It was, for a day — eroded to a third of its measured
+  width, then cleaned a second time for the grid dots the erosion let
+  through — and Sean had it taken out (2026-10-02: "the text isn't
+  coming through crisp and backgrounds aren't being ignored etc.. it was
+  working better before"). Erosion on a thresholded mask chews the
+  edges of every stroke and shrinks a printed dot into something the
+  lattice search no longer recognises; both are worse than heavy ink.
+  If the weight comes up again, it wants a different tool than a mask
+  eroded pixel by pixel.
 - **Every NSTextView gets its OWN undo manager.** Left to itself an
   NSTextView registers its undo actions on the window's undo manager, and
   both editors here are torn down routinely — a `BlockEditor` whenever its

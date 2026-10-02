@@ -496,32 +496,13 @@ have to come out the same size on the page. (Sean, 2026-09-22: "the drawing
 and image when selected from the camera are too small.. they should be the
 size you can see in the output viewer".)
 
-### Traced writing is thinned to a measured fraction of its own stroke
-A trace is faithful, so when a capture lands at twice the size it used to, the
-pen arrives twice as heavy beside the note's text. Thin it — but not by a fixed
-number of pixels, because a fine pencil and a marker are four times apart and
-one erosion would break the first and barely touch the second.
-
-Measure the stroke: twice the ink's area over its boundary. For anything long
-and thin that IS its width, whatever shape it is, because the two ends fall
-out of the ratio (it reads a little under the truth by however much the ends
-are of the whole boundary, which is the right bias for handwriting). Then
-erode to a fraction of that, one pixel off every side per pass, and never past
-a floor — a stroke already at the floor comes through untouched, since a
-capture with holes in it is worse than a heavy one. (Sean, 2026-09-22: "the
-scale is correct, but the thickness of the writing is too thick".)
-
-### Thinning the trace is also how the last grid dots go
-A printed dot grid is caught by looking for a lattice — regular spacing, two
-neighbours at an angle — and a few always get past it: the ones near an edge
-with no neighbour on one side, or a dot that touched something. They are a few
-pixels across, and the erosion that thins the pen leaves them under the speck
-limit. So CLEAN, THIN, THEN CLEAN AGAIN: the first pass drops the specks, the
-grid and the page edge and is what the stroke width is measured off (measuring
-raw ink would be measuring the dots as much as the pen), and the second takes
-whatever the thinning has reduced to nothing. It costs a second component pass
-and takes nothing off a real stroke. (Sean, 2026-09-22: "now some of the
-background dots are getting picked up by mistake".)
+### Traced writing is NOT thinned
+For one day the trace was eroded to a fraction of its measured stroke width and
+cleaned twice; that is rolled back (Sean, 2026-10-02: "the text isn't coming
+through crisp and backgrounds aren't being ignored etc.. it was working better
+before"). Erosion roughened every edge and turned grid dots into specks the
+lattice search no longer caught. If the port picked either entry up, take it
+out: threshold, clean once, trace.
 
 ## Done there
 
