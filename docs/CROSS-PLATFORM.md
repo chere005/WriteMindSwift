@@ -16,7 +16,7 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 ## Open
 
 ### ⌘T keeps everything where it was
-Sean, 2026-10-03: "preserve the position of things as much as possible
+Sean, 2026-10-02: "preserve the position of things as much as possible
 between markdown and wysiwyg mode". The two modes lay the same cells out
 at different heights — the rendered page leaves a full blank line's air
 between two cells where the markdown view, markers hidden, leaves about
@@ -38,9 +38,17 @@ share (a cell is known by the character offset it starts at):
   one view has (folded, not measured yet) is no knot. An object moves
   WHOLE by the top left of its box — never stretched — a group by the top
   left of the whole group, and an arrow point by point with its ends put
-  back on its nodes. Whatever is drawn, dragged or dropped on the rendered
-  view goes back through the inverse; anything it did not touch is written
-  back exactly as stored. The PDF, laid out the rendered way, uses the
+  back on its nodes. Whatever is drawn, dragged, dropped or cropped on the
+  rendered view goes back through the inverse — a group by the corner of
+  all of it, even when the canvas writes its members one at a time;
+  anything whose corner did not move keeps the offset it was shown with,
+  so a label typed, a colour, grouping, ungrouping or deleting a member
+  moves nothing in the stored frame (the rendered view then shows the new
+  grouping by its corner at once); anything it did not touch is written
+  back exactly as stored. A position about to be saved is worked out from
+  the markdown view's layout as the note is now, never from one carried
+  along while typing or resizing; that layout is redone when the width
+  changes, not the height. The PDF, laid out the rendered way, uses the
   same mapping.
 - **The top of the window is a cell and how far into it**: 0 at its top,
   1 at its bottom, between −1 and 0 in the gap above it. Both views read
@@ -1117,9 +1125,10 @@ lines tall, and a page of short cells reads as a column of empty boxes.
 
 The reason it was a whole line is worth knowing before it is put back: it made
 a code cell EXACTLY as tall in both modes. That contract is not needed —
-switching modes comes back to the same CELL by its id and never by a
-measurement — so all that is given up is that a long note of code is a
-different total height in the two panes. (Sean, 2026-09-22: "there shouldn't
+switching modes comes back to the same cell and how far into it, and drawings
+go through the cells both views share (see "⌘T keeps everything where it
+was") — so all that is given up is that a long note of code is a different
+total height in the two panes. (Sean, 2026-09-22: "there shouldn't
 be so much padding in the cells themselves, it should be about the size of the
 text a little bigger".)
 

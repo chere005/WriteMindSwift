@@ -2,7 +2,7 @@ import XCTest
 @testable import WriteMind
 
 /// A point beside a paragraph in one mode is beside the same paragraph in
-/// the other (Sean, 2026-10-03: "preserve the position of things as much
+/// the other (Sean, 2026-10-02: "preserve the position of things as much
 /// as possible between markdown and wysiwyg mode"). The two panes lay the
 /// same cells out at different heights, and `PaneMapping` goes through the
 /// cells both of them have.
@@ -303,6 +303,57 @@ final class DrawingPaneTests: XCTestCase {
         XCTAssertEqual(again, shown, "routed where it is shown, and settled")
     }
 
+    /// ⌃G on the page is ⌃G in the markdown pane: a group is only a name
+    /// the members share, and naming them moves none of them in the
+    /// sidecar — though on the page, which moves a group by its corner,
+    /// a member can then sit where its group's corner says.
+    func testGroupingAndUngroupingOnThePageMoveNothingInTheSidecar() throws {
+        // One stroke in the seam under the first cell, one in the second.
+        let loose = Drawing(items: [stroke([CGPoint(x: 300, y: 66), CGPoint(x: 310, y: 90)]),
+                                    stroke([CGPoint(x: 312, y: 100), CGPoint(x: 330, y: 120)])])
+        let ids = Set(loose.items.map(\.id)), group = UUID()
+        let shown = loose.shown(through: mapping, in: size)
+        var grouped = shown
+        grouped.items = try XCTUnwrap(CanvasGroups.toggled(ids, in: shown.items, id: group))
+        let stored = loose.stored(grouped, wasShown: shown, through: mapping, in: size)
+        var expected = loose
+        expected.items = try XCTUnwrap(CanvasGroups.toggled(ids, in: loose.items, id: group))
+        XCTAssertEqual(stored, expected, "the same sidecar as ⌃G in the markdown pane")
+
+        let regrouped = stored.shown(through: mapping, in: size)
+        var ungrouped = regrouped
+        ungrouped.items = try XCTUnwrap(CanvasGroups.toggled(ids, in: regrouped.items))
+        XCTAssertEqual(stored.stored(ungrouped, wasShown: regrouped, through: mapping, in: size), loose)
+    }
+
+    /// Typing in a text box that is grouped with a stroke above it: the
+    /// box is where it was, edit after edit, and so is the stroke.
+    func testTypingInAGroupedTextBoxOnThePageLeavesItWhereItIs() throws {
+        let group = UUID()
+        // The stroke's top in the seam under the first cell is the group's
+        // corner; the box's top is 100, in the second cell.
+        let box = ShapeItem(kind: .text, center: CGPoint(x: 0.6, y: 120.0 / 500), width: 0.2,
+                            aspect: 40.0 / 120, colorHex: "#000000", lineWidth: 1, group: group)
+        let original = Drawing(items: [stroke([CGPoint(x: 300, y: 66), CGPoint(x: 310, y: 90)], group: group),
+                                       .shape(box)])
+        var drawing = original
+        for label in ["H", "Hi", "Hi there"] {
+            let shown = drawing.shown(through: mapping, in: size)
+            var typed = shown
+            guard case .shape(var shape) = typed.items[1] else { return XCTFail("the box") }
+            shape.label = label
+            // And it grows to fit, about its middle (`fitTextBox`).
+            shape.aspect += 0.05
+            typed.items[1] = .shape(shape)
+            drawing = drawing.stored(typed, wasShown: shown, through: mapping, in: size)
+        }
+        XCTAssertEqual(drawing.items[0], original.items[0], "the stroke it is grouped with, bit for bit")
+        let typed = try XCTUnwrap(drawing.items[1].shape)
+        XCTAssertEqual(typed.label, "Hi there")
+        XCTAssertEqual(typed.center, box.center, "not a point up or down the sidecar for any of it")
+        XCTAssertEqual(typed.transform, box.transform)
+    }
+
     func testTheIdentityTouchesNothing() {
         let drawing = Drawing(items: [stroke([CGPoint(x: 40, y: 90), CGPoint(x: 90, y: 120)])])
         XCTAssertEqual(drawing.shown(through: .identity, in: size), drawing)
@@ -312,7 +363,189 @@ final class DrawingPaneTests: XCTestCase {
     }
 }
 
-/// The cursor carried across ⌘T (Sean, 2026-10-03: "preserve the position
+/// What sits between the drawing layer on the rendered page and the
+/// sidecar: the layer's every write, the way `DrawingCanvas` makes it
+/// through `EditorPane.layerDrawing`, and the markdown pane's cells laid
+/// out for it.
+@MainActor
+final class PaneFramesTests: XCTestCase {
+    private let size = CGSize(width: 600, height: 500)
+    private var mapping: PaneMapping {
+        PaneMapping(from: [(top: 20, bottom: 64, offset: 0), (top: 78, bottom: 144, offset: 30),
+                           (top: 158, bottom: 202, offset: 90)],
+                    to: [(top: 30, bottom: 74, offset: 0), (top: 100, bottom: 166, offset: 30),
+                         (top: 192, bottom: 236, offset: 90)],
+                    fromColumn: MarkdownTextView.column(width: size.width),
+                    toColumn: MarkdownPreview.column(width: size.width))
+    }
+
+    private func stroke(_ points: [CGPoint], group: UUID? = nil) -> CanvasItem {
+        .stroke(Stroke(colorHex: "#000000", width: 2,
+                       points: points.map { CGPoint(x: $0.x / size.width, y: $0.y / size.height) }, group: group))
+    }
+
+    /// A word of writing across the edge of a cell: two strokes, one group.
+    private func word(_ group: UUID) -> Drawing {
+        Drawing(items: [stroke([CGPoint(x: 300, y: 66), CGPoint(x: 310, y: 90)], group: group),
+                        stroke([CGPoint(x: 312, y: 80), CGPoint(x: 330, y: 92)], group: group)])
+    }
+
+    /// One write by the layer: what it is handed, changed, handed back.
+    private func write(_ store: inout Drawing, through frames: PaneFrames, _ change: (inout Drawing) -> Void) {
+        var layer = frames.shown(store, through: mapping, in: size)
+        change(&layer)
+        store = frames.stored(layer, over: store, through: mapping, in: size)
+    }
+
+    /// `DrawingCanvas.apply` sets one member's transform at a time, and
+    /// through a binding every one of those is a write of its own: the
+    /// group still goes back as one, frame after frame of a drag.
+    func testAGroupDraggedOnThePageOneWriteAtATimeGoesBackAsOne() {
+        let frames = PaneFrames()
+        let drawing = word(UUID())
+        var store = drawing
+        let snapshot = frames.shown(store, through: mapping, in: size).items.map(\.transform)
+        for step in 1...3 {
+            for index in snapshot.indices {
+                write(&store, through: frames) {
+                    $0.items[index].transform.dy = snapshot[index].dy + Double(10 * step) / Double(size.height)
+                }
+            }
+        }
+        let was = drawing.items.map { $0.bounds(in: size).origin }, now = store.items.map { $0.bounds(in: size).origin }
+        XCTAssertEqual(now[1].y - now[0].y, was[1].y - was[0].y, accuracy: 1e-9, "the letters as they were written")
+        XCTAssertEqual(now[1].x - now[0].x, was[1].x - was[0].x, accuracy: 1e-9)
+        // Shown afresh, with nothing remembered, where the drag left it.
+        let start = drawing.shown(through: mapping, in: size).items.map { $0.bounds(in: size).origin }
+        let page = store.shown(through: mapping, in: size).items.map { $0.bounds(in: size).origin }
+        for (onPage, from) in zip(page, start) {
+            XCTAssertEqual(onPage.y, from.y + 30, accuracy: 1e-6)
+            XCTAssertEqual(onPage.x, from.x, accuracy: 1e-6)
+        }
+    }
+
+    /// ⌃G on the page names the members and moves none of them in the
+    /// sidecar; the page then shows them as the new grouping puts them,
+    /// at once — not at the next keystroke, whenever the cells next move.
+    func testAfterGroupingThePageShowsTheNewGroupingAtOnce() throws {
+        let frames = PaneFrames()
+        let loose = Drawing(items: [stroke([CGPoint(x: 300, y: 66), CGPoint(x: 310, y: 90)]),
+                                    stroke([CGPoint(x: 312, y: 100), CGPoint(x: 330, y: 120)])])
+        let ids = Set(loose.items.map(\.id)), group = UUID()
+        var store = loose
+        write(&store, through: frames) { $0.items = CanvasGroups.toggled(ids, in: $0.items, id: group) ?? $0.items }
+        var expected = loose
+        expected.items = try XCTUnwrap(CanvasGroups.toggled(ids, in: loose.items, id: group))
+        XCTAssertEqual(store, expected)
+        XCTAssertEqual(frames.shown(store, through: mapping, in: size), store.shown(through: mapping, in: size))
+    }
+
+    /// The stroke at a group's corner deleted on the page: the rest stay
+    /// where they are in the sidecar, and the page shows them by their own
+    /// corner straight away.
+    func testTakingTheCornerOutOfAGroupMovesNothingElseInTheSidecar() {
+        let frames = PaneFrames()
+        let drawing = word(UUID())
+        var store = drawing
+        let corner = drawing.items[0].id
+        write(&store, through: frames) { $0 = $0.removing([corner]) }
+        XCTAssertEqual(store, drawing.removing([corner]), "bit for bit")
+        XCTAssertEqual(frames.shown(store, through: mapping, in: size), store.shown(through: mapping, in: size))
+    }
+
+    private let before = "First paragraph.\n\nSecond.\n\nThird.\n\nFourth."
+    private let after = "First paragraph.\n\nA paragraph put in above the rest, and long enough to wrap onto "
+        + "a second line in a pane this narrow.\n\nSecond.\n\nThird.\n\nFourth."
+    private let pane = CGSize(width: 400, height: 600)
+
+    /// A PaneFrames that counts its layouts — each one a whole TextKit
+    /// layout of the note.
+    private func counted(_ layouts: @escaping () -> Void) -> PaneFrames {
+        PaneFrames { text, pane, markers, folds in
+            layouts()
+            return MarkdownTextView.cellBoxes(of: text, pane: pane, showMarkers: markers, collapsed: folds)
+        }
+    }
+
+    /// The page as it measured itself after the edit: the same cells, lower
+    /// and further apart than the markdown pane has them.
+    private func page(for text: String) -> [CellSeams.Box] {
+        MarkdownTextView.cellBoxes(of: text, pane: pane, showMarkers: false, collapsed: []).cells
+            .map { (top: $0.top * 1.5 + 10, bottom: $0.bottom * 1.5 + 10, offset: $0.offset) }
+    }
+
+    /// While the note is typed into, the layer is SHOWN through the cells
+    /// laid out last, carried along by the edit — never a layout on a
+    /// keystroke. A position about to be SAVED is worked out from the note
+    /// as it is now.
+    func testAPositionWrittenAfterAnEditIsWorkedOutFromTheNoteAsItIsNow() throws {
+        var layouts = 0
+        let frames = counted { layouts += 1 }
+        frames.rendered = page(for: after)
+        _ = frames.mapping(text: before, size: pane, showMarkers: false, collapsed: [])
+        let typing = frames.mapping(text: after, size: pane, showMarkers: false, collapsed: [])
+        XCTAssertEqual(layouts, 1, "never a layout on a keystroke")
+        let written = frames.mapping(text: after, size: pane, showMarkers: false, collapsed: [], exact: true)
+        XCTAssertEqual(layouts, 2)
+        let fresh = MarkdownTextView.cellBoxes(of: after, pane: pane, showMarkers: false, collapsed: [])
+        let expected = PaneMapping(from: fresh.cells, to: try XCTUnwrap(frames.rendered),
+                                   fromColumn: MarkdownTextView.column(width: fresh.width),
+                                   toColumn: MarkdownPreview.column(width: fresh.width))
+        XCTAssertEqual(written, expected)
+        XCTAssertNotEqual(typing, expected, "the premise: carried along, the cells under the edit are off")
+    }
+
+    /// A write while the layer was shown through cells carried along by an
+    /// edit: what it did not touch stays bit for bit, what it moved lands
+    /// where it was dropped among the cells as they are now, and the layer
+    /// is then shown the drawing through those.
+    func testAWriteWhileTheCellsWereCarriedAlongTouchesOnlyWhatItMoved() throws {
+        let frames = counted {}
+        frames.rendered = page(for: after)
+        _ = frames.mapping(text: before, size: pane, showMarkers: false, collapsed: [])
+        let store = Drawing(items: [stroke([CGPoint(x: 40, y: 120), CGPoint(x: 90, y: 140)]),
+                                    stroke([CGPoint(x: 40, y: 30), CGPoint(x: 90, y: 36)])])
+        let typing = frames.mapping(text: after, size: pane, showMarkers: false, collapsed: [])
+        var layer = frames.shown(store, through: typing, in: pane)
+        layer.items[1].transform.dy += 20 / Double(pane.height)
+        let exact = frames.mapping(text: after, size: pane, showMarkers: false, collapsed: [], exact: true)
+        XCTAssertNotEqual(exact.y(130), typing.y(130), "the premise: the first stroke was shown off its place")
+        let result = frames.stored(layer, over: store, through: exact, in: pane)
+        XCTAssertEqual(result.items[0], store.items[0], "untouched, bit for bit")
+        XCTAssertEqual(result.items[1].bounds(in: pane).minY,
+                       exact.inverse.y(layer.items[1].bounds(in: pane).minY), accuracy: 1e-6)
+        XCTAssertEqual(frames.shown(result, through: exact, in: pane), result.shown(through: exact, in: pane))
+    }
+
+    /// A window made taller or shorter wraps no line differently, so the
+    /// layout it had holds; one made narrower is laid out once the resize
+    /// stops, not on every frame of it — and a write never waits for that.
+    func testAResizeLaysTheNoteOutOnceAndAHeightAloneNotAtAll() {
+        var layouts = 0
+        let frames = counted { layouts += 1 }
+        frames.rendered = page(for: before)
+        let first = frames.mapping(text: before, size: pane, showMarkers: false, collapsed: [])
+        for height in stride(from: CGFloat(590), through: 300, by: -10) {
+            XCTAssertEqual(frames.mapping(text: before, size: CGSize(width: pane.width, height: height),
+                                          showMarkers: false, collapsed: []), first)
+        }
+        XCTAssertEqual(layouts, 1, "a short note in a shorter pane wraps where it did")
+        for width in stride(from: CGFloat(390), through: 300, by: -10) {
+            _ = frames.mapping(text: before, size: CGSize(width: width, height: 300), showMarkers: false,
+                               collapsed: [])
+        }
+        XCTAssertEqual(layouts, 1, "not on every frame of a resize")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        XCTAssertEqual(layouts, 2, "once it stops")
+        _ = frames.mapping(text: before, size: CGSize(width: 300, height: 300), showMarkers: false, collapsed: [])
+        XCTAssertEqual(layouts, 2, "at the width it stopped at")
+        _ = frames.mapping(text: before, size: CGSize(width: 280, height: 300), showMarkers: false, collapsed: [],
+                           exact: true)
+        XCTAssertEqual(layouts, 3)
+    }
+}
+
+/// The cursor carried across ⌘T (Sean, 2026-10-02: "preserve the position
 /// of things as much as possible between markdown and wysiwyg mode").
 final class PaneCaretTests: XCTestCase {
     private let note = "# Title\n\nA paragraph of words.\n\n```python\nx = 1\ny = 2\n```\n\n- [ ] milk\n- [x] eggs"

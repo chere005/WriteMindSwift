@@ -308,9 +308,11 @@ is how the code is put together.
   After that, clicking any one of them picks up all of them, a rectangle
   that touches one brings the rest, and move, resize, turn and delete are
   over the whole group. Grouping and ungrouping move nothing: a group is
-  only a name they share. Pick a group and something loose together and
-  ⌃G makes one bigger group of the lot, so groups nest by swallowing
-  rather than by stacking.
+  only a name they share. (The rendered page shows a group moved by its
+  top-left corner, so there a member can settle a few points over when it
+  joins or leaves one; the markdown, which is what is saved, never moves.)
+  Pick a group and something loose together and ⌃G makes one bigger group
+  of the lot, so groups nest by swallowing rather than by stacking.
   The pen button itself is still the pen, on and off; its menu also picks
   the size and the colour (a circular colour well plus six swatches). ⌘Z
   undoes a stroke while the pen is up — ⇧⌘Z puts it back — and Undo Drawing

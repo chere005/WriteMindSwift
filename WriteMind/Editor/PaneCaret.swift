@@ -2,7 +2,7 @@ import Foundation
 
 /// WHERE THE TYPING WAS, carried across ⌘T.
 ///
-/// Sean, 2026-10-03: "preserve the position of things as much as possible
+/// Sean, 2026-10-02: "preserve the position of things as much as possible
 /// between markdown and wysiwyg mode". The two panes are two views that
 /// are torn down and built again on every switch, and neither carried a
 /// cursor: the markdown pane came up with its caret at the END of the note

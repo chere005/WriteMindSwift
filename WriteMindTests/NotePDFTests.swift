@@ -188,7 +188,7 @@ final class NotePDFTests: XCTestCase {
     }
 
     /// A picture put beside a paragraph in the markdown pane is beside it
-    /// on paper, which is laid out the rendered way (Sean, 2026-10-03:
+    /// on paper, which is laid out the rendered way (Sean, 2026-10-02:
     /// "preserve the position of things as much as possible between
     /// markdown and wysiwyg mode") — without the mapping it went on paper
     /// a growing distance above the words it was put beside.

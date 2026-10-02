@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import WriteMind
 
-/// The two panes, hosted for real, across ⌘T (Sean, 2026-10-03: "preserve
+/// The two panes, hosted for real, across ⌘T (Sean, 2026-10-02: "preserve
 /// the position of things as much as possible between markdown and wysiwyg
 /// mode"): the markdown pane's cells laid out with no text view, the place
 /// at the top of the window put back on both sides, and the cursor carried.

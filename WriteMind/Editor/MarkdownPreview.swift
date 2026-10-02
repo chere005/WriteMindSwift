@@ -36,7 +36,7 @@ struct MarkdownPreview: View {
     /// (`CellPlace`) — reported as the page scrolls, and put back when the
     /// page appears, so the two modes show the same place (Sean,
     /// 2026-09-19: "positions stay the same in markdown and wysiwyg
-    /// mode"; 2026-10-03: "preserve the position of things as much as
+    /// mode"; 2026-10-02: "preserve the position of things as much as
     /// possible between markdown and wysiwyg mode").
     var onTopCell: ((CellPlace) -> Void)?
     var topCell: CellPlace = .top

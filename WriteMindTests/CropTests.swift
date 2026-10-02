@@ -46,6 +46,50 @@ final class CropTests: XCTestCase {
         XCTAssertEqual(tiny.height, 0.1, accuracy: 1e-9)
     }
 
+    /// Cropped on the rendered page, which shows the picture through the
+    /// cells (`PaneMapping`): the kept part stays where it was THERE. Kept
+    /// in place in the sidecar instead, a third of the way down a picture
+    /// that runs over two seams, it came back 12 points lower on the page.
+    @MainActor
+    func testOnThePageTheKeptPartStaysWhereItWasThere() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "WriteMindTests-crop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data("# Cropped\n\nWords.\n".utf8).write(to: dir.appending(path: "Cropped.md"))
+        let store = NoteStore(directory: dir)
+        let note = try XCTUnwrap(store.selectedNote)
+
+        // 30×90, a third of it cut off the top: 30 pixels, exactly.
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 30, pixelsHigh: 90,
+                                                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                 isPlanar: false, colorSpaceName: .deviceRGB,
+                                                 bytesPerRow: 0, bitsPerPixel: 0))
+        let image = NSImage(size: NSSize(width: 30, height: 90))
+        image.addRepresentation(rep)
+        let picture = try XCTUnwrap(DrawingStore.importImage(image, in: store.owningFolder(for: note.url)))
+
+        let size = CGSize(width: 600, height: 500)
+        let mapping = PaneMapping(from: [(top: 20, bottom: 64, offset: 0), (top: 78, bottom: 144, offset: 30),
+                                         (top: 158, bottom: 202, offset: 90)],
+                                  to: [(top: 30, bottom: 74, offset: 0), (top: 100, bottom: 166, offset: 30),
+                                       (top: 192, bottom: 236, offset: 90)],
+                                  fromColumn: MarkdownTextView.column(width: size.width),
+                                  toColumn: MarkdownPreview.column(width: size.width))
+        store.canvasSize = size
+        store.paneMapping = { mapping }
+        // 120 points wide and 360 tall, its top at 20 in the sidecar.
+        store.drawing = Drawing(items: [.image(ImageItem(file: picture.file, center: CGPoint(x: 0.5, y: 200.0 / 500),
+                                                         width: 0.2, aspect: picture.aspect))])
+        let before = store.drawing.shown(through: mapping, in: size).items[0].bounds(in: size)
+
+        store.cropImage(id: store.drawing.items[0].id, to: CGRect(x: 0, y: 1.0 / 3, width: 1, height: 2.0 / 3))
+        XCTAssertNotEqual(store.drawing.items[0].image?.file, picture.file, "cropped")
+        let after = store.drawing.shown(through: mapping, in: size).items[0].bounds(in: size)
+        XCTAssertEqual(after.minY, before.minY + 120, accuracy: 1e-6, "the kept part's top, where it was on the page")
+        XCTAssertEqual(after.height, 240, accuracy: 1e-6)
+        XCTAssertEqual(after.minX, before.minX, accuracy: 1e-6)
+    }
+
     func testCroppingWritesANewPictureAndLeavesTheOldOne() throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }

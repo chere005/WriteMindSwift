@@ -1228,7 +1228,7 @@ CoreMind's `bin/report-status.sh`.
   exclusion bands moved with the scroll — a picture taller than the pane
   then pushed the text out of reach for good.
 - **THE SIDECAR KEEPS THE MARKDOWN PANE'S FRAME, AND THE RENDERED PAGE
-  SHOWS IT THROUGH THE CELLS.** Sean, 2026-10-03: "preserve the position
+  SHOWS IT THROUGH THE CELLS.** Sean, 2026-10-02: "preserve the position
   of things as much as possible between markdown and wysiwyg mode". The
   two panes lay the same cells out at different heights — `blockGap` (26)
   between cells on the page against about 14 in the markdown pane with
@@ -1253,24 +1253,46 @@ CoreMind's `bin/report-status.sh`.
   `EditorPane.layerDrawing` hands `DrawingCanvas` the drawing SHOWN in
   the page's frame (`Drawing.shown`) and takes back what the layer did
   through the inverse (`Drawing.stored`), so drawing, hit testing, the
-  handles, a drag, a new stroke, a placement and the crop all happen in
-  the frame on screen and the canvas knows nothing of two panes — do not
-  add a conversion inside it. An object moves WHOLE, by where the mapping
-  puts the top left of its box, and a GROUP by the top left of all of it
+  handles, a drag, a new stroke and a placement all happen in the frame
+  on screen and the canvas knows nothing of two panes — do not add a
+  conversion inside it. An object moves WHOLE, by where the mapping puts
+  the top left of its box, and a GROUP by the top left of all of it
   (letters of a word must not part where the word crosses a cell's
   edge); a connector goes point by point, x and y apart so a routed
   line's corners stay square, and `reconnect` puts its ends back on its
-  nodes. An item the layer did not change comes back bit for bit — a
-  drag writes the whole drawing every frame, and every write is a save.
-  What the STORE puts on the layer by a place on the pane — the middle
-  of the window, a capture's landing, the tablet's nib, the chart read
-  off the camera — goes through `NoteStore.landed` (`paneMapping`, set by
-  the editor pane). The markdown pane's cells, which the rendered page
+  nodes. **What was shown as one goes back as one**, and that is the
+  group as it was SHOWN: `DrawingCanvas.apply` writes ONE MEMBER AT A
+  TIME (a binding's every `items[i] =` is a write of its own), so each
+  write puts the whole group back by the corner of all of it — put back
+  member by member, each by its own corner, a group came apart on every
+  frame of a drag, and a text box grouped under a stroke went ten points
+  up the sidecar for every letter typed in it (found in review,
+  2026-10-02; `PaneFramesTests`). A unit whose corner is where it was
+  shown — a label, a colour, ⌃G, a member deleted — keeps the offset it
+  was shown with, exactly: grouping, ungrouping and deleting move nothing
+  in the sidecar, and the page, which moves a group by its corner, shows
+  the new grouping at once (`PaneFrames.stored` forgets what the layer
+  wrote). A unit the layer did not touch comes back bit for bit — a drag
+  writes the whole drawing every frame, and every write is a save. What
+  the STORE puts on the layer by a place on the pane — the middle of the
+  window, a capture's landing, the tablet's nib, the chart read off the
+  camera — goes through `NoteStore.landed` (`paneMapping`, set by the
+  editor pane), and a crop is made on the picture as the page shows it
+  and put back through `Drawing.stored`, so the kept part stays where it
+  was on the page. The markdown pane's cells, which the rendered page
   needs with that pane not on screen, are laid out offscreen by the very
   same TextKit 1 stack and styling (`MarkdownTextView.cellBoxes(of:pane:…)`,
-  `style`), cached in `PaneFrames` per note, size, markers and folds, and
-  only when there is a drawing to show. The PDF lays the note out the
-  rendered way, so it puts the drawing on paper through the same mapping
+  `style`), cached in `PaneFrames` per note, width, markers and folds — a
+  pane only made taller or shorter wraps nothing differently unless a
+  scroller comes or goes, which the note's height says — dropped on every
+  switch, and only when there is a drawing to show. While the note is
+  typed into or the window dragged, the cells laid out last are SHOWN
+  carried along and laid out again 150 ms after it stops; anything about
+  to be SAVED (the layer's writes, `landed`, the crop) asks for them
+  `exact` and they are laid out there and then — a picture pasted after
+  a paragraph was put in above it, carried along, was saved that
+  paragraph's height off. The PDF lays the note out the rendered way, so
+  it puts the drawing on paper through the same mapping
   (`NoteExport.drawingOnPaper`). `ModeRenderTests` draws one note with a
   picture and strokes beside its third paragraph in both modes (and the
   page without the mapping, where the line under that paragraph's first
@@ -1320,7 +1342,7 @@ CoreMind's `bin/report-status.sh`.
   heights being equal: the two modes come back to the same place by the
   cell it is in and how far through it (`CellPlace`), and the drawing
   layer goes through the two panes' cells (`PaneMapping`).
-- **⌘T KEEPS THE PLACE, THE CURSOR AND WHAT IS HELD.** Sean, 2026-10-03:
+- **⌘T KEEPS THE PLACE, THE CURSOR AND WHAT IS HELD.** Sean, 2026-10-02:
   "preserve the position of things as much as possible between markdown
   and wysiwyg mode". The two panes are two views torn down and built
   again on every switch; what crosses is in the store and the bridge.
@@ -2115,7 +2137,7 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
 - **A LEGACY SCROLLER TAKES 17 POINTS OF THE TEXT.** With a mouse plugged
   in macOS shows legacy scrollers, and the markdown pane's scroller hides
   itself only while the note fits: beside a long note the text view is the
-  pane less 17 points (measured 2026-10-03, a 600-point pane's clip view
+  pane less 17 points (measured 2026-10-02, a 600-point pane's clip view
   583 wide), and a layout made at the pane's width wraps somewhere else.
   `MarkdownTextView.cellBoxes(of:pane:…)` lays out at the narrower width
   when the note is taller than the pane and the scrollers are legacy.

@@ -2,7 +2,7 @@ import CoreGraphics
 
 /// WHERE A POINT ON ONE PANE IS ON THE OTHER.
 ///
-/// Sean, 2026-10-03: "preserve the position of things as much as possible
+/// Sean, 2026-10-02: "preserve the position of things as much as possible
 /// between markdown and wysiwyg mode". The two panes lay the same cells out
 /// at different heights — the rendered page puts `blockGap` (26 points)
 /// between two cells where the markdown pane with its markers hidden puts
@@ -145,7 +145,7 @@ struct PaneMapping: Equatable {
 /// the fold, so a window showing the third line of a paragraph came back
 /// two lines up, a long code cell up to its whole height up, and a round
 /// trip settled on the cell's first line (Sean, 2026-09-19: "positions stay
-/// the same in markdown and wysiwyg mode"; 2026-10-03: "preserve the
+/// the same in markdown and wysiwyg mode"; 2026-10-02: "preserve the
 /// position of things as much as possible").
 struct CellPlace: Equatable {
     /// The cell, by the character offset its block starts at.

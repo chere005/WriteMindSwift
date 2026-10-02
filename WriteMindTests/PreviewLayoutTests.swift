@@ -74,7 +74,7 @@ final class CellBracketTests: XCTestCase {
 }
 
 /// The same place, whichever mode is showing (Sean, 2026-09-19: "positions
-/// stay the same in markdown and wysiwyg mode"; 2026-10-03: "preserve the
+/// stay the same in markdown and wysiwyg mode"; 2026-10-02: "preserve the
 /// position of things as much as possible between markdown and wysiwyg
 /// mode"). The two sides lay a note out at different heights, so what
 /// carries across is the CELL at the top and how far into it — not the

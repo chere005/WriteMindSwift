@@ -43,7 +43,7 @@ final class NoteStore: ObservableObject {
     /// sides lay the same note out at different heights, so a scroll
     /// POSITION does not carry across a switch between them; the place
     /// does (Sean, 2026-09-19: "positions stay the same in markdown and
-    /// wysiwyg mode"; 2026-10-03: "preserve the position of things as much
+    /// wysiwyg mode"; 2026-10-02: "preserve the position of things as much
     /// as possible"). Whichever pane comes up puts it back at the top. It
     /// is the open note's: another note opens at its own top, and an edit
     /// above the place moves it with the cell it names.
@@ -52,7 +52,9 @@ final class NoteStore: ObservableObject {
     /// (`PaneMapping`) — the identity in the markdown pane. Set by the
     /// editor pane; everything put on the layer by a place on the pane —
     /// the middle of the window, a capture's landing, the tablet's nib —
-    /// goes through it on the way in (`landed`).
+    /// goes through it on the way in (`landed`), and so does a crop. It is
+    /// the note as it is now, never cells carried along by an edit: what
+    /// goes through it is saved.
     var paneMapping: () -> PaneMapping = { .identity }
     /// Where the caret's line is, in the pane's document coordinates — set
     /// by the editor pane, nil while the source editor is not up.
@@ -668,18 +670,25 @@ final class NoteStore: ObservableObject {
 
     /// Keep only the part of a picture inside `rect` (fractions of it,
     /// top-left origin). The kept part stays exactly where it was on the
-    /// pane; the rest of the picture is gone, and ⌘Z on the drawing layer
-    /// brings it back.
+    /// pane on screen: cropped as that pane shows the picture, and put back
+    /// like anything the layer moves (`Drawing.stored`) — kept in place in
+    /// the sidecar instead, on the rendered page it landed wherever the
+    /// page's cells put its new corner. The rest of the picture is gone,
+    /// and ⌘Z on the drawing layer brings it back.
     func cropImage(id: UUID, to rect: CGRect) {
+        let mapping = paneMapping()
+        let shown = drawing.shown(through: mapping, in: paneSize)
         guard let note = selectedNote,
-              let index = drawing.items.firstIndex(where: { $0.id == id }),
-              case .image(let item) = drawing.items[index],
+              let index = shown.items.firstIndex(where: { $0.id == id }),
+              case .image(let item) = shown.items[index],
               rect.width > 0.001, rect.height > 0.001,
               let cropped = DrawingStore.cropImage(item.file, to: rect, in: owningFolder(for: note.url))
         else { return }
         beginDrawingChange()
-        drawing.items[index] = .image(CanvasEdit.crop(item, to: rect, file: cropped.file,
-                                                      aspect: cropped.aspect, in: paneSize))
+        var after = shown
+        after.items[index] = .image(CanvasEdit.crop(item, to: rect, file: cropped.file,
+                                                    aspect: cropped.aspect, in: paneSize))
+        drawing = drawing.stored(after, wasShown: shown, through: mapping, in: paneSize)
         notice("Cropped — ⌘Z on the drawing layer brings the rest back.")
     }
 

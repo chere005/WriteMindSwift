@@ -348,16 +348,27 @@ struct MarkdownTextView: NSViewRepresentable {
 
     /// The same, for a PANE of `size`: the text view is the pane's width
     /// less a scroller when one stands beside a note too long for the pane
-    /// — with a mouse plugged in macOS shows legacy scrollers, which take
-    /// room (17 points, measured), and a line laid out 17 points wider
-    /// wraps somewhere else. Returns the width it was laid out at.
-    static func cellBoxes(of text: String, pane size: CGSize, showMarkers: Bool,
-                          collapsed: Set<String>) -> (cells: [CellSeams.Box], width: CGFloat) {
+    /// (`textWidth(pane:noteHeight:)`). Returns the width it was laid out
+    /// at, and how tall the note is at the pane's full width — the one
+    /// number that decides the scroller, so a pane only made taller or
+    /// shorter can tell from it whether its layout still holds.
+    static func cellBoxes(of text: String, pane size: CGSize, showMarkers: Bool, collapsed: Set<String>)
+        -> (cells: [CellSeams.Box], width: CGFloat, height: CGFloat) {
         let cells = cellBoxes(of: text, width: size.width, showMarkers: showMarkers, collapsed: collapsed)
-        let tall = (cells.last?.bottom ?? 0) + inset.height > size.height
-        guard tall, NSScroller.preferredScrollerStyle == .legacy else { return (cells, size.width) }
-        let width = size.width - NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
-        return (cellBoxes(of: text, width: width, showMarkers: showMarkers, collapsed: collapsed), width)
+        let height = (cells.last?.bottom ?? 0) + inset.height
+        let width = textWidth(pane: size, noteHeight: height)
+        guard width < size.width else { return (cells, size.width, height) }
+        return (cellBoxes(of: text, width: width, showMarkers: showMarkers, collapsed: collapsed), width, height)
+    }
+
+    /// How wide the text is in a pane of `size` holding a note `noteHeight`
+    /// tall: the pane's width, less a scroller beside a note too long for
+    /// the pane — with a mouse plugged in macOS shows legacy scrollers,
+    /// which take room (17 points, measured), and a line laid out 17
+    /// points wider wraps somewhere else.
+    static func textWidth(pane size: CGSize, noteHeight: CGFloat) -> CGFloat {
+        guard noteHeight > size.height, NSScroller.preferredScrollerStyle == .legacy else { return size.width }
+        return size.width - NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
     }
 
     /// The air round the text: the text container's inset, the same in
@@ -367,9 +378,12 @@ struct MarkdownTextView: NSViewRepresentable {
     /// Where this pane's words start and end across a pane `width` wide:
     /// the inset and the line fragment's own padding, each side.
     static func column(width: CGFloat) -> PaneMapping.Column {
-        let padding = NSTextContainer().lineFragmentPadding
-        return PaneMapping.Column(left: inset.width + padding, right: width - inset.width - padding)
+        PaneMapping.Column(left: inset.width + lineFragmentPadding, right: width - inset.width - lineFragmentPadding)
     }
+
+    /// A text container's own padding each side of a line, which this pane
+    /// leaves at the default.
+    private static let lineFragmentPadding = NSTextContainer().lineFragmentPadding
 
     /// The note's styling, put on the text: the source styled the way the
     /// rendered blocks are and the markers that may vanish handed to

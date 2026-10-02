@@ -44,8 +44,11 @@ final class EditorBridge {
     var armBarInDocument: ((NSRange) -> Void)?
 
     /// THE CURSOR OF WHICHEVER PANE IS UP (`PaneCaret`), and the note it is
-    /// a cursor in. Each pane installs its own reader and takes it away
-    /// when it goes.
+    /// a cursor in. Each pane installs its own reader as it comes up, over
+    /// the last pane's; neither takes its away when it goes, because on a
+    /// switch the pane going can be taken down after the one coming up has
+    /// installed its own, and clearing it then would carry nothing the next
+    /// time. The markdown pane's holds its text view weakly.
     var paneCaret: (() -> Carried)?
 
     /// What a switch carried from the pane that went to the one that

@@ -76,15 +76,22 @@ extension Drawing {
     /// a word apart wherever the word crosses the edge of a cell. Anything
     /// on its own goes by its own corner.
     static func carried(_ items: [CanvasItem], through mapping: PaneMapping, in size: CGSize) -> [CanvasItem] {
-        var corners: [UUID: CGPoint] = [:]
-        for item in items where item.connector == nil {
-            guard let group = item.group else { continue }
-            let origin = item.bounds(in: size).origin
-            corners[group] = corners[group].map { CGPoint(x: min($0.x, origin.x), y: min($0.y, origin.y)) } ?? origin
-        }
+        let corners = Dictionary(grouping: items.filter { $0.group != nil }, by: { $0.group! })
+            .compactMapValues { corner(of: $0, in: size) }
         return items.map { item in
             item.carried(through: mapping, in: size, corner: item.group.flatMap { corners[$0] })
         }
+    }
+
+    /// The top left of everything in `items` that moves whole — a
+    /// connector goes point by point, and has no corner. Nil with none.
+    static func corner(of items: [CanvasItem], in size: CGSize) -> CGPoint? {
+        var corner: CGPoint?
+        for item in items where item.connector == nil {
+            let origin = item.bounds(in: size).origin
+            corner = corner.map { CGPoint(x: min($0.x, origin.x), y: min($0.y, origin.y)) } ?? origin
+        }
+        return corner
     }
 
     /// The drawing as the pane on screen shows it. The identity hands the
@@ -100,34 +107,68 @@ extension Drawing {
     /// What the layer did on the pane on screen, as the sidecar keeps it.
     ///
     /// `before` is what that pane was shown (`shown(through:in:)` of
-    /// `self`). An item it still holds UNCHANGED is this drawing's own,
-    /// bit for bit: a gesture writes the whole drawing back for every
-    /// frame of a drag, and the items it did not touch must not come back
-    /// a rounding error away — every write is a save, and an arrow's route
-    /// would wander. Everything else — moved, scaled, new — goes back
-    /// through the inverse, and attached arrows are put back on their
-    /// nodes in this frame.
+    /// `self`), and what goes back as one is what was SHOWN as one: a group
+    /// as it was then — the grouping the showing went by — or an object on
+    /// its own.
+    ///
+    /// - A unit the layer did not touch is this drawing's own, bit for
+    ///   bit: a gesture writes the whole drawing back for every frame of a
+    ///   drag, and what it did not touch must not come back a rounding
+    ///   error away — every write is a save, and an arrow's route would
+    ///   wander.
+    /// - A unit whose corner is where it was shown — a label typed, a
+    ///   colour, ⌃G, a member deleted — keeps the offset it was shown
+    ///   with, exactly: what changed changed in place, and naming a group
+    ///   or taking a member out of it moves nothing here. Put back by its
+    ///   own corner instead, a member of a group came back by another
+    ///   amount than it went — a text box ten points up the sidecar for
+    ///   every letter typed in it.
+    /// - A unit the layer moved, or a new one, goes back through the
+    ///   inverse by where its corner is now — ALL of it, by the corner of
+    ///   all of it. `DrawingCanvas.apply` writes one member at a time, and
+    ///   each put back by its own corner pulled a group apart on every
+    ///   frame of a drag.
+    ///
+    /// A connector the layer changed goes back point by point, and
+    /// attached arrows are put back on their nodes in this frame.
     func stored(_ shown: Drawing, wasShown before: Drawing, through mapping: PaneMapping,
                 in size: CGSize) -> Drawing {
         guard !mapping.isIdentity, size.width > 0, size.height > 0 else { return shown }
-        var mine: [UUID: CanvasItem] = [:]
-        for item in items { mine[item.id] = item }
-        var seen: [UUID: CanvasItem] = [:]
-        for item in before.items { seen[item.id] = item }
-        let kept = shown.items.map { item -> CanvasItem? in
-            guard seen[item.id] == item else { return nil }
-            return mine[item.id]
+        let mine = Self.byID(items), seen = Self.byID(before.items)
+        let unit = { (item: CanvasItem) -> UUID in (seen[item.id] ?? item).group ?? item.id }
+        var moved: [UUID: CGPoint] = [:]
+        for (key, members) in Dictionary(grouping: shown.items.filter { $0.connector == nil }, by: unit) {
+            let then = members.compactMap { item in mine[item.id] == nil ? nil : seen[item.id] }
+            let corner = Self.corner(of: members, in: size)
+            if then.count < members.count || corner != Self.corner(of: then, in: size) { moved[key] = corner }
         }
-        let changed = zip(shown.items, kept).filter { $0.1 == nil }.map(\.0)
         var stored = shown
-        guard !changed.isEmpty else {
-            stored.items = kept.compactMap { $0 }
-            return stored
+        stored.items = shown.items.map { item in
+            if let corner = moved[unit(item)] {
+                return item.carried(through: mapping.inverse, in: size, corner: corner)
+            }
+            // A new arrow: anything else new is in a unit that moved.
+            guard let old = seen[item.id], let own = mine[item.id] else {
+                return item.carried(through: mapping.inverse, in: size)
+            }
+            if old == item { return own }
+            if item.connector != nil { return item.carried(through: mapping.inverse, in: size) }
+            var back = item
+            back.transform.dx = Self.offset(item.transform.dx, shown: old.transform.dx, own: own.transform.dx)
+            back.transform.dy = Self.offset(item.transform.dy, shown: old.transform.dy, own: own.transform.dy)
+            return back
         }
-        let carried = Dictionary(Self.carried(changed, through: mapping.inverse, in: size).map { ($0.id, $0) },
-                                 uniquingKeysWith: { first, _ in first })
-        stored.items = zip(shown.items, kept).map { item, kept in kept ?? carried[item.id] ?? item }
         if stored.items.contains(where: { $0.connector != nil }) { stored.reconnect(in: size) }
         return stored
+    }
+
+    /// `value` less what showing added to it — `own` itself when it is
+    /// still what was shown.
+    private static func offset(_ value: Double, shown: Double, own: Double) -> Double {
+        value == shown ? own : value - (shown - own)
+    }
+
+    private static func byID(_ items: [CanvasItem]) -> [UUID: CanvasItem] {
+        Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 }
