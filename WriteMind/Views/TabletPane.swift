@@ -145,7 +145,7 @@ struct TabletPane: View {
         .overlay(alignment: .bottomLeading) { statusLine }
         // The pen is the page's only while the page is on screen.
         .onAppear {
-            sheet.align(to: appState.tabletQuarterTurns)
+            scribe.align(to: appState.tabletQuarterTurns)
             let state = appState
             scribe.onWrite = { [weak state] in state?.pageWritten() }
             input.pageAppeared()
@@ -165,11 +165,10 @@ struct TabletPane: View {
             keyMonitor = nil
         }
         .onChange(of: appState.tabletQuarterTurns) { _, turns in
-            // The ink turns with the sheet; a box drawn the old way round
-            // would be over some other part of it now. (The funnel is told
-            // the turn by the app, whichever pane is up.)
-            sheet.align(to: turns)
-            scribe.box.rect = nil
+            // The ink turns with the sheet, and the box with the ink — it
+            // stays over the writing it was drawn round. (The funnel is
+            // told the turn by the app, whichever pane is up.)
+            scribe.align(to: turns)
         }
     }
 
@@ -294,14 +293,17 @@ struct TabletPane: View {
 
     // MARK: - The corner
 
-    /// The page's undo, redo and clear; turning the page; and — with the
-    /// notes put away — the way back to side by side, as on the camera
+    /// The page's undo, redo and clear; how the tablet sits; and — with
+    /// the notes put away — the way back to side by side, as on the camera
     /// pane. Undo is here and not only on ⌘Z because the page never has
     /// the keyboard: ⌘Z reaches it only straight after writing
-    /// (`AppState.pageOwnsUndo`). The turn is here rather than on
-    /// the bar's video panel because it turns THE TABLET, which only this
-    /// pane shows; the panel's own turn is the camera's and is greyed out
-    /// while no camera is running.
+    /// (`AppState.pageOwnsUndo`). The turn is here rather than on the
+    /// bar's video panel because it turns THE TABLET, which only this pane
+    /// shows; the panel's own turn is the camera's and is greyed out while
+    /// no camera is running. It is ONE control, the four ways round by
+    /// name (`TabletOrientationButton`), in the place of the two
+    /// quarter-turn buttons that were here: a second control for the turn
+    /// anywhere else on screen breaks EVERY BUTTON HAS EXACTLY ONE PLACE.
     private var corners: some View {
         HStack(spacing: 6) {
             // The page's own undo, redo and clear — ⌘Z and ⇧⌘Z reach the
@@ -332,14 +334,8 @@ struct TabletPane: View {
             }
             // The turn is the TABLET'S, so it holds for the notebook too.
             if showsPageControls {
-                corner(icon: "rotate.left", label: "Turn Left",
-                       help: "Turn the page a quarter turn anticlockwise — the way the tablet sits on the desk") {
-                    turn(by: -1)
-                }
-                corner(icon: "rotate.right", label: "Turn Right",
-                       help: "Turn the page a quarter turn clockwise — the way the tablet sits on the desk") {
-                    turn(by: 1)
-                }
+                TabletOrientationButton(orientation: appState.tabletOrientation, target: appState.tabletTarget,
+                                        onPick: orient)
             }
             if !appState.showEditor {
                 corner(icon: "rectangle.lefthalf.inset.filled", label: "Back to Side by Side",
@@ -350,14 +346,13 @@ struct TabletPane: View {
         }
     }
 
-    /// The sheet comes round, and the ink on it in the SAME breath — left
-    /// to the `onChange` behind it, one frame showed the old ink on the
-    /// new shape. The `onChange` stays, for a turn that comes from
-    /// anywhere else.
-    private func turn(by quarterTurns: Int) {
-        appState.rotateTablet(by: quarterTurns)
-        sheet.align(to: appState.tabletQuarterTurns)
-        scribe.box.rect = nil
+    /// The tablet sits another way: the sheet comes round, and the ink on
+    /// it in the SAME breath — left to the `onChange` behind it, one frame
+    /// showed the old ink on the new shape. The `onChange` stays, for a
+    /// turn that comes from anywhere else.
+    private func orient(_ orientation: TabletOrientation) {
+        appState.orientTablet(orientation)
+        scribe.align(to: appState.tabletQuarterTurns)
     }
 
     private func corner(icon: String, label: String, help: String, enabled: Bool = true,
@@ -389,6 +384,83 @@ struct TabletPane: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// HOW THE TABLET SITS — the one control for the turn, in the page's corner
+/// (Sean, 2026-10-02: "make sure i can orient the page with the device by
+/// rotating or flipping to make it match portrait or landscape"): the tablet
+/// drawn the way it lies (`TabletGlyph`), opening the four ways round by
+/// name. A button opening a popover, as the paper's does — a SwiftUI `Menu`
+/// is an AppKit control hosted over the pane (the eighth cause). It is the
+/// TABLET'S, so it holds for the notebook as for the page, and the popover
+/// says what a turn does to whichever the pen is writing on.
+struct TabletOrientationButton: View {
+    let orientation: TabletOrientation
+    /// Where the pen writes — what the popover's last line is about.
+    let target: TabletTarget
+    let onPick: (TabletOrientation) -> Void
+    @State private var showing = false
+
+    /// The tablet's long side on the button, in points — with the corner's
+    /// padding, one of the corner's buttons.
+    static let glyph: CGFloat = 14
+
+    var body: some View {
+        Button { showing.toggle() } label: {
+            TabletGlyph(orientation: orientation, size: Self.glyph)
+                .foregroundStyle(Color.primary)
+                .padding(6)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .paneTip(BarTip(title: "How the Tablet Sits",
+                        detail: "\(orientation.title), \(orientation.detail.lowercasedFirst)"))
+        .accessibilityLabel("How the Tablet Sits: \(orientation.title)")
+        .popover(isPresented: $showing, arrowEdge: .bottom) {
+            TabletOrientationMenu(current: orientation, target: target) { picked in
+                showing = false
+                onPick(picked)
+            }
+        }
+    }
+}
+
+/// The four ways round, a row each — the tablet drawn that way, its name,
+/// what was done to it, the one in use ticked — and under them what a turn
+/// does to what the pen writes on, and what the drawing's heavy edge is.
+struct TabletOrientationMenu: View {
+    let current: TabletOrientation
+    let target: TabletTarget
+    let onPick: (TabletOrientation) -> Void
+
+    var body: some View {
+        PickList(title: "How the Tablet Sits", footer: Self.footer(for: target)) {
+            ForEach(TabletOrientation.allCases) { orientation in
+                PickRow(title: orientation.title, detail: orientation.detail,
+                        isCurrent: orientation == current, action: { onPick(orientation) }) {
+                    TabletGlyph(orientation: orientation, size: 26).foregroundStyle(Color.primary)
+                }
+            }
+        }
+    }
+
+    /// The popover's last line: what a turn does to what the pen writes
+    /// on. The page's writing turns with it, each stroke staying where it
+    /// is on the tablet, and its paper is laid for the new shape; a NOTE'S
+    /// strokes are the note's and never turn — only the tablet's area on
+    /// the notes does. And what the drawing's heavy edge is.
+    nonisolated static func footer(for target: TabletTarget) -> String {
+        let edge = "The heavy edge is the tablet's top: the far edge when it lies the way it ships."
+        switch target {
+        case .page:
+            return "The page turns to match, and its writing with it — each stroke stays where it is on the "
+                + "tablet. The paper's lines are laid out again for the new shape. " + edge
+        case .notebook:
+            return "The tablet's area on the notes turns to match. What is already in the note stays where "
+                + "it was written. " + edge
+        }
     }
 }
 

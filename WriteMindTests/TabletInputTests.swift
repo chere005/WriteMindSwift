@@ -102,8 +102,8 @@ final class TabletMappingTests: XCTestCase {
         XCTAssertEqual(wide.width, 364 * 0.625, accuracy: 1e-9)
         XCTAssertEqual(TabletPane.pageFrame(in: CGSize(width: 400, height: 1000), extent: small, quarterTurns: 1),
                        frame, "the pane's sheet is the tablet's shape, turned")
-        // Short of height, the sheet keeps clear of the turn buttons above
-        // it (10 points in, about 24 tall) and the status line below.
+        // Short of height, the sheet keeps clear of the corner's buttons
+        // above it (10 points in, about 24 tall) and the status line below.
         let short = TabletPane.pageFrame(in: CGSize(width: 1000, height: 400), extent: small, quarterTurns: 1)
         XCTAssertEqual(short.minY, 44, accuracy: 1e-9)
         XCTAssertEqual(short.maxY, 356, accuracy: 1e-9)

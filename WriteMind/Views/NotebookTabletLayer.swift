@@ -32,10 +32,10 @@ struct NotebookTabletLayer: View {
 
     var body: some View {
         GeometryReader { geo in
+            let turns = appState.tabletQuarterTurns
             let place = NotebookPlace(pane: geo.size, scroll: scrollOffset,
-                                      aspect: TabletMapping.aspect(of: extent,
-                                                                   quarterTurns: appState.tabletQuarterTurns),
-                                      note: store.selectedNote?.id)
+                                      aspect: TabletMapping.aspect(of: extent, quarterTurns: turns),
+                                      note: store.selectedNote?.id, quarterTurns: turns)
             ZStack(alignment: .topLeading) {
                 if appState.tabletWritesInNotebook {
                     NotebookLiveInk(scribe: scribe, scrollOffset: scrollOffset)

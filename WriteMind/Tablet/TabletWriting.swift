@@ -104,6 +104,16 @@ struct TabletWriting {
         }
     }
 
+    /// The sheet turned under a stroke or a box being drawn: what is
+    /// already down turns with it, as the page's strokes do
+    /// (`TabletPage.turned`), so the rest of it — read the new way round
+    /// by the funnel — carries on from where the nib is ON THE TABLET.
+    mutating func turn(by quarterTurns: Int) {
+        guard TabletMapping.turns(quarterTurns) != 0 else { return }
+        if let under = stroke { stroke = TabletPage.turned(under, by: quarterTurns) }
+        if let start = boxStart { boxStart = TabletPage.turned(start, by: quarterTurns) }
+    }
+
     /// A box between two page points, on the page.
     static func box(from a: CGPoint, to b: CGPoint) -> CGRect {
         CanvasGeometry.rect(from: a, to: b).intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
@@ -220,6 +230,20 @@ final class TabletScribe: ObservableObject {
     /// Where the samples go: the funnel's own word on it (`TabletInput.target`),
     /// so the switch has one writer.
     private var target: TabletTarget { input?.target ?? .page }
+
+    /// THE TABLET IS HELD ANOTHER WAY, and everything in page fractions
+    /// turns together, in one breath: the page's strokes and its history
+    /// (`TabletPage.align`), the box left up over them — still over the
+    /// same writing, where it used to be put away — and a stroke or a box
+    /// half-drawn, so the rest of it joins on. The pane calls this for
+    /// every turn — its corner's control, and any other — and on coming up.
+    func align(to quarterTurns: Int) {
+        let by = page.align(to: quarterTurns)
+        guard by != 0 else { return }
+        writing.turn(by: by)
+        if stroke != nil { stroke = writing.stroke }
+        if let rect = box.rect { box.rect = TabletPage.turned(rect, by: by) }
+    }
 
     private func dropUnderWay() {
         writing = TabletWriting()

@@ -118,6 +118,39 @@ final class PageThemeTests: XCTestCase {
                       "every line runs edge to edge")
     }
 
+    /// TURNED LANDSCAPE, THE PRINT FOLLOWS THE SHEET'S NEW SHAPE (Sean,
+    /// 2026-10-02: "orient the page with the device"): the ruling runs
+    /// across the LONG side, 8 mm apart down the short one, the margin is
+    /// on the left two rulings in; dots and squares are 5 mm both ways —
+    /// for the tablet as it ships and turned upside down alike.
+    func testHeldLandscapeEveryPaperIsPrintedForTheWideSheet() throws {
+        let one = try XCTUnwrap(TabletExtent.known(productID: 0x037A))
+        for turns in [0, 2] {
+            let wide = TabletMapping.millimetres(of: one, quarterTurns: turns)
+            XCTAssertEqual(wide, CGSize(width: 152, height: 95), "turn \(turns)")
+            for theme in [PageTheme.ruled, .legal] {
+                let print = theme.layout(millimetres: wide)
+                let lines = rows(print)
+                XCTAssertEqual(lines.count, 10, "\(theme): 16 mm to 88 mm down a 95 mm sheet")
+                assertEvenlySpaced(lines.map(\.from.y), by: 8.0 / 95, "\(theme)'s ruling down the short side")
+                XCTAssertTrue(lines.allSatisfy { $0.from.x == 0 && $0.to.x == 1 },
+                              "\(theme): the ruling runs the whole long side")
+                let margin = try XCTUnwrap(columns(print).first, "\(theme)")
+                XCTAssertEqual(Double(margin.from.x), 16.0 / 152, accuracy: 1e-9, "\(theme): on the left")
+                XCTAssertEqual(margin.from.y, 0)
+                XCTAssertEqual(margin.to.y, 1)
+            }
+            let dots = PageTheme.dotGrid.layout(millimetres: wide).dots
+            assertEvenlySpaced(Array(Set(dots.map(\.x))).sorted(), by: 5.0 / 152, "dots across")
+            assertEvenlySpaced(Array(Set(dots.map(\.y))).sorted(), by: 5.0 / 95, "dots down")
+            let graph = PageTheme.graph.layout(millimetres: wide)
+            assertEvenlySpaced(columns(graph).map(\.from.x), by: 5.0 / 152, "squares across")
+            assertEvenlySpaced(rows(graph).map(\.from.y), by: 5.0 / 95, "squares down")
+            XCTAssertEqual(PageTheme.plain.layout(millimetres: wide), PagePrint())
+            XCTAssertEqual(PageTheme.blackboard.layout(millimetres: wide), PagePrint())
+        }
+    }
+
     func testPlainAndTheBlackboardPrintNothing() {
         XCTAssertEqual(PageTheme.plain.layout(millimetres: small), PagePrint())
         XCTAssertEqual(PageTheme.blackboard.layout(millimetres: small), PagePrint())

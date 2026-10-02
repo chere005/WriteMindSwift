@@ -504,12 +504,19 @@ final class AppState: ObservableObject {
     /// On its side, so the preview's width and height swap.
     var cameraIsTurned: Bool { cameraRotation == 90 || cameraRotation == 270 }
 
-    /// A quarter turn of the tablet either way, wrapping round.
-    func rotateTablet(by quarterTurns: Int) {
+    /// How the tablet sits, by name — THE ONE WRITER of the turn, from the
+    /// one control for it in the page's corner (`TabletOrientationButton`).
+    /// The way it already sits, picked again, publishes nothing, so nothing
+    /// downstream turns.
+    func orientTablet(_ orientation: TabletOrientation) {
+        guard orientation.quarterTurns != tabletQuarterTurns else { return }
         withAnimation(.easeInOut(duration: 0.2)) {
-            tabletQuarterTurns = TabletMapping.turns(tabletQuarterTurns + quarterTurns)
+            tabletQuarterTurns = orientation.quarterTurns
         }
     }
+
+    /// How the tablet sits, as one of Wacom's four.
+    var tabletOrientation: TabletOrientation { TabletOrientation(quarterTurns: tabletQuarterTurns) }
 
     /// The switch: write on the page, or on the notebook. PICKING THE
     /// NOTEBOOK BRINGS THE NOTES INTO VIEW — a pen writing in a note nobody

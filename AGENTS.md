@@ -202,9 +202,26 @@ CoreMind's `bin/report-status.sh`.
   TURNED a quarter turn clockwise by default (Sean, same day: "i want to
   rotate the wacom 90 degrees clockwise"): counts (x, y), origin top
   left, extent (W, H) → page (u, v) = (1 − y/H, x/W), and the page is
-  H/W wide; `tabletQuarterTurns` holds it, remembered, turned by the two
-  buttons in the pane's corner. **The pen is kept off the pointer by a
-  driver CONTEXT** — Wacom's Driver Request Interface, Apple Events to
+  H/W wide; `tabletQuarterTurns` holds it, remembered. **HOW IT SITS HAS A
+  NAME** (Sean, same day: "make sure i can orient the page with the device
+  by rotating or flipping to make it match portrait or landscape"):
+  `TabletOrientation` is Wacom's own four — Landscape (as it ships, 0),
+  Portrait — turned right (1, the default), Landscape — upside down (2,
+  Wacom's "flipped": half way round, for the other hand) and Portrait —
+  turned left (3). ONE CONTROL, in the pane's corner where the two
+  quarter-turn buttons were (`TabletOrientationButton`): the tablet drawn
+  the way it lies (`TabletGlyph`: its outline, the edge that is its top as
+  it ships drawn heavy, that edge asked of `TabletMapping.page` in a
+  test), opening the four by name in a popover (a `Menu` is an AppKit
+  control hosted over the pane) whose last line says what a turn does to
+  what the pen writes on, and what the heavy edge is. A first cut put it
+  on the bar beside the two buttons it should have replaced — two controls
+  for one turn, at either end of one row, which EVERY BUTTON HAS EXACTLY
+  ONE PLACE forbids, and the bar squeezed to fit it. ONE WRITER:
+  `AppState.orientTablet`, and the way it already sits picked again
+  publishes nothing. It is the tablet's, so it holds for Page and Notebook
+  mode alike and is never set aside. **The pen is kept off the pointer by
+  a driver CONTEXT** — Wacom's Driver Request Interface, Apple Events to
   'WaWT' (WacomTabletDriver, `com.wacom.wacomtablet`), ported in
   `WacomDriver` with Wacom's MIT notice. NOT the sample's 'WaCM': on driver
   6.4 that is TabletDriver.app, which counts the tablets and answers every
@@ -298,6 +315,32 @@ CoreMind's `bin/report-status.sh`.
   each stays where it is ON THE TABLET (`TabletPage.turned` of a page
   point is `TabletMapping.page` one turn on, tested for every turn). The
   file says which turn its strokes are in, so a page opens turned to fit.
+  **EVERYTHING IN PAGE FRACTIONS TURNS IN ONE BREATH** —
+  `TabletScribe.align(to:)`, which every turn goes through (the corner's
+  control, the `onChange` for any other, the pane coming up): the strokes
+  and the history, THE BOX LEFT UP — turned onto exactly its turned
+  corners (`TabletPage.turned(_ box:)`), so it is over the same writing;
+  it used to be put away — and a stroke or a side-switch box HALF-DRAWN
+  (`TabletWriting.turn`), so the rest of it, read the new way round by
+  the funnel, joins on where the nib is. The turn is pure and tested for
+  every delta from every turn, and round trips: four quarter turns, a
+  turn and its inverse, a turn four on, are no turn within floating
+  error. **A TURN IS DELIBERATELY NOT AN UNDO STEP**: it says how the
+  tablet lies on the desk, which ⌘Z cannot change — a step that put the
+  strokes back the old way round would leave the tablet held the new way
+  and every stroke a quarter turn off where it was written on it. So the
+  history turns with it (Undo after a turn is the page before, the way
+  round it is now), and the way back is the same control, which turns
+  the tablet back too. **The paper's print does not turn; it is laid for
+  the sheet's new shape** (`layout(millimetres:)` is handed the turned
+  millimetres) — held landscape, the ruling runs across the long side
+  and the margin is on the left, as on a sheet that shape; the ink,
+  written on the tablet, is what turns. So writing that sat on the
+  rulings crosses them after a quarter turn — on purpose: the new
+  writing, done the new way round, is what the lines are for, and the
+  popover says the lines are laid out again (`PageThemeTests` holds the
+  landscape layout; every paper was rendered every way round once,
+  offscreen, 2026-10-02).
   A turned stroke gets a NEW ID — `InkCache` knows an outline by id and a
   fingerprint a turn can leave the same — and so does every stroke Writing
   puts in the note; both map points one for one and carry the pressures
@@ -480,7 +523,12 @@ CoreMind's `bin/report-status.sh`.
   stays up when the tab changes, so `NotebookPlace` carries the note's id
   and the scribe drops whatever was under way when it changes — a stroke
   begun in one note landed in the next, half its points a scroll below
-  the rest; a scroll or a resize in the same note keeps it. **AND A
+  the rest; a scroll or a resize in the same note keeps it. **NOR
+  DOES A TURN**: the note's strokes are the note's and never turn
+  with the tablet, but the area the tablet lands on does —
+  `NotebookPlace.quarterTurns`, read off the turn like the aspect —
+  and the rest of a stroke under way would land a quarter turn away
+  from its start, so it is dropped too (`NotebookTurnTests`). **AND A
   LAYER GOING LETS GO ONLY WITH THE LAST** (`NotebookScribe.layerWent`):
   the notes pane is built again when a pane beside it comes or goes
   (⌘Y), SwiftUI can bring the new one up first, and the old one's going
@@ -535,7 +583,9 @@ CoreMind's `bin/report-status.sh`.
   ASIDE IN THEIR PLACE (`View.setAside`: not drawn, not hit, not read
   out, still measured) — taken out, the room they left made the switch
   grow its words in Notebook mode and lose them in Page mode, and the
-  button just pressed jumped. The switch is two buttons, not a
+  button just pressed jumped. Measured offscreen, 2026-10-02, with the
+  turn's one control in the corner: "Write on" from 456 points up, the
+  names from 372, the icons below that. The switch is two buttons, not a
   segmented `Picker` (an NSSegmentedControl, hosted, over the pane), and
   the one in use is lit with the primary colour, never the accent.
 - **A project is a list of folders in a JSON file** (`Project`,
@@ -1489,16 +1539,21 @@ WriteMind/
                           box, then Writing or Page)
   Views/TabletPane.swift  the same pane when a tablet is the input: the page
                           at the tablet's turned shape, the hover marker,
-                          the page's undo, redo and clear, the turn
-                          buttons, the bar, one line on why the pen also
-                          moves the pointer when it does, and the page set
-                          aside while the pen writes in the notebook
+                          the page's undo, redo and clear, how the tablet
+                          sits (TabletOrientationButton: the tablet drawn
+                          the way it lies, its popover the four by name;
+                          every turn handed to TabletScribe.align), the
+                          bar, one line on why the pen also moves the
+                          pointer when it does, and the page set aside
+                          while the pen writes in the notebook
   Views/TabletBar.swift   the bar top left of the page: Write on: Page |
                           Notebook (TabletTargetSwitch), then the page's
                           pen (its ink on a chip of the paper, InkChip;
                           its popover: tool, size, colour) and its paper
                           (a menu of papers, a swatch each, PaperSwatch),
-                          in the first of its shapes that fits; setAside
+                          in the first of its shapes that fits; setAside;
+                          PickList and PickRow, the one picker popover the
+                          paper's and the turn's are both built from
   Views/TabletPageView.swift
                           the sheet's layers, each at its own rate: the
                           paper and what its theme prints, the finished
@@ -1522,10 +1577,15 @@ WriteMind/
                           the reading of an event, counts to the turned
                           page, the pen's state, the sample stream, and
                           whether its target is on screen
+  Tablet/TabletOrientation.swift
+                          how the tablet sits, by Wacom's four names, as
+                          quarter turns; where its top edge lands; and
+                          TabletGlyph, the tablet drawn that way round
   Tablet/TabletPage.swift the page: strokes in page fractions and page
                           points, its paper, undo/redo/clear, the ink
-                          turned with the sheet, the file in Application
-                          Support (a bad one set aside, never wiped)
+                          (and a box) turned with the sheet, the file in
+                          Application Support (a bad one set aside, never
+                          wiped)
   Tablet/PageTheme.swift  the papers: each one's colour, its ink, what it
                           prints in the tablet's millimetres (layout,
                           pure and tested) and the one printer for the
@@ -1651,14 +1711,15 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   (duplicate, trash); sidebar footer (the Folder menu); the tab bar (tabs,
   `+`, the overflow list); the editor bar (the six ToolGroups, then preview
   and video); the video's corner (select section, zoom, fit-when-zoomed,
-  rotate left, rotate right, notes pane); the tablet page's corner (undo,
-  redo, clear — in play only while the pen writes on the page — turn
-  left, turn right, notes pane), its bar on the other side (Write on:
-  Page | Notebook, mirrored in the View menu with no key, then the page's
-  pen and its paper — the same proviso) and its box (Image,
-  Writing, Text — the video's own three); the drawing layer's handles
-  (rotate, scale, move, trash, and per-kind: crop and read for a picture,
-  style for a connector, a circle per segment for a routed one).
+  rotate left, rotate right, notes pane); the tablet page's corner
+  (undo, redo, clear — in play only while the pen writes on the page —
+  how the tablet sits, the four by name, in play in both modes, notes
+  pane), its bar on the other side (Write on: Page | Notebook, mirrored
+  in the View menu with no key, then the page's pen and its paper — the
+  same proviso) and its box (Image, Writing, Text — the video's own
+  three); the drawing layer's handles (rotate, scale, move, trash, and
+  per-kind: crop and read for a picture, style for a connector, a circle
+  per segment for a routed one).
 - **A recursive SwiftUI view cannot be type-checked** — "opaque return type
   was inferred in terms of itself". The sidebar builds `[SidebarRow]` first
   and draws a flat ForEach; a tree that draws itself by recursion does not

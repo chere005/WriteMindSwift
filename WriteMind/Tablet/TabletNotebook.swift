@@ -72,6 +72,10 @@ struct NotebookPlace: Equatable {
     /// mapping: a stroke under way is let go when it changes
     /// (`NotebookScribe.place`).
     var note: String? = nil
+    /// How the tablet is held (`AppState.tabletQuarterTurns`) — the turn
+    /// `aspect` was worked from. Not part of the mapping either, and for
+    /// the same reason: a stroke under way is let go when it changes.
+    var quarterTurns = 1
 
     /// Between the tablet's area and the edges of the notes, so its outline
     /// is never drawn on the edge of the pane.
@@ -213,8 +217,16 @@ final class NotebookScribe: ObservableObject {
     /// that note's undo — and a marquee would pick there. Whatever was
     /// under way is dropped when the note changes, or the notes go; a
     /// scroll or a resize in the same note keeps it.
+    ///
+    /// AND SO IS A TURN UNDER THE NIB: the note does not turn with the
+    /// tablet the way the page does — its strokes are the note's, where
+    /// they were written on it — but the area the tablet lands on does,
+    /// and the rest of a stroke under way would carry on a quarter turn
+    /// away from the start of it.
     var place: NotebookPlace? {
-        didSet { if oldValue?.note != place?.note { drop() } }
+        didSet {
+            if oldValue?.note != place?.note || oldValue?.quarterTurns != place?.quarterTurns { drop() }
+        }
     }
     /// What the pen writes with: the NOTEBOOK's pen — `AppState.penTool`,
     /// `penColorHex`, `penWidth` — never the page's.

@@ -15,6 +15,51 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### The tablet's orientation, by name, and the writing turning with it
+Sean, 2026-10-02: "make sure i can orient the page with the device by
+rotating or flipping to make it match portrait or landscape". What the
+port has to copy:
+
+- **Four ways round, Wacom's own**, each a number of quarter turns
+  clockwise from the landscape the tablet ships in: Landscape (0, as it
+  ships), Portrait — turned right (1, THE DEFAULT), Landscape — upside
+  down (2, "flipped": half way round, for the other hand), Portrait —
+  turned left (3). That number is the only thing stored, remembered
+  across launches; it is the `quarterTurns` the page's mapping already
+  takes ((x, y) on a W × H tablet → (1 − y/H, x/W) for one turn).
+- **One control, in the page's corner, where the two quarter-turn
+  buttons were**: a little tablet drawn the way it lies — its outline at
+  the turned shape, the edge that is its top as it ships drawn heavy, on
+  the side the mapping puts that edge — opening the four by name, the
+  one in use ticked. Under them one line says what a turn does to what
+  the pen is writing on (the page's writing turns with it; a note's
+  stays where it was written) and that the heavy edge is the tablet's
+  top. It holds for both modes, so it is never hidden in Notebook mode.
+  It is the only control for the turn (one place per button), and the
+  way it already sits picked again is no change.
+- **Everything in page fractions turns in one go**: every stroke on the
+  page, the whole undo history, a selection box left up (onto its turned
+  corners, so it is round the same writing), and a stroke or a box half
+  drawn (so the rest of it joins on where the pen is). Clockwise one
+  turn is (u, v) → (1 − v, u); two (1 − u, 1 − v); three (v, 1 − u).
+  Four quarter turns, or a turn and its inverse, must come back to the
+  same numbers within floating error — test it. Strokes keep their
+  pressures and widths (widths are in page points on an 800-long side
+  whichever way round); a turned stroke is a new object.
+- **Not an undo step, on purpose**: the turn says how the tablet lies on
+  the desk, which undo cannot change; undoing it would leave every stroke
+  a quarter turn off where it was written. Undo after a turn brings back
+  the page as it was, the way round it is now.
+- **The paper is laid for the new shape, not turned**: held landscape, a
+  ruled page has its lines across the long side, 8 mm apart down the
+  short side, and its margin on the left; dots and squares stay 5 mm. So
+  writing that sat on the lines crosses them after a quarter turn — on
+  purpose, since the lines are for the writing done the new way round.
+- **In Notebook mode the note does not turn** — its strokes are the
+  note's — but the tablet's area on the notes does, and a stroke under
+  way when the turn changes is dropped rather than finished a quarter
+  turn away from its start.
+
 ### The tablet writes straight into the note
 Sean, 2026-10-02: "do the same for drawing mode in the notebook itself and
 let the wacom control that as well.. as a separate mode". What the port
@@ -149,8 +194,9 @@ should basically just be chosen as if it were an input display").
 The tablet is read turned a quarter turn clockwise unless turned back
 (Sean, same day: "i want to rotate the wacom 90 degrees clockwise"): a
 point (x, y) on a W × H tablet, origin top left, is (1 − y/H, x/W) on
-the page, and the page is H/W wide. Two buttons on the pane turn it a
-quarter at a time, and the turn is remembered. While the pen is near the
+the page, and the page is H/W wide. The turn is remembered; two buttons
+on the pane turned it a quarter at a time, and one control by name has
+taken their place (the entry at the top). While the pen is near the
 tablet a marker on the page shows where the nib is.
 
 Where the platform can stop the pen moving the pointer while this page

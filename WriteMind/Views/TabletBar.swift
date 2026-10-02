@@ -237,10 +237,36 @@ struct PaperMenu: View {
     let onPick: (PageTheme) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Paper").font(.headline).padding(.horizontal, 6).padding(.bottom, 6)
+        PickList(title: "Paper") {
             ForEach(PageTheme.allCases) { theme in
-                PaperRow(theme: theme, isCurrent: theme == current) { onPick(theme) }
+                PickRow(title: theme.title, detail: theme.detail, isCurrent: theme == current,
+                        action: { onPick(theme) }) {
+                    PaperSwatch(theme: theme)
+                }
+            }
+        }
+    }
+}
+
+/// A PICKER IN A POPOVER — the paper's, and how the tablet sits: its
+/// heading, a row a choice, and a line under them if it has one. One view
+/// for both, so the two cannot drift apart.
+struct PickList<Rows: View>: View {
+    let title: String
+    var footer: String? = nil
+    @ViewBuilder let rows: () -> Rows
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.headline).padding(.horizontal, 6).padding(.bottom, 6)
+            rows()
+            if let footer {
+                Text(footer)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 6)
+                    .padding(.top, 8)
             }
         }
         .padding(10)
@@ -248,19 +274,24 @@ struct PaperMenu: View {
     }
 }
 
-private struct PaperRow: View {
-    let theme: PageTheme
+/// One choice in a `PickList`: a picture of it, its name over one line
+/// on it, and a tick on the one in use, the row washed with the accent
+/// under the pointer.
+struct PickRow<Picture: View>: View {
+    let title: String
+    let detail: String
     let isCurrent: Bool
     let action: () -> Void
+    @ViewBuilder let picture: () -> Picture
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                PaperSwatch(theme: theme).frame(width: 44, height: 30)
+                picture().frame(width: 44, height: 30)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(theme.title)
-                    Text(theme.detail).font(.caption).foregroundStyle(.secondary)
+                    Text(title)
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "checkmark")
@@ -274,7 +305,7 @@ private struct PaperRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .accessibilityLabel(theme.title)
+        .accessibilityLabel(title)
         .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 }
@@ -310,6 +341,7 @@ struct PaperSwatch: View {
     }
 }
 
-private extension String {
+extension String {
+    /// "Ruled" → "ruled": a title worn as the second half of a tip.
     var lowercasedFirst: String { prefix(1).lowercased() + dropFirst() }
 }

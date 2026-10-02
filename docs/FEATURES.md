@@ -325,11 +325,21 @@ is how the code is put together.
   camera you pick is remembered; a first launch never asks. Two buttons in
   the corner turn the picture a quarter turn either way, for a camera that
   is mounted sideways.
-- **A drawing tablet instead of the camera.** A Wacom tablet plugged in is
-  listed in **Input Devices** under the cameras; pick it and the pane that
-  showed the video shows a **page** — a sheet at the tablet's own shape,
-  read turned a quarter turn clockwise (the turn buttons in its corner
-  change that, and the ink turns with the sheet). The pen writes on it in
+- **A drawing tablet instead of the camera.** A Wacom tablet plugged in
+  is listed in **Input Devices** under the cameras; pick it and the
+  pane that showed the video shows a **page** — a sheet at the tablet's
+  own shape, read turned a quarter turn clockwise unless you say
+  otherwise. **Say how the tablet sits** with the little tablet in the
+  page's corner, drawn the way it lies, its heavy edge the tablet's top
+  as it ships: **Landscape** (as it ships), **Portrait — turned right**
+  (the default), **Landscape — upside down** or **Portrait — turned
+  left** (the two "flipped" ones, for the other hand). The page turns
+  to match and what is written on it turns with it — each stroke stays
+  where it is on the tablet, a box left up stays round the same writing
+  — and the paper's lines are laid out again for the new shape, the
+  margin on the left (held landscape, a ruled page's lines run across
+  the long side). A turn is not something ⌘Z takes back: turn it back
+  the same way. It holds in the notebook too. The pen writes on it in
   ink that follows its pressure; a tap is a dot, and a ring follows the
   nib while it hovers. The page has **a pen of its own**, on a small bar
   top left above the sheet: the tool (pen, fountain pen, pencil, marker,
@@ -357,7 +367,7 @@ is how the code is put together.
   pen is a pointer again.
 - **Or the tablet writes straight into the note.** **Write on: Page |
   Notebook** on the page's bar (and in the View menu) sends the pen to the
-  notebook instead: the tablet, turned the way it is held, lands on the
+  notebook instead: the tablet, turned the way it sits, lands on the
   notes you can see — its own shape, as big as fits and centred, never
   stretched, so handwriting keeps its proportions — and the nib writes
   ink straight into the note's drawing with the notebook's pen (the tool,

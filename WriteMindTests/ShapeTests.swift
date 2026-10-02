@@ -160,7 +160,8 @@ final class SymbolTests: XCTestCase {
                      "photo", "text.viewfinder",
                      // The pane's switch while it is the page.
                      "pencil.tip.crop.circle", "pencil.slash",
-                     // The tick on the paper in use.
+                     // The tick on the paper in use, and on the way the tablet
+                     // sits (its glyph is drawn, not a symbol).
                      "checkmark",
                      // Write on: Page | Notebook, and the set-aside page's line
                      // — the pen in the notebook, or a pointer with no note up.

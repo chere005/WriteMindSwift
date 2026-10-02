@@ -231,12 +231,22 @@ final class TabletPage: ObservableObject {
     /// page wide; leaving the fractions where they were would stretch every
     /// letter on it. Turned, each stroke stays where it is ON THE TABLET —
     /// `TabletMapping.page` for one more turn is this turn of the last
-    /// one. Not an undo step (nothing was written), but the history turns
-    /// too, or Undo would bring back a page turned the old way.
-    func align(to turns: Int) {
+    /// one. Returns the quarter turns clockwise it turned the page by (0
+    /// when it was already that way round), for whatever else is in page
+    /// fractions — the box, a stroke under way (`TabletScribe.align`).
+    ///
+    /// DELIBERATELY NOT AN UNDO STEP. The turn says how the tablet lies on
+    /// the desk, which ⌘Z cannot change: a step that put the strokes back
+    /// the old way round would leave the tablet held the new way and every
+    /// stroke a quarter turn off the place it was written on it. So the
+    /// HISTORY turns too — Undo after a turn brings back the page as it
+    /// was, the way round it is now — and the way back is the same control
+    /// in the pane's corner, which turns the tablet back as well.
+    @discardableResult
+    func align(to turns: Int) -> Int {
         let target = TabletMapping.turns(turns)
         let by = TabletMapping.turns(target - quarterTurns)
-        guard by != 0 else { return }
+        guard by != 0 else { return 0 }
         // A stroke is in most of the history's pages at once; it is turned
         // once and shared, as it was before.
         var turned: [UUID: Stroke] = [:]
@@ -253,6 +263,7 @@ final class TabletPage: ObservableObject {
         future = future.map(turn)
         quarterTurns = target
         scheduleSave()
+        return by
     }
 
     /// A point on the page after the sheet turns `quarterTurns` clockwise.
@@ -263,6 +274,15 @@ final class TabletPage: ObservableObject {
         case 3: return CGPoint(x: point.y, y: 1 - point.x)
         default: return point
         }
+    }
+
+    /// A box on the page (fractions) after the sheet turns: the box round
+    /// its turned corners, which for a quarter turn is the box exactly — so
+    /// a box left up over some words is over the same words after.
+    nonisolated static func turned(_ box: CGRect, by quarterTurns: Int) -> CGRect {
+        let a = turned(CGPoint(x: box.minX, y: box.minY), by: quarterTurns)
+        let b = turned(CGPoint(x: box.maxX, y: box.maxY), by: quarterTurns)
+        return CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
     }
 
     /// A stroke after the sheet turns. A NEW ID: its points are rewritten,

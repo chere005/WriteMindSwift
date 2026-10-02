@@ -430,13 +430,11 @@ final class TabletInputSourceTests: XCTestCase {
     func testTheTabletIsHeldTurnedOnceClockwiseUntilItIsTurned() {
         let app = state()
         XCTAssertEqual(app.tabletQuarterTurns, 1)
-        app.rotateTablet(by: 1)
+        app.orientTablet(.landscapeUpsideDown)
         XCTAssertEqual(app.tabletQuarterTurns, 2)
         XCTAssertEqual(state().tabletQuarterTurns, 2, "remembered")
-        app.rotateTablet(by: -3)
-        XCTAssertEqual(app.tabletQuarterTurns, 3)
-        app.rotateTablet(by: 1)
-        XCTAssertEqual(app.tabletQuarterTurns, 0)
+        app.orientTablet(.landscape)
+        XCTAssertEqual(state().tabletQuarterTurns, 0, "remembered")
         UserDefaults(suiteName: suite)!.set(7, forKey: "tabletQuarterTurns")
         XCTAssertEqual(state().tabletQuarterTurns, 3, "whatever is stored comes back as a quarter turn")
     }
@@ -495,7 +493,8 @@ final class TabletPaneLineTests: XCTestCase {
     }
 
     func testEveryIconTheTabletPaneUsesExists() {
-        var icons: Set<String> = ["pencil.tip", "cable.connector.slash", "rotate.left", "rotate.right",
+        // The turn's control is drawn (`TabletGlyph`), not a symbol.
+        var icons: Set<String> = ["pencil.tip", "cable.connector.slash",
                                   "rectangle.lefthalf.inset.filled", "video.badge.ellipsis"]
         let statuses: [TabletController.Status] = [.ready, .connecting, .unavailable(.noDriver),
                                                     .unavailable(.automationDenied), .unavailable(.needsConsent)]
