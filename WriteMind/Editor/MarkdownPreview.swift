@@ -1988,9 +1988,16 @@ struct MarkdownPreview: View {
     /// opened in — first, under anything typed into it afterwards, and
     /// gone with that editor when the cell closes, the way everything
     /// typed in a cell on this page is. It waits for that editor: SwiftUI
-    /// builds it a turn or two after the cell opens. A stack the editor
-    /// brought from the cell it was before is emptied, because its steps
-    /// are about words that are not in it any more.
+    /// builds it a turn or two after the cell opens.
+    ///
+    /// AND IT GOES ON TOP of what that editor's stack holds already. A cell
+    /// that opens where the open one started is handed the same editor —
+    /// ⌘9 turning a code cell rewrites only its fence line, so it IS the
+    /// same cell — and emptying the stack first (as this did until the
+    /// review of 2026-10-02) took away the undo of everything typed in it,
+    /// which the source pane's ⌘9 never does. The steps under the way back
+    /// are reached only through it, and it reopens the cell they were
+    /// typed in, as it was, before any of them is undone.
     private func offerUndo(restoring before: String, cursor was: Cursor, caret: Int, held: [NSRange],
                            bar: SeamID?, attempts: Int = 10) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
@@ -2003,7 +2010,6 @@ struct MarkdownPreview: View {
                 }
                 return
             }
-            undo.removeAllActions()
             undo.registerUndo(withTarget: view) { view in
                 view.window?.makeFirstResponder(nil)
                 markdown = before

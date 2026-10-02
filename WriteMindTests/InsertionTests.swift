@@ -79,6 +79,44 @@ final class InsertionPlacementTests: XCTestCase {
                        "First line\n\n```python\n‸\n```\n\nsecond line")
     }
 
+    func testACutGoesRoundASpanNeverThroughIt() {
+        // The review of 2026-10-02: a caret in a code span, maths, bold or
+        // a link cut the paragraph there and left one marker in each half,
+        // pairing with nothing — "Use `npm" and "install` to set up.". The
+        // cut goes to the span's nearer edge.
+        XCTAssertEqual(Self.after(python, "Use `npm‸ install` to set up."),
+                       "Use\n\n```python\n‸\n```\n\n`npm install` to set up.")
+        XCTAssertEqual(Self.after(python, "Use `npm install‸` to set up."),
+                       "Use `npm install`\n\n```python\n‸\n```\n\nto set up.")
+        XCTAssertEqual(Self.after(python, "Some **bold‸ words** here."),
+                       "Some\n\n```python\n‸\n```\n\n**bold words** here.")
+        XCTAssertEqual(Self.after(python, "See [the ma‸nual](https://x.y) first."),
+                       "See\n\n```python\n‸\n```\n\n[the manual](https://x.y) first.")
+        XCTAssertEqual(Self.after(.maths("Pi", onItsOwnLine: false), "**All bold‸ words**"), "**All bold`wl:Pi`‸ words**",
+                       "inline maths is at home in bold")
+        // A span that is the whole paragraph: its nearer edge is the
+        // paragraph's, and the block goes above it or below it.
+        XCTAssertEqual(Self.after(.evaluation(.python), "**All bold‸ words**"),
+                       "**All bold words**\n\n```eval python\n‸\n```")
+    }
+
+    func testACutNeverLeavesAHalfThatReadsAsSomethingElse() {
+        // The review of 2026-10-02: the words after the cut start a line of
+        // their own, and "- it was late." is a list, "# 42" a heading, a
+        // run of three backticks a fence that swallows the rest of the
+        // note. The cut moves on past that word instead.
+        XCTAssertEqual(Self.after(python, "I went home‸ - it was late."),
+                       "I went home -\n\n```python\n‸\n```\n\nit was late.")
+        XCTAssertEqual(Self.after(python, "Ticket‸ # 42 is fixed."),
+                       "Ticket #\n\n```python\n‸\n```\n\n42 is fixed.")
+        XCTAssertEqual(Self.after(python, "Step‸ 1. Open it."), "Step 1.\n\n```python\n‸\n```\n\nOpen it.")
+        XCTAssertEqual(Self.after(python, "Use‸ ```this``` here."), "Use ```this```\n\n```python\n‸\n```\n\nhere.")
+        // The half above too: a line cut down to "---" is a rule.
+        XCTAssertEqual(Self.after(python, "Intro\n---‸ and more"), "Intro\n--- and\n\n```python\n‸\n```\n\nmore")
+        // Nothing after the marker but the end: the block goes under it all.
+        XCTAssertEqual(Self.after(python, "Words‸ ---"), "Words ---\n\n```python\n‸\n```")
+    }
+
     func testAHeadingIsNeverCutButTheBlockGoesUnderIt() {
         XCTAssertEqual(Self.after(python, "# Ti‸tle\n\nWords."),
                        "# Title\n\n```python\n‸\n```\n\nWords.")
@@ -154,6 +192,35 @@ final class InsertionPlacementTests: XCTestCase {
                        "- apple\n\n```python\nbanana‸\n```\n\nAfter.")
     }
 
+    func testPartOfAnItemsWordsSelectedLeavesTheItemItsMarkerAndTheRest() {
+        // The review of 2026-10-02: selecting the FRONT of an item's words
+        // took its marker with them, and the words left behind came out a
+        // plain paragraph — "# Big Title" with "Big" made code left
+        // "Title" a paragraph, "milk" lost its box. The item is cut only
+        // between its lines, as it is for a caret: what is left keeps its
+        // marker, and the block goes above the line — or, from the middle
+        // of the words, below it.
+        XCTAssertEqual(Self.after(python, "# «Big» Title\n\nWords."),
+                       "```python\nBig‸\n```\n\n# Title\n\nWords.")
+        XCTAssertEqual(Self.after(python, "- «big» red apple\n- banana"),
+                       "```python\nbig‸\n```\n\n- red apple\n- banana")
+        XCTAssertEqual(Self.after(python, "- [ ] «buy» milk"), "```python\nbuy‸\n```\n\n- [ ] milk")
+        XCTAssertEqual(Self.after(python, "> «quoted» line"), "```python\nquoted‸\n```\n\n> line")
+        XCTAssertEqual(Self.after(python, "- apple\n- big «red» apple\n- banana"),
+                       "- apple\n- big apple\n\n```python\nred‸\n```\n\n- banana")
+        XCTAssertEqual(Self.after(.maths("Sqrt[x]", onItsOwnLine: true), "- «x» is the side"),
+                       "```wl\nSqrt[x]‸\n```\n\n- is the side")
+    }
+
+    func testASelectionOfASpansWordsTakesItsMarkersWithIt() {
+        // Left behind, `**` and `**` were two paragraphs of nothing but
+        // markers either side of the block.
+        XCTAssertEqual(Self.after(python, "Some **«bold words»** here."),
+                       "Some\n\n```python\nbold words‸\n```\n\nhere.")
+        XCTAssertEqual(Self.after(.maths("Sqrt[x^2]", onItsOwnLine: true), "Area `«x^2»` here."),
+                       "Area\n\n```wl\nSqrt[x^2]‸\n```\n\nhere.")
+    }
+
     func testASelectionWithAFenceInItIsRefusedRatherThanNested() {
         XCTAssertEqual(Self.after(python, "One «two\n\n```wl\nSqrt»[2]\n```"), "refused")
     }
@@ -172,6 +239,29 @@ final class InsertionPlacementTests: XCTestCase {
         // AFTER ITS ANSWER, never between a cell and what it said.
         XCTAssertEqual(Self.after(python, "```eval python\nx‸ = 1\n```\n\n```out\n1\n```\n\nAfter."),
                        "```eval python\nx = 1\n```\n\n```out\n1\n```\n\n```python\n‸\n```\n\nAfter.")
+    }
+
+    func testAtTheEndOfAnUnclosedFenceTheCaretIsInItAndABlockAfterItClosesItFirst() {
+        // The review of 2026-10-02: the caret at the end of a fence still
+        // being typed — where it sits while typing one — was not "in" it,
+        // and anything written after a fence with no closing line BECAME
+        // its closing line: ```eval python shut the python block and its
+        // own closing fence opened one that ran to the end of the note.
+        XCTAssertEqual(Self.after(.evaluation(.python), "```python\nprint(1)‸"), "```eval python\nprint(1)‸")
+        let (text, caret) = Marked.parse("```python\nprint(1)‸")
+        XCTAssertEqual(Insertion.insert(python, in: text, at: caret, atBar: false), .refused(.codeInCode))
+        XCTAssertEqual(Self.after(.maths("Sqrt[x]", onItsOwnLine: true), "```python\nprint(‸1)"),
+                       "```python\nprint(1)\n```\n\n```wl\nSqrt[x]‸\n```")
+        XCTAssertEqual(Self.after(python, "```eval wl\nN[Pi]\n‸"),
+                       "```eval wl\nN[Pi]\n```\n\n```python\n‸\n```")
+        XCTAssertEqual(Self.after(.maths("Pi", onItsOwnLine: true), "```wl\nx + ‸"), "```wl\nx + Pi‸")
+    }
+
+    func testMathsIntoAMathsBlockWithNoLineBetweenItsFencesGetsOne() {
+        // Written at the caret it went ON a fence line — "```wlPi", or
+        // "Pi```", which is no closing fence at all.
+        XCTAssertEqual(Self.after(.maths("Pi", onItsOwnLine: true), "```wl‸"), "```wl\nPi‸")
+        XCTAssertEqual(Self.after(.maths("Pi", onItsOwnLine: false), "```wl\n‸```"), "```wl\nPi‸\n```")
     }
 
     func testBelowACellThatHasAnAnswerMeansBelowTheAnswer() {
@@ -277,6 +367,24 @@ final class InsertionPlacementTests: XCTestCase {
                        "```python\nx\n```\n\n`wl:Pi`‸\n\nAfter.")
     }
 
+    func testMathsInAMathsSpanIsThatSpansAndInACodeSpanIsRefused() {
+        // The review of 2026-10-02: inline maths at a caret in a `wl:` span
+        // wrote a code span inside the code span. A `wl:` span is maths the
+        // way a ```wl block is, and gets the bare WL; any other code span
+        // is code, and refuses it.
+        XCTAssertEqual(Self.after(.maths("Pi", onItsOwnLine: false), "Area `wl:x^2 + ‸` here."),
+                       "Area `wl:x^2 + Pi‸` here.")
+        XCTAssertEqual(Self.after(.maths("Pi", onItsOwnLine: true), "Area `wl:x^2 + ‸` here."),
+                       "Area `wl:x^2 + Pi‸` here.")
+        XCTAssertEqual(Self.after(.maths("Sqrt[x^2]", onItsOwnLine: false), "Area `wl:«x^2»` here."),
+                       "Area `wl:Sqrt[x^2]‸` here.")
+        for marked in ["Run `npm‸ install` first.", "Run `«npm»` first."] {
+            let (text, selection) = Marked.parse(marked)
+            XCTAssertEqual(Insertion.insert(.maths("Pi", onItsOwnLine: false), in: text, at: selection, atBar: false),
+                           .refused(.mathsInCode), marked)
+        }
+    }
+
     func testInlineMathsInsideCodeIsRefused() {
         let (text, caret) = Marked.parse("```python\nprint(‸1)\n```")
         XCTAssertEqual(Insertion.insert(.maths("Pi", onItsOwnLine: false), in: text, at: caret, atBar: false),
@@ -359,6 +467,24 @@ final class MathSelectionTests: XCTestCase {
         XCTAssertNil(MathSelection.reading("f(x) = 2x"), "not WL, so not something the palette can set")
         XCTAssertNil(MathSelection.reading(""))
         XCTAssertNil(MathSelection.reading("x\ny"))
+    }
+
+    func testALineTakenWithItsNewlineReadsAsMathsAndIsReplaced() {
+        // The review of 2026-10-02: a triple-click takes the line's own
+        // newline with it, and the newline made the selection read as
+        // words — so the palette did not start from it, and the maths
+        // went in under a line it should have replaced.
+        XCTAssertEqual(MathSelection.reading("x^2 + 1\n"), "x^2 + 1")
+        XCTAssertNil(MathSelection.reading("x\ny\n"), "a newline in the middle is still two lines")
+        let note = "Before.\n\nx^2 + 1\n\nAfter."
+        XCTAssertEqual(MathSelection.seed(in: note, selection: NSRange(location: 9, length: 8)),
+                       MathSelection.Seed(wl: "x^2 + 1", inline: false))
+        XCTAssertEqual(InsertionPlacementTests.after(.maths("Sqrt[x^2 + 1]", onItsOwnLine: true),
+                                                     "Before.\n\n«x^2 + 1\n»\nAfter."),
+                       "Before.\n\n```wl\nSqrt[x^2 + 1]‸\n```\n\nAfter.")
+        XCTAssertEqual(InsertionPlacementTests.after(.maths("Sqrt[x^2 + 1]", onItsOwnLine: false),
+                                                     "Before.\n\n«x^2 + 1\n»\nAfter."),
+                       "Before.\n\n`wl:Sqrt[x^2 + 1]`‸\n\nAfter.")
     }
 
     func testMathsHoldsASelectionOnlyWhenItIsInsideIt() {
@@ -659,6 +785,23 @@ final class RenderedInsertionTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(seconds))
     }
 
+    /// One keystroke's worth of undo, as a group of its own. In the app the
+    /// end of its event closes the group the keystroke opened; a test has
+    /// no events, so that group stayed open and the next thing registered
+    /// joined it — one ⌘Z took both (see `SourceInsertionTests.Undoer`).
+    /// So it is grouped by hand, with the grouping by event OFF while it
+    /// is: on, beginning a group opens the event's own first and nests in
+    /// it, and ending that one by hand leaves the undo manager sure it is
+    /// still in it — it throws at the next registration.
+    private func keystroke(in view: NSTextView, _ body: () -> Void) {
+        guard let undo = view.undoManager else { return body() }
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        body()
+        undo.endUndoGrouping()
+        undo.groupsByEvent = true
+    }
+
     /// The first cell open, the caret `at` into it.
     private func openTheFirstCell(caret at: Int) -> BlockTextView? {
         XCTAssertEqual(bridge.ensureEditing?(), true)
@@ -698,6 +841,28 @@ final class RenderedInsertionTests: XCTestCase {
         code.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
         settle()
         XCTAssertEqual(note.text, "```python\nx\n```\n\nWords here.\n\nMore.")
+    }
+
+    func testTurningAnOpenCodeCellIntoAnEvaluationCellKeepsWhatWasTypedUndoable() {
+        // The review of 2026-10-02: ⌘9 on an open code cell rewrites its
+        // fence line only, so the same cell reopens in the same editor —
+        // and the way back was put on that editor's stack after EMPTYING
+        // it: what had been typed in the cell could not be undone any
+        // more. The source pane's ⌘9 is one step on top of the rest.
+        host("```python\nprint(1)\n```")
+        guard let open = openTheFirstCell(caret: 8) else { return XCTFail("the premise: a cell open for typing") }
+        keystroke(in: open) { open.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        settle()
+        XCTAssertEqual(note.text, "```python\nprint(1)x\n```")
+        bridge.evaluationCell(.python)
+        settle()
+        XCTAssertEqual(note.text, "```eval python\nprint(1)x\n```")
+        (bridge.textView as? BlockTextView)?.undoManager?.undo()
+        settle()
+        XCTAssertEqual(note.text, "```python\nprint(1)x\n```", "the turn first")
+        (bridge.textView as? BlockTextView)?.undoManager?.undo()
+        settle()
+        XCTAssertEqual(note.text, "```python\nprint(1)\n```", "then what was typed before it")
     }
 
     func testInlineMathsGoesThroughTheOpenCellsOwnEditor() {

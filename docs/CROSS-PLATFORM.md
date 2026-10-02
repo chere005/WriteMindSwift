@@ -56,19 +56,33 @@ markdown and the rendered view.
   other fenced cell turns it into one — except an answer, after which a new
   cell is made. Maths in a block that is already Wolfram Language (maths,
   a Wolfram evaluation cell, Wolfram code) goes in as the bare WL at the
-  caret. Inline maths in other code is refused. Anything else goes AFTER
-  the block — after its answer when it has one, never between code and
-  what it said.
+  caret, on a line between the fences (given one when there is none).
+  Inline maths in other code is refused. Anything else goes AFTER the
+  block — after its answer when it has one, never between code and what
+  it said. A fence whose closing line has not been typed runs to the end
+  of the note: the caret at its very end is inside it, and a cell made
+  after it writes the closing fence first, or the new fence would close
+  it. Inline spans follow the same two rules: maths in a `wl:` span goes
+  in bare, inline maths in another code span is refused.
 - **A cell of its own**: a blank line above and below. A paragraph is cut
   at the caret (the spaces at the cut dropped; at the front of its words
-  the block goes above, at the end below). A heading, a list, a quote or a
+  the block goes above, at the end below) — never through an inline span
+  (code, maths, bold, italic, struck, a link, a tag: the cut goes to its
+  nearer edge), and never where either half, on a line of its own, would
+  read as something else ("- it was late." a list, "# 42" a heading,
+  "---" a rule, three backticks a fence): the cut moves on a word instead,
+  nothing typed is escaped. A heading, a list, a quote or a
   rule is cut only between lines — above the caret's line when the caret
   is at the front of its words or in its marker, below otherwise — so no
   item's words are split and no marker is left bare. On an empty line of a
   run of empty lines that is a cell of its own, the block takes that one
   line and the rest stay.
 - **A selection is the content**: code verbatim, the text either side
-  staying cells (an item's words take the item). Maths replaces a
+  staying cells (all of an item's words take the item; part of one line's
+  words come out of it, and the line keeps its marker and the rest, the
+  block above it or below it; a span whose words are all selected goes
+  whole, markers too). The selection is read without the spaces and the
+  newline at its ends, so a triple-clicked line counts. Maths replaces a
   selection only when the maths still holds it — the selection reads as
   maths (no word in it: a name of two or more letters that is not one the
   maths is set with and not a function's head) and is a whole term of
@@ -79,7 +93,10 @@ markdown and the rendered view.
 - **The caret ends where typing goes** (between an empty block's fences, at
   the end of what it was given, at the end of display maths), and **one
   undo takes the whole insertion back** in both views — in the rendered
-  view the new cell opens for typing and the undo lives with it.
+  view the new cell opens for typing and the undo lives with it, ON TOP of
+  what that cell's editor could already undo: the evaluation key on an
+  open code cell is the same cell, and what was typed in it stays
+  undoable.
 - Port note: the opening at the bar must be ONE change on the undo stack; a
   wrapper that announces a change around a call that announces it again
   registers it twice, and undo then runs past the end of the text.

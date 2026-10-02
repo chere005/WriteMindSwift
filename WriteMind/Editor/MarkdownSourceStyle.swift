@@ -218,6 +218,77 @@ enum MarkdownSourceStyle {
         }
     }
 
+    // MARK: - Its spans
+
+    /// AN INLINE SPAN, ITS MARKERS AND ALL — a code span, maths, bold,
+    /// italic, struck, a link, a tag — read with the patterns `runs`
+    /// styles them with. What a cut through a paragraph has to go round
+    /// (`Insertion`, the review of 2026-10-02): cut one in two and each
+    /// half keeps a marker that pairs with nothing.
+    struct Span: Equatable {
+        enum Kind: Equatable {
+            case code
+            /// A `wl:` code span: maths, the way a ```wl block is.
+            case maths
+            /// Bold, italic, struck, a link, a tag.
+            case styled
+        }
+        var range: NSRange
+        /// What is between its markers — after the `wl:` too, for maths.
+        /// A link's is the whole link and a tag's the whole tag: an
+        /// address is not a marker to be thrown away.
+        var content: NSRange
+        var kind: Kind
+    }
+
+    /// Every span in `source`, a cell of words — nested ones too: bold
+    /// round a code span is bold for a cut, though `runs` colours only the
+    /// code. No fence is looked for; a cell of words has none.
+    static func spans(in source: String) -> [Span] {
+        let ns = source as NSString
+        let all = NSRange(location: 0, length: ns.length)
+        var spans: [Span] = []
+        // Code first, as in `runs` — what is inside it is not markdown —
+        // and `` before `, which would read the first two backticks of a
+        // `` span as an empty one.
+        for match in Patterns.codePair.matches(in: source, range: all) where match.range.length > 4 {
+            spans.append(Span(range: match.range,
+                              content: NSRange(location: match.range.location + 2, length: match.range.length - 4),
+                              kind: .code))
+        }
+        for match in Patterns.code.matches(in: source, range: all)
+        where !spans.contains(where: { NSIntersectionRange($0.range, match.range).length > 0 }) {
+            let inner = match.range(at: 1)
+            let maths = ns.substring(with: inner).hasPrefix(MathMarkup.inlinePrefix)
+            let prefix = maths ? (MathMarkup.inlinePrefix as NSString).length : 0
+            spans.append(Span(range: match.range,
+                              content: NSRange(location: inner.location + prefix, length: inner.length - prefix),
+                              kind: maths ? .maths : .code))
+        }
+        let code = spans.map(\.range)
+        func inCode(_ range: NSRange) -> Bool {
+            code.contains { NSIntersectionRange($0, range).length == range.length }
+        }
+        for pattern in [Patterns.link, Patterns.tag] {
+            for match in pattern.matches(in: source, range: all) where !inCode(match.range) {
+                spans.append(Span(range: match.range, content: match.range, kind: .styled))
+            }
+        }
+        // The emphasis patterns capture their marker; the strike's is `~~`.
+        let emphasis: [(NSRegularExpression, Int?)] = [(Patterns.bold, nil), (Patterns.italic, nil), (Patterns.strike, 2)]
+        for (pattern, fixed) in emphasis {
+            for match in pattern.matches(in: source, range: all) where !inCode(match.range) {
+                let marker = fixed ?? match.range(at: 1).length
+                guard match.range.length > marker * 2 else { continue }
+                spans.append(Span(range: match.range,
+                                  content: NSRange(location: match.range.location + marker,
+                                                   length: match.range.length - marker * 2),
+                                  kind: .styled))
+            }
+        }
+        return spans
+    }
+
     private enum Patterns {
         static let code = regex("`([^`\n]*)`")
         /// Two backticks either side, holding anything but a newline — a

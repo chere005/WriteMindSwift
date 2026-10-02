@@ -21,27 +21,39 @@ import Foundation
 ///   (Sean, 2026-09-21: "cmd+9 should start a new cell or turn the existing
 ///   cell to an evaluation cell") — except an answer, which is never code.
 ///   Maths in a block that is already Wolfram Language goes in as the bare
-///   WL at the caret. Anything else goes in after the block, as its own
-///   cell — after its answer, when it has one.
+///   WL at the caret, on a line between the fences. Anything else goes in
+///   after the block, as its own cell — after its answer, when it has one.
+///   A block whose closing fence has not been typed yet runs to the end of
+///   the note, so the caret at its very end is in it, and a cell after it
+///   closes it first: opened under it, the new fence would BE its closing
+///   line.
 /// - A BLOCK IS A CELL OF ITS OWN: a blank line above it and below, never
 ///   glued into a paragraph or a list item. A paragraph is cut at the caret
 ///   and the block goes between the halves (at the front of its words,
-///   above it; at the end, below). Cells made of lines — a heading, a list,
-///   a quote — are cut only between lines: above the caret's line when the
-///   caret is at the front of its words or in its marker, below it
-///   otherwise. On an empty line of a blank cell the block takes that line
-///   and no other.
+///   above it; at the end, below) — but never through an inline span, nor
+///   where either half stops reading as words (`cut`). Cells made of lines
+///   — a heading, a list, a quote — are cut only between lines: above the
+///   caret's line when the caret is at the front of its words or in its
+///   marker, below it otherwise. On an empty line of a blank cell the block
+///   takes that line and no other.
 /// - A SELECTION BECOMES WHAT THE BLOCK HOLDS: code verbatim, the text
-///   either side staying as cells of its own. Maths takes a selection's
-///   place only when the maths still holds it (`MathSelection.holds`), so
-///   selected words are never thrown away — the maths goes after them.
-///   A selection with a fence in it is refused: that would be a nest.
+///   either side staying as cells of its own — and a line of a heading, a
+///   list or a quote keeping its marker and the rest of its words, the
+///   block above or below it, since those are cut only between lines. A
+///   span whose words are all selected goes whole, markers and all. Maths
+///   takes a selection's place only when the maths still holds it
+///   (`MathSelection.holds`), so selected words are never thrown away —
+///   the maths goes after them. A selection with a fence in it is
+///   refused: that would be a nest. A line taken with its own newline, as
+///   a triple-click takes it, is the line.
 /// - THE CARET ENDS WHERE TYPING GOES: between an empty block's fences, at
 ///   the end of what a block was given, at the end of display maths' WL,
 ///   after inline maths.
 /// - INLINE MATHS STAYS IN THE SENTENCE, never in front of a marker; where
 ///   there are no words — a bar, an empty line, the edge of a fenced cell —
-///   it is a plain cell of its own.
+///   it is a plain cell of its own. A `wl:` span is maths the way a ```wl
+///   block is, and maths in one goes in as the bare WL; inline maths in any
+///   other code span is refused, as it is in a code block.
 ///
 /// It answers with ONE edit over the note, so the source pane applies it
 /// as one step of undo, and the rendered page asks the same question with
@@ -97,7 +109,7 @@ enum Insertion {
         if atBar { return made(thing, at: Spot(removing: NSRange(location: selection.location, length: 0)), in: text) }
 
         let blocks = MarkdownParser.positioned(from: text)
-        if let cell = blocks.first(where: { fenced($0.block) != nil && encloses($0.range, selection) }),
+        if let cell = blocks.first(where: { fenced($0.block) != nil && encloses($0.range, selection, ns) }),
            let kind = fenced(cell.block) {
             return inside(cell, kind, thing, selection, in: text)
         }
@@ -108,19 +120,29 @@ enum Insertion {
 
         switch thing {
         case .maths(let wl, let onItsOwnLine):
-            if selection.length > 0, MathSelection.holds(wl, selected: ns.substring(with: selection)) {
-                guard onItsOwnLine else { return .edit(written(wl: MathMarkup.inline(wl), over: selection)) }
-                return made(thing, at: selectionSpot(selection, ns), in: text)
+            // Without the spaces and the newline at its ends: a line
+            // triple-clicked comes with its own newline, and replaced
+            // whole it took the line under it into the sentence.
+            let held = trimmed(selection, ns)
+            // In a `wl:` span the maths is the span's, bare, as in a ```wl
+            // block; in any other code span inline maths is only typed code.
+            if let span = codeSpan(around: held, ns, blocks) {
+                if span.kind == .maths { return .edit(written(wl: wl, over: clamped(held, to: span.content))) }
+                if !onItsOwnLine { return .refused(.mathsInCode) }
+            }
+            if held.length > 0, MathSelection.holds(wl, selected: ns.substring(with: held)) {
+                guard onItsOwnLine else { return .edit(written(wl: MathMarkup.inline(wl), over: held)) }
+                return made(thing, at: selectionSpot(held, ns, blocks), in: text)
             }
             // Words are kept: the maths goes in where the selection ends.
-            let caret = NSMaxRange(selection)
+            let caret = NSMaxRange(held)
             return onItsOwnLine
                 ? made(thing, at: spot(for: caret, in: text, blocks), in: text)
                 : inline(wl, at: caret, in: text, blocks)
         case .code, .evaluation:
             let selected = ns.substring(with: selection)
             guard selected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return made(thing, at: selectionSpot(selection, ns),
+                return made(thing, at: selectionSpot(selection, ns, blocks),
                             holding: selected.trimmingCharacters(in: .newlines), in: text)
             }
             return made(thing, at: spot(for: selection.location, in: text, blocks), in: text)
@@ -160,16 +182,28 @@ enum Insertion {
 
     /// Inside a cell, not at its edges: a caret before the opening fence or
     /// after the closing one is above or below the cell, and a selection of
-    /// the whole cell — its bracket held — is in it.
-    private static func encloses(_ cell: NSRange, _ selection: NSRange) -> Bool {
+    /// the whole cell — its bracket held — is in it. A cell with no closing
+    /// fence has no edge at its end: the caret there is where its next
+    /// line is being typed.
+    private static func encloses(_ cell: NSRange, _ selection: NSRange, _ ns: NSString) -> Bool {
         guard cell.location <= selection.location, NSMaxRange(selection) <= NSMaxRange(cell) else { return false }
         guard selection.length == 0 else { return true }
-        return cell.location < selection.location && selection.location < NSMaxRange(cell)
+        guard cell.location < selection.location else { return false }
+        return selection.location < NSMaxRange(cell) || !isClosed(cell, ns)
+    }
+
+    /// Whether a fenced cell has its closing line. The parser closes one at
+    /// any line that starts with three backticks, and runs one that never
+    /// meets such a line to the end of the note.
+    private static func isClosed(_ cell: NSRange, _ ns: NSString) -> Bool {
+        let last = line(at: NSMaxRange(cell), ns)
+        return last.location > cell.location
+            && ns.substring(with: last).trimmingCharacters(in: .whitespaces).hasPrefix("```")
     }
 
     private static func inside(_ cell: PositionedBlock, _ kind: Fenced, _ thing: Thing,
                                _ selection: NSRange, in text: String) -> Outcome {
-        let after = Spot(removing: NSRange(location: below(cell.range, in: text), length: 0))
+        let after = spot(after: cell.range, in: text)
         switch thing {
         case .code:
             if case .code = kind { return .refused(.codeInCode) }
@@ -189,7 +223,7 @@ enum Insertion {
         case .maths(let wl, let onItsOwnLine):
             if holdsWL(kind), let body = body(of: cell.range, in: text),
                body.location <= selection.location, NSMaxRange(selection) <= NSMaxRange(body) {
-                return .edit(written(wl: wl, over: selection))
+                return .edit(bare(wl, over: selection, in: cell.range, text as NSString))
             }
             if !onItsOwnLine, !holdsWL(kind) { return .refused(.mathsInCode) }
             return made(thing, at: after, in: text)
@@ -200,6 +234,42 @@ enum Insertion {
     /// cell is never put between code and what it said.
     private static func below(_ cell: NSRange, in text: String) -> Int {
         NSMaxRange(EvalCells.out(after: cell, in: text)?.range ?? cell)
+    }
+
+    /// A new cell after a fenced one — and, when that one's closing fence
+    /// has not been typed yet, that fence written first, in the same edit:
+    /// the review of 2026-10-02 found ```eval python opened under an
+    /// unclosed python block read as ITS closing line, and the new cell's
+    /// own closing fence opening one that ran to the end of the note
+    /// (`NoteStore.runCell` refuses to run such a cell for the same
+    /// reason). An unclosed block runs to the end of the note, so the
+    /// fence goes there.
+    private static func spot(after cell: NSRange, in text: String) -> Spot {
+        let ns = text as NSString
+        let end = NSRange(location: below(cell, in: text), length: 0)
+        guard !isClosed(cell, ns) else { return Spot(removing: end) }
+        let fence = (ns.substring(to: end.location).hasSuffix("\n") ? "" : "\n") + "```"
+        return Spot(removing: end, first: (end, fence))
+    }
+
+    /// The palette's WL written bare into a block of it, over `selection` —
+    /// on a line between the fences. A block with no such line, "```wl"
+    /// still being typed or "```wl\n```", is given one: written at the
+    /// caret it went ONTO a fence line, and "```wlPi" is no fence and
+    /// "Pi```" closes nothing.
+    private static func bare(_ wl: String, over selection: NSRange, in cell: NSRange,
+                             _ ns: NSString) -> MarkdownFormatting.Edit {
+        let length = (wl as NSString).length
+        let opening = line(at: cell.location, ns)
+        if selection.location == NSMaxRange(opening) {
+            return MarkdownFormatting.Edit(range: selection, replacement: "\n" + wl,
+                                           selection: NSRange(location: selection.location + 1 + length, length: 0))
+        }
+        if isClosed(cell, ns), selection.location == line(at: NSMaxRange(cell), ns).location {
+            return MarkdownFormatting.Edit(range: selection, replacement: wl + "\n",
+                                           selection: NSRange(location: selection.location + length, length: 0))
+        }
+        return written(wl: wl, over: selection)
     }
 
     /// The lines between a fenced cell's two fences.
@@ -237,6 +307,10 @@ enum Insertion {
         /// new cell takes that one line, and the lines either side stay the
         /// note's.
         var inBlankCell = false
+        /// A change made first, away from where the cell goes: the words
+        /// taken out of an item's line for the cell to hold, or the closing
+        /// fence an unclosed block is missing.
+        var first: (range: NSRange, replacement: String)?
     }
 
     /// Where a cell goes for a caret outside every fenced block.
@@ -265,6 +339,7 @@ enum Insertion {
     /// half with nothing in it: at the front of its words the cell goes
     /// above, at the end of them below.
     private static func paragraphSpot(_ caret: Int, _ cell: NSRange, _ ns: NSString) -> Spot {
+        let caret = cut(at: caret, in: cell, ns)
         let first = line(at: cell.location, ns)
         if caret <= first.location + wordsStart(ns.substring(with: first)) {
             return Spot(removing: NSRange(location: cell.location, length: 0))
@@ -282,6 +357,60 @@ enum Insertion {
         return Spot(removing: NSRange(location: start, length: end - start))
     }
 
+    /// Where a paragraph is cut for a caret at `caret` (the review of
+    /// 2026-10-02):
+    ///
+    /// - NEVER THROUGH AN INLINE SPAN. Cut a code span, maths, bold or a
+    ///   link in two and each half keeps one marker that pairs with nothing
+    ///   — "Use `npm" and "install` to set up." — so a caret in one cuts at
+    ///   its nearer edge.
+    /// - NEVER WHERE A HALF STOPS READING AS WORDS. The words after the cut
+    ///   start a line of their own, and on one "- it was late." is a list,
+    ///   "# 42" a heading, three backticks a fence that swallows the rest
+    ///   of the note; the words before it end one, and "---" is a rule.
+    ///   There the cut moves on past the next word — so the block lands a
+    ///   word later rather than anything being rewritten — and at the end
+    ///   of the line it is a cut between lines, which never misreads.
+    private static func cut(at caret: Int, in cell: NSRange, _ ns: NSString) -> Int {
+        let marked = spans(of: cell, ns).map(\.range)
+        /// The run of spans `at` is strictly inside, the ones nested in it
+        /// or overlapping it together.
+        func around(_ at: Int) -> NSRange? {
+            guard var run = marked.first(where: { $0.location < at && at < NSMaxRange($0) }) else { return nil }
+            while let more = marked.first(where: {
+                NSIntersectionRange($0, run).length > 0 && !NSEqualRanges(NSUnionRange($0, run), run)
+            }) {
+                run = NSUnionRange(run, more)
+            }
+            return run
+        }
+        var at = caret
+        if let run = around(at) { at = at - run.location <= NSMaxRange(run) - at ? run.location : NSMaxRange(run) }
+        while at < NSMaxRange(cell) {
+            let here = line(at: at, ns)
+            if at == NSMaxRange(here) { return at }
+            if readsAsWords(ns.substring(with: NSRange(location: here.location, length: at - here.location))),
+               readsAsWords(ns.substring(with: NSRange(location: at, length: NSMaxRange(here) - at))) {
+                return at
+            }
+            while at < NSMaxRange(here), isSpace(ns.character(at: at)) { at += 1 }
+            while at < NSMaxRange(here), !isSpace(ns.character(at: at)) { at += 1 }
+            if let run = around(at) { at = NSMaxRange(run) }
+        }
+        return at
+    }
+
+    /// Whether a piece of a line, on a line of its own, is still words — a
+    /// paragraph — and not a list, a heading, a quote, a rule or a fence.
+    /// Nothing at all is no line, and reads as nothing else.
+    private static func readsAsWords(_ piece: String) -> Bool {
+        let piece = piece.trimmingCharacters(in: .whitespaces)
+        guard !piece.isEmpty else { return true }
+        let blocks = MarkdownParser.blocks(from: piece)
+        guard blocks.count == 1, case .paragraph = blocks[0] else { return false }
+        return true
+    }
+
     /// A heading, a list, a quote, a rule: cut only between its lines, so
     /// no item's words are ever split and no marker is left behind.
     private static func lineSpot(_ caret: Int, _ ns: NSString) -> Spot {
@@ -293,10 +422,46 @@ enum Insertion {
     /// A selection taken out to be a block's content. The spaces at either
     /// cut go with it, and so does a marker or an indent left with no words
     /// after it: `- ` with its words gone is an empty bullet nobody asked
-    /// for, so selecting an item's words takes the item.
-    private static func selectionSpot(_ selection: NSRange, _ ns: NSString) -> Spot {
+    /// for, so selecting an item's words takes the item. A span whose words
+    /// are all selected goes whole: left behind, its markers were cells of
+    /// nothing but `**`.
+    ///
+    /// PART OF THE WORDS OF ONE LINE of a heading, a list or a quote is
+    /// taken out of that line, and the line stays — its marker and the rest
+    /// of its words — with the block above it when the selection began at
+    /// the front of the words and below it otherwise: those cells are cut
+    /// only between lines (the review of 2026-10-02 — taking the marker
+    /// with the front of the words turned "# Big Title" into code and a
+    /// paragraph that said "Title").
+    private static func selectionSpot(_ selection: NSRange, _ ns: NSString, _ blocks: [PositionedBlock]) -> Spot {
+        var selection = selection
+        let lines = NSUnionRange(line(at: selection.location, ns), line(at: NSMaxRange(selection), ns))
+        for span in spans(of: lines, ns)
+        where selection.location <= span.content.location && NSMaxRange(span.content) <= NSMaxRange(selection) {
+            selection = NSUnionRange(selection, span.range)
+        }
+
         var start = selection.location
         let first = line(at: start, ns)
+        let words = wordsRange(of: first, ns)
+        if NSMaxRange(selection) <= NSMaxRange(first), start >= words.location,
+           start > words.location || NSMaxRange(selection) < NSMaxRange(words),
+           let cell = blocks.first(where: { NSLocationInRange(start, $0.range) }), isMadeOfLines(cell.block) {
+            var taking = selection
+            if NSMaxRange(taking) < NSMaxRange(words) {
+                while NSMaxRange(taking) < NSMaxRange(first), isSpace(ns.character(at: NSMaxRange(taking))) {
+                    taking.length += 1
+                }
+            } else {
+                while taking.location > words.location, isSpace(ns.character(at: taking.location - 1)) {
+                    taking.location -= 1
+                    taking.length += 1
+                }
+            }
+            let at = start == words.location ? first.location : NSMaxRange(first)
+            return Spot(removing: NSRange(location: at, length: 0), first: (taking, ""))
+        }
+
         if start <= first.location + wordsStart(ns.substring(with: first)) {
             start = first.location
         } else {
@@ -315,6 +480,69 @@ enum Insertion {
             }
         }
         return Spot(removing: NSRange(location: start, length: end - start))
+    }
+
+    /// Where a line's words are: past its marker, up to the last of them.
+    private static func wordsRange(of line: NSRange, _ ns: NSString) -> NSRange {
+        let start = line.location + wordsStart(ns.substring(with: line))
+        var end = NSMaxRange(line)
+        while end > start, isSpace(ns.character(at: end - 1)) { end -= 1 }
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// The cells of words: a paragraph, and the cells made of lines.
+    private static func holdsWords(_ block: MarkdownBlock) -> Bool {
+        if case .paragraph = block { return true }
+        return isMadeOfLines(block)
+    }
+
+    /// The cells made of lines, each with its marker: cut only between them.
+    private static func isMadeOfLines(_ block: MarkdownBlock) -> Bool {
+        switch block {
+        case .heading, .bullets, .dashes, .todos, .numbered, .quote: return true
+        case .paragraph, .code, .rule, .blank: return false
+        }
+    }
+
+    /// The inline spans in `range` of the note, in the note's offsets.
+    private static func spans(of range: NSRange, _ ns: NSString) -> [MarkdownSourceStyle.Span] {
+        MarkdownSourceStyle.spans(in: ns.substring(with: range)).map { span in
+            var span = span
+            span.range.location += range.location
+            span.content.location += range.location
+            return span
+        }
+    }
+
+    /// The code span or `wl:` span `range` sits inside — between its
+    /// backticks — in a cell of words. Code spans never nest, so there is
+    /// at most one.
+    private static func codeSpan(around range: NSRange, _ ns: NSString,
+                                 _ blocks: [PositionedBlock]) -> MarkdownSourceStyle.Span? {
+        guard let cell = blocks.first(where: {
+            $0.range.location <= range.location && NSMaxRange(range) <= NSMaxRange($0.range)
+        }), holdsWords(cell.block)
+        else { return nil }
+        return spans(of: cell.range, ns).first {
+            $0.kind != .styled && $0.range.location < range.location && NSMaxRange(range) < NSMaxRange($0.range)
+        }
+    }
+
+    /// `range` without the spaces and newlines at its two ends — a caret
+    /// at its end when nothing else is left.
+    private static func trimmed(_ range: NSRange, _ ns: NSString) -> NSRange {
+        func blank(_ at: Int) -> Bool { [9, 10, 13, 32].contains(ns.character(at: at)) }
+        var start = range.location, end = NSMaxRange(range)
+        while start < end, blank(start) { start += 1 }
+        while end > start, blank(end - 1) { end -= 1 }
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// `range` kept within `bounds`.
+    private static func clamped(_ range: NSRange, to bounds: NSRange) -> NSRange {
+        let start = min(max(range.location, bounds.location), NSMaxRange(bounds))
+        let end = max(start, min(NSMaxRange(range), NSMaxRange(bounds)))
+        return NSRange(location: start, length: end - start)
     }
 
     /// The line `offset` is on, without its newline.
@@ -385,15 +613,23 @@ enum Insertion {
         }
         let cell = CellTypes.open(kind, writing: written, in: "", at: 0)
 
+        var note = text
+        var place = spot.removing
+        if let first = spot.first {
+            note = (text as NSString).replacingCharacters(in: first.range, with: first.replacement)
+            if place.location >= NSMaxRange(first.range) {
+                place.location += (first.replacement as NSString).length - first.range.length
+            }
+        }
         let result: String
         let start: Int
         if spot.inBlankCell {
-            let ns = text as NSString
-            let offset = spot.removing.location
+            let ns = note as NSString
+            let offset = place.location
             result = ns.substring(to: offset) + "\n" + cell.markdown + "\n" + ns.substring(from: offset)
             start = offset + 1
         } else {
-            let (opened, at) = PreviewEditing.insertBlock(in: text, replacing: spot.removing)
+            let (opened, at) = PreviewEditing.insertBlock(in: note, replacing: place)
             let ns = opened as NSString
             result = ns.substring(to: at) + cell.markdown + ns.substring(from: at)
             start = at
@@ -406,15 +642,12 @@ enum Insertion {
     /// its own holding it.
     private static func inline(_ wl: String, at caret: Int, in text: String, _ blocks: [PositionedBlock]) -> Outcome {
         let ns = text as NSString
-        let cell = blocks.first { $0.range.location <= caret && caret <= NSMaxRange($0.range) }
-        switch cell?.block {
-        case .paragraph?, .heading?, .bullets?, .dashes?, .todos?, .numbered?, .quote?:
-            let here = line(at: caret, ns)
-            let at = max(caret, here.location + wordsStart(ns.substring(with: here)))
-            return .edit(written(wl: MathMarkup.inline(wl), over: NSRange(location: at, length: 0)))
-        default:
-            return made(.maths(wl, onItsOwnLine: false), at: spot(for: caret, in: text, blocks), in: text)
-        }
+        guard let cell = blocks.first(where: { $0.range.location <= caret && caret <= NSMaxRange($0.range) }),
+              holdsWords(cell.block)
+        else { return made(.maths(wl, onItsOwnLine: false), at: spot(for: caret, in: text, blocks), in: text) }
+        let here = line(at: caret, ns)
+        let at = max(caret, here.location + wordsStart(ns.substring(with: here)))
+        return .edit(written(wl: MathMarkup.inline(wl), over: NSRange(location: at, length: 0)))
     }
 
     /// Something written over a range in place, the caret after it.

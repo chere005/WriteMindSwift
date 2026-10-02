@@ -1199,34 +1199,58 @@ CoreMind's `bin/report-status.sh`.
   one, the 2026-09-21 rule, except an `out` answer, which is never code;
   maths in a block that is already Wolfram Language (```wl, ```eval wl,
   Wolfram code) goes in as the BARE WL at the caret, since composing one
-  is what the palette's α and ∑ are for; inline maths in any other code
-  is refused; anything else goes AFTER the block as a cell — after its
-  answer when it has one, never between code and what it said. A BLOCK
-  IS A CELL — a blank line above and below, never glued into a paragraph
-  or an item: a paragraph is cut at the caret, spaces at the cut dropped
-  (at the front of its words the block goes above, at the end below);
-  a heading, a list, a quote or a rule is cut only BETWEEN LINES — above
-  the caret's line when the caret is at the front of its words or in its
-  marker, below it otherwise — so no item's words are split and no
-  marker is left bare; on an empty line of a blank cell the block takes
-  that one line and the rest stay the note's. A SELECTION IS THE CONTENT:
-  code and evaluation cells take it verbatim, the text either side
-  staying cells (an item's words take the item, marker and all); maths
-  takes a selection's place only when it still HOLDS it
-  (`MathSelection.holds`: the selection reads as WL — no word in it — and
-  is a whole term of the maths), otherwise the words stay and the maths
-  goes after them; the palette opens SEEDED from a selection that reads
-  as maths, in the sentence when it sits in one, and a shape picked then
-  takes it into its first slot; a selection with a fence in it is
-  refused. THE CARET ENDS WHERE TYPING GOES — between an empty block's
-  fences, at the end of what it was given, at the end of display maths'
-  WL, after inline maths, which stays in the sentence (never in front of
-  a marker) and is a plain cell of its own where there are no words. ONE
-  ⌘Z TAKES IT BACK: the source pane applies the one edit; the rendered
-  page sends an edit that stays in its open cell's words (inline maths,
-  bare WL) through that cell's editor, and otherwise changes the note,
-  opens the cell the caret landed in (a code cell as its code) and puts
-  the way back on that editor's own undo stack (`offerUndo`). The cell's
+  is what the palette's α and ∑ are for — on a line between the fences,
+  given one when there is none, never onto a fence line; inline maths in
+  any other code is refused; anything else goes AFTER the block as a cell
+  — after its answer when it has one, never between code and what it
+  said. A FENCE WITH NO CLOSING LINE runs to the end of the note, so the
+  caret at its very end is IN it, and a cell made after it writes its
+  closing ``` first, in the same edit: the parser closes a fence at any
+  line starting with three backticks, so a fence opened under it became
+  its closing line (`NoteStore.runCell` refuses to run one for the same
+  reason). The same two hold for INLINE SPANS: maths in a `wl:` span goes
+  in as the bare WL, and inline maths in any other code span is refused.
+  A BLOCK IS A CELL — a blank line above and below, never glued into a
+  paragraph or an item: a paragraph is cut at the caret, spaces at the
+  cut dropped (at the front of its words the block goes above, at the end
+  below), but NEVER THROUGH AN INLINE SPAN — a code span, `wl:`, bold,
+  italic, struck, a link, a tag, nested ones together
+  (`MarkdownSourceStyle.spans`, read with the patterns `runs` styles
+  with) — where it moves to the span's nearer edge, and NEVER WHERE A
+  HALF STOPS READING AS WORDS: on a line of its own "- it was late." is
+  a list, "# 42" a heading, "---" a rule and three backticks a fence that
+  swallows the note, so the cut moves on a word (`Insertion.cut`) rather
+  than anything typed being escaped; a heading, a list, a quote or a rule
+  is cut only BETWEEN LINES — above the caret's line when the caret is at
+  the front of its words or in its marker, below it otherwise — so no
+  item's words are split and no marker is left bare; on an empty line of
+  a blank cell the block takes that one line and the rest stay the
+  note's. A SELECTION IS THE CONTENT: code and evaluation cells take it
+  verbatim, the text either side staying cells — all of an item's words
+  take the item, marker and all, and PART of one line's words come out
+  of it, the line keeping its marker and the rest, the block above it
+  (selection at the front of the words) or below it, since those cells
+  are cut only between lines; a span whose words are all selected goes
+  whole, markers too; maths takes a selection's place only when it still
+  HOLDS it (`MathSelection.holds`: the selection reads as WL — no word in
+  it — and is a whole term of the maths), otherwise the words stay and
+  the maths goes after them; the palette opens SEEDED from a selection
+  that reads as maths, in the sentence when it sits in one, and a shape
+  picked then takes it into its first slot; a selection is read without
+  the spaces and newline at its ends, so a line taken by a triple-click
+  is that line; a selection with a fence in it is refused. THE CARET
+  ENDS WHERE TYPING GOES — between an empty block's fences, at the end
+  of what it was given, at the end of display maths' WL, after inline
+  maths, which stays in the sentence (never in front of a marker) and is
+  a plain cell of its own where there are no words. ONE ⌘Z TAKES IT
+  BACK: the source pane applies the one edit; the rendered page sends an
+  edit that stays in its open cell's words (inline maths, bare WL)
+  through that cell's editor, and otherwise changes the note, opens the
+  cell the caret landed in (a code cell as its code) and puts the way
+  back on TOP of that editor's own undo stack (`offerUndo`) — never
+  emptying it first: ⌘9 on an open code cell reopens the same cell in
+  the same editor, and what had been typed in it must stay undoable, as
+  it does in the source pane. The cell's
   text is `CellTypes.open`'s, its spacing `PreviewEditing.insertBlock`'s
   (`replacing:` a selection, the spacing read off the note as it is).
   The map of what each command did before, context by context in both

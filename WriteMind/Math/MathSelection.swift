@@ -27,8 +27,11 @@ enum MathSelection {
     /// whatever the parser says: a name of two or more letters that is not
     /// one the maths is set with (`Pi`, `Infinity`, `Sin`), not a `\[Name]`
     /// and not the head of a call (`Sqrt[2]`). A variable is one letter.
+    /// The newline at an end is not part of it: a triple-click takes the
+    /// line's own with it (the review of 2026-10-02 — the most common way
+    /// to take a line read as words). One in the middle is two lines.
     static func reading(_ text: String) -> String? {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(where: \.isNewline),
               let expression = WLParser.parse(trimmed)
         else { return nil }

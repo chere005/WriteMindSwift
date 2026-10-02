@@ -212,14 +212,19 @@ is how the code is put together.
 - **A block always lands as a cell of its own.** A code block, an
   evaluation cell or maths on its own line goes in with a blank line above
   and below it, never glued to the words: in the middle of a paragraph the
-  paragraph is cut there and the block goes between the halves; in a
-  heading, a list or a quote it goes above or below the line the caret is
-  on, so no item is split; at the insertion line it is made there. What
-  was selected becomes what the block holds, and the caret ends inside it,
+  paragraph is cut there and the block goes between the halves — never
+  through `code`, maths, **bold** or a link, and never so that the words
+  after it would start a list or a heading; in a heading, a list or a
+  quote it goes above or below the line the caret is on, so no item is
+  split, and part of an item's words selected come out of it while the
+  item keeps its bullet; at the insertion line it is made there. What was
+  selected becomes what the block holds, and the caret ends inside it,
   where typing goes. A block is never put inside another: ⌘8 in a code
   block does nothing and the footer says why, and anything else asked for
   inside a fenced cell goes in after it — after its answer, when it has
-  one. ⌘Z takes the whole of it back in one step, in both panes.
+  one, and with the cell's closing ``` written first if it was not typed
+  yet. ⌘Z takes the whole of it back in one step, in both panes, and on
+  the rendered page what was typed in the cell before stays undoable.
 - **Strikethrough.** ⇧⌘X, written `~~like this~~`, struck through in the
   editor and in the preview.
 - **Crop a picture.** Select one and the crop button sits at its bottom
@@ -360,9 +365,10 @@ is how the code is put together.
   and it starts from that: Insert sets exactly the selection, in the
   sentence when it sits in one, and a shape picked first wraps it (√ of
   it). Selected words are never thrown away; the maths goes after them.
-  Inside a maths block — or a Wolfram cell — what the palette writes goes
-  in as plain WL where the caret is, which is how a Greek letter or a ∑ is
-  added to maths already there.
+  A line taken with a triple-click counts. Inside a maths block — or a
+  Wolfram cell, or inline maths — what the palette writes goes in as plain
+  WL where the caret is, which is how a Greek letter or a ∑ is added to
+  maths already there; inside `code` inline maths is refused.
 - **Any camera the Mac can see.** The **Input Devices** menu in the menu bar
   lists built-in, USB, Continuity Camera and Desk View devices with a
   checkmark on the live one; plugging one in refreshes the list. The
