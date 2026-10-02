@@ -205,7 +205,12 @@ CoreMind's `bin/report-status.sh`.
   H/W wide; `tabletQuarterTurns` holds it, remembered, turned by the two
   buttons in the pane's corner. **The pen is kept off the pointer by a
   driver CONTEXT** — Wacom's Driver Request Interface, Apple Events to
-  'WaCM', ported in `WacomDriver` with Wacom's MIT notice: a context over
+  'WaWT' (WacomTabletDriver, `com.wacom.wacomtablet`), ported in
+  `WacomDriver` with Wacom's MIT notice. NOT the sample's 'WaCM': on driver
+  6.4 that is TabletDriver.app, which counts the tablets and answers every
+  other question — the size, the name, the context — with an empty reply
+  (logged the first time the real driver was asked, 2026-10-02); the
+  context codes are compiled into WacomTabletDriver alone. A context over
   tablet 1 with `pContextMovesSystemCursor` false. A context acts only
   while WriteMind is in front, so it is re-asserted every time the app
   comes back (kept if the driver still has it, made again if not) and

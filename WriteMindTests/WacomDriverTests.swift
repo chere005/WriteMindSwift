@@ -39,11 +39,14 @@ final class WacomDriverTests: XCTestCase {
     // MARK: - The target and the routing tables
 
     func testTheTargetIsTheDriversSignature() {
-        XCTAssertEqual(WacomDriver.signature, 0x5761_434D, "'WaCM'")
+        // 'WaWT', WacomTabletDriver — the sample's 'WaCM' (TabletDriver)
+        // answers driver 6.4's every question but the count with nothing.
+        XCTAssertEqual(WacomDriver.signature, 0x5761_5754, "'WaWT'")
+        XCTAssertEqual(WacomDriver.bundleIdentifier, "com.wacom.wacomtablet")
         let target = WacomDriver.target()
         XCTAssertEqual(target.descriptorType, typeApplSignature)
         let signature = target.data.withUnsafeBytes { $0.load(as: OSType.self) }
-        XCTAssertEqual(signature, fourCC("WaCM"), "the sample hands &tdSig over in the Mac's own byte order")
+        XCTAssertEqual(signature, fourCC("WaWT"), "the sample hands &tdSig over in the Mac's own byte order")
     }
 
     func testTheDriverIsTheFirstAndOnlyOne() {
@@ -76,7 +79,7 @@ final class WacomDriverTests: XCTestCase {
         XCTAssertEqual(event.eventID, fourCC(eventID), file: file, line: line)
         let address = event.attributeDescriptor(forKeyword: keyAddressAttr)
         XCTAssertEqual(address?.descriptorType, typeApplSignature, "sent to the driver", file: file, line: line)
-        XCTAssertEqual(address?.data.withUnsafeBytes { $0.load(as: OSType.self) }, fourCC("WaCM"),
+        XCTAssertEqual(address?.data.withUnsafeBytes { $0.load(as: OSType.self) }, fourCC("WaWT"),
                        file: file, line: line)
     }
 

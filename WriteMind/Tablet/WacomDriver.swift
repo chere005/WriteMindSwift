@@ -35,7 +35,12 @@ import CoreServices
 /// as if it were an input display").
 ///
 /// The driver answers Apple Events sent to the application whose signature
-/// is 'WaCM' (TabletDriver.app, `com.wacom.TabletDriver`). An application
+/// is 'WaWT' (WacomTabletDriver.app, `com.wacom.wacomtablet`) — NOT the
+/// sample's 'WaCM'. On driver 6.4 'WaCM' is TabletDriver.app, which counts
+/// the tablets and answers everything else with an empty reply: no size, no
+/// name, no context (logged 2026-10-02, the first time the real driver was
+/// asked). The contexts' codes ('CTxt', 'Mvsc', 'Tomp', 'Cenb') are compiled
+/// into WacomTabletDriver and into nothing else in the driver. An application
 /// asks it for a CONTEXT over one tablet — its own sandbox of settings,
 /// which acts only while that application is frontmost and goes when it
 /// quits — and a context whose `pContextMovesSystemCursor` ('Mvsc') is
@@ -56,8 +61,8 @@ import CoreServices
 enum WacomDriver {
     /// The driver's Apple Event signature, and the bundle whose process
     /// carries it (read off its Info.plist, 2026-10-02).
-    static let signature = fourCC("WaCM")
-    static let bundleIdentifier = "com.wacom.TabletDriver"
+    static let signature = fourCC("WaWT")
+    static let bundleIdentifier = "com.wacom.wacomtablet"
 
     /// Long enough for a driver that is merely busy, short enough that a
     /// driver that is wedged costs a beat and not the session. The sample
@@ -305,11 +310,19 @@ enum WacomDriver {
         func send(_ event: NSAppleEventDescriptor, reply: Bool,
                   timeout: TimeInterval) -> Result<NSAppleEventDescriptor?, Failure> {
             guard !TestHost.isActive else { return .failure(.refusedUnderTest) }
+            // Every exchange with the driver goes in the debug log, whole —
+            // there are a handful per connection, and the driver's replies
+            // are the only evidence of what it wants (2026-10-02: the
+            // context came back with no id, and nothing said why).
+            let code = { (c: UInt32) in String(bytes: [24, 16, 8, 0].map { UInt8((c >> $0) & 0xff) }, encoding: .macOSRoman) ?? "\(c)" }
+            let asked = "\(code(event.eventClass))/\(code(event.eventID))"
             do {
                 let answer = try deliver(event, reply ? [.waitForReply, .neverInteract] : [.noReply, .neverInteract],
                                          timeout)
+                DebugLog.write("wacom: \(asked) → \(answer.description.prefix(400))")
                 return reply ? WacomDriver.answer(of: answer) : .success(nil)
             } catch {
+                DebugLog.write("wacom: \(asked) threw \(error)")
                 return .failure(WacomDriver.failure(of: error))
             }
         }
