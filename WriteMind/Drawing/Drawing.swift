@@ -88,13 +88,16 @@ struct Stroke: Codable, Equatable, Identifiable {
     }
 
     /// A stroke the pen has just put down. The FIRST event decides what it
-    /// is for good: a tablet's nib makes ink with a pressure per point; a
-    /// mouse or a trackpad makes the legacy line it always made.
-    static func starting(at point: CGPoint, colorHex: String, width: Double, pen: PenSample) -> Stroke {
+    /// is for good: a tablet's nib makes ink with a pressure per point,
+    /// written with `tool` — the pen picked on the pen menu, or on the
+    /// page's bar; a mouse or a trackpad makes the legacy line it always
+    /// made, whatever tool is picked.
+    static func starting(at point: CGPoint, colorHex: String, width: Double, pen: PenSample,
+                         tool: InkTool = .pen) -> Stroke {
         var stroke = Stroke(colorHex: colorHex, width: width, points: [point])
         if case .pen(let pressure) = pen {
             stroke.pressures = [pressure]
-            stroke.tool = .pen
+            stroke.tool = tool
         }
         return stroke
     }

@@ -15,6 +15,65 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### The page has papers, and a pen of its own
+Sean, 2026-10-02: "it can have themed backgrounds and different pen colors
+and strokes to write with". What the port has to copy:
+
+- **Six papers**, each a sheet colour, a print and an ink that reads on
+  it. The print is measured in THE TABLET'S MILLIMETRES (its active area:
+  the small One by Wacom is 15200 × 9500 counts at 100 a millimetre, 152 ×
+  95 mm, turned as the page is turned; a tablet of unknown size is taken
+  to be 152 mm along its long side at its own shape) and laid down in
+  fractions of the page, so it scales with the sheet and a bigger tablet
+  gets more lines, not wider ones. Weights are millimetres too.
+
+  | Paper | Sheet | Print | Ink |
+  |---|---|---|---|
+  | `plain` | `#FFFFFF` | nothing | `#1C1C1E` |
+  | `dotGrid` | `#FFFFFF` | `#9A9A9A` dots 0.5 mm across, 5 mm apart | `#1C1C1E` |
+  | `ruled` | `#FFFFFF` | `#9EC3E6` lines 0.2 mm, 8 mm apart from 16 mm down, edge to edge, to the last at least 4 mm above the foot; a `#E57373` margin 0.25 mm at 16 mm, top to bottom | `#1C1C1E` |
+  | `graph` | `#FFFFFF` | `#A9CBE8` lines 0.15 mm, 5 mm squares, edge to edge | `#1C1C1E` |
+  | `legal` | `#FBF2A0` | the ruling in `#8DB1D3`; a DOUBLE `#D9534F` margin, 0.2 mm, at 16 and 17.2 mm | `#1C1C1E` |
+  | `blackboard` | `#1E2A24` | nothing | chalk `#F1EFE6` |
+
+  Dots and graph lines sit on a centred lattice: as many as fit at 5 mm,
+  the first at (length − (n − 1) × 5) / 2, so both edges keep the same
+  margin. The pane and an Image taken off the page print the SAME paper
+  in the same place (here one printer serves both, and a test compares
+  them pixel for pixel); Text never sees a paper — it is the ink alone,
+  black on white. The paper is the page's: the page file gains `"theme"`
+  (the raw names above), read forgivingly — absent or unknown is `plain`,
+  and costs nothing else. Changing it is not an undo step.
+- **The page's pen is its own** — tool, colour, size, remembered apart
+  from the notebook's pen (chalk on a blackboard must not leave the
+  notebook writing white on white). New strokes take it as it is when the
+  nib goes down; strokes already written keep theirs. Both sit on one
+  small bar in the page pane's top-left corner, ABOVE the sheet so it is
+  never on the writing — the pen's button shows its ink as a dot on a
+  chip of the paper, so near-black ink shows on a dark bar — each opening
+  a small panel: the pen's (the tool picker, the size slider, the six
+  swatches plus a colour well, and the paper's own ink as a seventh
+  swatch when it is not one of the six; the swatch in use ringed outside
+  itself, so the ring never lands on its own colour) and the paper's (a
+  row a paper, with a swatch of its real print). A dark sheet (the board)
+  gets a faint light edge over its paper so it shows on the black pane;
+  a picture of the page has no edge.
+- **When the paper changes, ink the change leaves unreadable becomes the
+  paper's own**: under a WCAG 2 contrast ratio of 2 against the new
+  sheet AND lower than it was against the old one (black onto the board
+  1.1, chalk off it, the amber swatch onto the legal pad: 1.8 on white,
+  1.6 there). A colour that read no worse on the old paper was picked on
+  one like it and is left alone — amber from plain to ruled stays amber,
+  black picked on the board stays black — and picking the paper already
+  in use changes nothing.
+- **One tool picker, in both places**: a button per tool — Pen, Fountain
+  (Pen), Pencil, Marker, Brush — its icon over its name, the one in use
+  lit. The notebook's pen menu has it too, in the same order (tool, size,
+  colour), and there it is a TABLET'S:
+  a pen stroke in the notebook (`pointerType === 'pen'`) is written with
+  the picked tool, while a mouse or trackpad stroke stays the plain line
+  with no tool, exactly as before.
+
 ### A drawing tablet is an input, chosen like a camera
 The list of inputs that holds the cameras lists any drawing tablet plugged
 in, under them, by the name on its box ("One by Wacom (CTL-472)"). Picking
@@ -57,7 +116,7 @@ selected and inserted"). What the port has to copy:
   ink, a pressure a point, a tool — with points as fractions of the page
   (0…1 across and down from the top left) and widths in the page's own
   points: its LONG side is 800 whichever way it is turned. The pen's width
-  goes on as it is seen: the pen menu's width divided by the page's scale
+  goes on as it is seen: the page pen's width divided by the page's scale
   on screen at the moment of writing, so 3 points writes 3 points where it
   is being watched, and the ink grows and shrinks with the page after
   that. The nib down starts a stroke, every move appends a point with its
@@ -78,8 +137,9 @@ selected and inserted"). What the port has to copy:
   the page is written beside it as `TabletPage.conflict-<date>.json`. A
   build of the app with an id of its own keeps a page file of its own. Undo is whole pages, a stroke
   or a clear a step, for the session. The file is
-  `{"version":1,"quarterTurns":n,"strokes":[…]}`, the strokes in the
-  sidecar's own shape, so either app opens the other's page.
+  `{"version":1,"quarterTurns":n,"theme":"plain","strokes":[…]}`, the
+  strokes in the sidecar's own shape, so either app opens the other's
+  page (`theme` came with the papers — the entry above).
 - **The ink turns with the sheet.** Turning the tablet a quarter turn
   makes a tall page wide, so every stroke (and the undo history) is turned
   too: clockwise, (u, v) → (1 − v, u). That keeps each stroke where it is

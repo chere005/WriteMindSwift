@@ -85,6 +85,7 @@ struct EditorPane: View {
                                   mode: appState.canvasMode,
                                   color: appState.penColor,
                                   width: appState.penWidth,
+                                  tool: appState.penTool,
                                   mediaDirectory: store.owningFolder(for: note.url),
                                   documentID: note.id,
                                   deselectToken: textClicks,

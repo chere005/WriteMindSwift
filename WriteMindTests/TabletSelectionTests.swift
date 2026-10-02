@@ -134,6 +134,23 @@ final class TabletSelectionTests: XCTestCase {
         }
     }
 
+    /// Image carries THE PAPER: a box off a blackboard is the board with
+    /// the chalk on it, not chalk on white.
+    func testImageOfABlackboardIsTheBoard() throws {
+        let chalk = pageStroke([CGPoint(x: 0.25, y: 0.5), CGPoint(x: 0.55, y: 0.5)], width: 8,
+                               colorHex: PageTheme.blackboard.defaultInk, pressures: [0.5, 0.5])
+        let box = CGRect(x: 0.2, y: 0.375, width: 0.4, height: 0.25)
+        XCTAssertTrue(store.takeFromTablet(.image, strokes: [chalk], box: box, pageSize: pageSize,
+                                           theme: .blackboard, millimetres: CGSize(width: 95, height: 152)))
+        let picture = try XCTUnwrap(store.drawing.images.first)
+        let image = try XCTUnwrap(DrawingStore.loadImage(picture.file, in: dir)?
+            .cgImage(forProposedRect: nil, context: nil, hints: nil))
+        let board = rgb(image, 6, 6)
+        XCTAssertTrue(board.r < 50 && board.g < 60 && board.b < 50, "the board, \(board)")
+        let line = rgb(image, image.width / 2, image.height / 2)
+        XCTAssertTrue(line.r > 200 && line.g > 200, "the chalk, \(line)")
+    }
+
     func testImageGoesInAsAPictureAtTheCapturesScale() throws {
         let image = CGRect(x: 0.2, y: 0.375, width: 0.4, height: 0.25)
         XCTAssertTrue(store.takeFromTablet(.image, strokes: page, box: image, pageSize: pageSize))

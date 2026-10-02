@@ -19,6 +19,9 @@ struct DrawingCanvas: View {
     private var penActive: Bool { mode == .pen }
     let color: Color
     let width: Double
+    /// What a tablet's nib writes with (`AppState.penTool`). A mouse or a
+    /// trackpad stroke never takes it — it is the legacy line.
+    var tool: InkTool = .pen
     /// Where the pictures are, so they can be drawn.
     var mediaDirectory: URL?
     /// Changing it drops the selection — another note's objects are not this
@@ -769,11 +772,12 @@ struct DrawingCanvas: View {
                     // always was (Sean, 2026-10-02: "make the text strokes
                     // well implemented to feel natural for writing
                     // letters.. do the same for drawing mode in the
-                    // notebook itself").
+                    // notebook itself"), with the tool on the pen menu.
                     let pen = PenSampleReader.shared.sample
                     if current == nil {
                         onBeginChange?()
-                        current = Stroke.starting(at: point, colorHex: color.hexString, width: width, pen: pen)
+                        current = Stroke.starting(at: point, colorHex: color.hexString, width: width, pen: pen,
+                                                  tool: tool)
                     } else {
                         current?.append(point, pen: pen)
                     }

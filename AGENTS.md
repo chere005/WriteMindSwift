@@ -172,7 +172,8 @@ CoreMind's `bin/report-status.sh`.
   Wacom pen's strokes are ordinary left-mouse events with that subtype —
   and returns every event unchanged; the drag gesture reads it while the
   same event is being handled. The stroke's FIRST event decides what it
-  is: a nib makes `tool = .pen` with a pressure per point, a mouse or a
+  is: a nib makes ink — the pen menu's tool, `AppState.penTool`, the pen
+  unless another is picked — with a pressure per point, a mouse or a
   trackpad makes the legacy line (a Force Touch trackpad reports a
   pressure of its own; the subtype says it is not a nib). Pressure is
   read off nothing else: `.pressure` on an event that does not define it
@@ -261,7 +262,7 @@ CoreMind's `bin/report-status.sh`.
   whose widths are in the PAGE'S OWN POINTS, the long side `TabletPage.longSide` (800)
   whichever way it is turned, so the outline (`InkCache`), a box and a
   cut-out are all worked once in one space and the pane only scales them.
-  The pen menu's width goes on as it is SEEN — `TabletInk.width` divides
+  The page pen's width goes on as it is SEEN — `TabletInk.width` divides
   by the page's scale on screen, so a 3-point pen writes 3 points where
   it is writing — and from then on the ink is part of the picture. It is
   kept in Application Support/WriteMind/TabletPage.json — **never in
@@ -354,10 +355,67 @@ CoreMind's `bin/report-status.sh`.
   ⌘Z BEFORE the Edit menu does — a local monitor runs ahead of a key
   equivalent, measured — so it asks the page's claim too
   (`DrawingCanvas.takesUndo`); without that, ⌘Z after a stroke undid
-  whatever was picked on the layer. **Themes and pens are next** — the
-  seams are `PageTheme` (one case; whatever a theme prints, the pane's
-  `TabletPaperLayer` AND `TabletRender` print it, through the one
-  `PageTheme.print`) and `TabletInk.tool`.
+  whatever was picked on the layer.
+- **THE PAGE HAS PAPERS AND A PEN OF ITS OWN.** Sean, 2026-10-02: "it
+  can have themed backgrounds and different pen colors and strokes to
+  write with". `PageTheme` is the paper — plain, dot grid, ruled, graph,
+  legal pad, blackboard — and each is three things: the sheet's colour
+  (explicit sRGB hex, never a dynamic colour), what is printed on it, and
+  an ink that reads on it (near-black, chalk on the board). **THE PRINT IS
+  MEASURED IN THE TABLET'S MILLIMETRES AND LAID DOWN IN PAGE FRACTIONS**:
+  ruled 8 mm apart from two rulings down with a red margin two rulings
+  in, the legal pad the same with a DOUBLE margin, dots and squares 5 mm,
+  as many as fit and centred, weights in millimetres too — so on the
+  small One by Wacom held turned a ruling is 8/152 of the page whatever
+  size the pane shows it, and a bigger tablet gets more lines, not fatter
+  ones. The millimetres come from `TabletExtent.countsPerMillimetre` (100
+  in the table); the driver measures in counts, so its answer is given the
+  table's millimetres (`resolved(from:)`), widening moves the edge and
+  not the scale, and a tablet nobody measured is taken to be 152 mm along
+  its long side. `layout(millimetres:)` is the pure part, tested;
+  **`print` IS THE ONE PRINTER** — the pane's `TabletPaperLayer` and
+  Image's `TabletRender.image` both call it with the same page and the
+  same millimetres, and `PagePaperPrintTests` renders the two for every
+  paper and compares them pixel for pixel (and that they print anything
+  at all, so two blanks cannot agree). Text never sees a paper: it is
+  the ink alone, black on white. The paper is THE PAGE'S, saved in
+  TabletPage.json (`theme`, `decodeIfPresent`, a paper this build does not
+  know opens plain and costs nothing else) and NOT an undo step. **The
+  page's pen is not the notebook's**: `AppState.pageInkTool`,
+  `pageInkHex`, `pageInkWidth`, remembered in the defaults — chalk on a
+  blackboard would otherwise leave the notebook writing white on white.
+  New strokes take it as it stands when the nib goes down
+  (`Stroke.starting(…, tool:)`); strokes already written keep theirs.
+  **WHEN THE PAPER CHANGES, INK THE CHANGE LEAVES UNREADABLE BECOMES THE
+  PAPER'S OWN** (`AppState.pagePaperChanged`, `PageTheme.ink(_:after:)`):
+  under a WCAG contrast of 2 on the new paper AND lower than it was on the
+  old — black onto the board (1.1), chalk off it, the amber swatch onto
+  the legal pad (1.8 on white, 1.6 there). That is all a change answers
+  for. Asked of the new paper alone, it threw away colours picked on
+  purpose: the paper in use picked again turned black chosen on the board
+  to chalk, and amber picked on plain went black on the way to ruled,
+  with nothing behind it changed. A colour that read no worse before was
+  picked on a paper like this one, and stays; and the paper in use picked
+  again is no change at all (`TabletPane.choose`). Both live on ONE SMALL
+  BAR top left of the pane (`TabletBar`), in the band above the sheet, so
+  it is never on the writing: the pen (its tool's icon, and a dot of its
+  ink ON A CHIP OF THE PAPER, `InkChip` — on the corner's dark glass
+  alone the first ink of all, near-black, was an empty ring) and the
+  paper (a swatch printed by `print` itself, heavier); each opens a
+  popover — the colour well and the slider are AppKit views, and in a
+  popover they are in a window of their own, not hosted over the pane
+  (the eighth cause). The tool picker, the size row and the colour row
+  are ONE view each (`PenControls.swift`), shared with the notebook's pen
+  menu, whose picker sets `AppState.penTool` — the tool a TABLET'S nib
+  writes with in the notebook — and both menus have them in one order:
+  tool, size, colour. The swatch in use is ringed OUTSIDE itself, a gap
+  away: a ring on the swatch was black on the black one, the page pen's
+  first ink, and white on chalk in Dark Mode. A mouse or a trackpad
+  stroke is the legacy line whatever is picked: `Stroke.starting` gives a
+  tool only to a nib. The board's faint light edge, which makes a dark
+  sheet a sheet on the pane's black, is drawn OVER the paper layer and in
+  the pane only — under it, the layer's own fill covered it
+  (`TabletSheetEdgeTests`).
 - **A project is a list of folders in a JSON file** (`Project`,
   `.writemind-project`) — Sublime Text's shape. What is NOT in it is the
   session: which notes are open, which one is in front, and any text that had
@@ -1094,10 +1152,11 @@ WriteMind/
                           every camera with a checkmark on the live one,
                           and under them any Wacom tablet plugged in
   AppState.swift          UI state: sidebar shown, editor/preview mode, pen
+                          on/off, pen width, colour and tablet tool, the
+                          tablet page's own pen (all persisted), and the
+                          EditorBridge the toolbar talks through
   TestHost.swift          the unit-test host keeps out of ~/Documents
                           and off the camera
-                          on/off, pen width and colour (persisted), and the
-                          EditorBridge the toolbar talks through
   Notes/Note.swift        a row: url, modified, title (first # heading, else
                           the file name), a two-line snippet
   Notes/NoteStore.swift   ~/Documents/WriteMind: the list, the open note's
@@ -1208,9 +1267,10 @@ WriteMind/
                           the original's own numbers
   Drawing/InkTool.swift   pen, fountain pen, pencil, marker, brush — each an
                           option set and an opacity, calibrated so a line at
-                          an ordinary press is the slider's width; `outline`
-                          is the one way from samples to ink, where a tap
-                          becomes a dot and no stroke comes out a sliver
+                          an ordinary press is the slider's width, and a
+                          name and an icon for the picker; `outline` is the
+                          one way from samples to ink, where a tap becomes
+                          a dot and no stroke comes out a sliver
   Drawing/PenSample.swift the nib's pressure off every left-mouse event whose
                           subtype is a tablet's, by a local monitor that
                           hands each event back as it came
@@ -1242,10 +1302,15 @@ WriteMind/
                           show-sidebar button, which appears here only while
                           the sidebar is hidden — the HIDE button is on the
                           sidebar itself (Sean, 2026-09-18)
-  Views/PenMenu.swift     the popover under the pen: size slider, circular
-                          ColorPicker plus six preset swatches, undo/redo of
-                          anything that happened on the layer, clear, Add
-                          Image, and how to get hold of an object
+  Views/PenMenu.swift     the popover under the pen: the tool a tablet's nib
+                          writes with, size slider, circular ColorPicker
+                          plus six preset swatches, undo/redo of anything
+                          that happened on the layer, clear, Add Image, and
+                          how to get hold of an object
+  Views/PenControls.swift the pen's controls, one view each, for the
+                          notebook's pen and the page's: InkToolPicker (a
+                          button a tool, its icon over its name), the size
+                          row, the colour row
   Views/TextStyleMenu.swift
                           the T popover: font, size, colour, and which of the
                           three the span actually carries
@@ -1281,8 +1346,12 @@ WriteMind/
   Views/TabletPane.swift  the same pane when a tablet is the input: the page
                           at the tablet's turned shape, the hover marker,
                           the page's undo, redo and clear, the turn
-                          buttons, and one line on why the pen also moves
-                          the pointer when it does
+                          buttons, the bar, and one line on why the pen
+                          also moves the pointer when it does
+  Views/TabletBar.swift   the bar top left of the page: the page's pen (its
+                          ink on a chip of the paper, InkChip; its popover:
+                          tool, size, colour) and its paper (a menu of
+                          papers, a swatch each, PaperSwatch)
   Views/TabletPageView.swift
                           the sheet's layers, each at its own rate: the
                           paper and what its theme prints, the finished
@@ -1302,12 +1371,17 @@ WriteMind/
                           InputDevices.pick for both kinds of input
   Tablet/TabletInput.swift
                           the pen from every route through one funnel:
+                          the tablet's size in counts and millimetres,
                           the reading of an event, counts to the turned
                           page, the pen's state, the sample stream
   Tablet/TabletPage.swift the page: strokes in page fractions and page
-                          points, undo/redo/clear, the ink turned with
-                          the sheet, the file in Application Support (a
-                          bad one set aside, never wiped), PageTheme
+                          points, its paper, undo/redo/clear, the ink
+                          turned with the sheet, the file in Application
+                          Support (a bad one set aside, never wiped)
+  Tablet/PageTheme.swift  the papers: each one's colour, its ink, what it
+                          prints in the tablet's millimetres (layout,
+                          pure and tested) and the one printer for the
+                          pane and a picture; the readability rule
   Tablet/TabletWriting.swift
                           samples to ink and boxes (TabletWriting, pure),
                           TabletInk, TabletBox, and TabletScribe — the one
@@ -1424,7 +1498,8 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   `+`, the overflow list); the editor bar (the six ToolGroups, then preview
   and video); the video's corner (select section, zoom, fit-when-zoomed,
   rotate left, rotate right, notes pane); the tablet page's corner (undo,
-  redo, clear, turn left, turn right, notes pane) and its box (Image,
+  redo, clear, turn left, turn right, notes pane), its bar on the other
+  side (the page's pen, its paper) and its box (Image,
   Writing, Text — the video's own three); the drawing layer's handles
   (rotate, scale, move, trash, and per-kind: crop and read for a picture,
   style for a connector, a circle per segment for a routed one).

@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The sheet and everything on it, in the frame `TabletPane.pageFrame`
 /// gives it: the paper, what the paper has printed on it, the finished ink,
-/// the stroke being written, and the box — back to front. The hover marker goes over all of it, in the pane.
+/// the stroke being written, a dark paper's edge, and the box — back to
+/// front. The hover marker goes over all of it, in the pane.
 ///
 /// THREE LAYERS, THREE RATES, so that 120 samples a second redraw one
 /// stroke and not a page of handwriting: the finished ink changes once a
@@ -19,6 +20,8 @@ struct TabletSheetView: View {
     /// The frame's size on screen.
     let size: CGSize
     var theme: PageTheme = .plain
+    /// The page in the tablet's millimetres, which the paper is ruled by.
+    let millimetres: CGSize
     /// A box's three choices can go somewhere: a note is open.
     let canTake: Bool
     /// One of them is still being read.
@@ -33,7 +36,7 @@ struct TabletSheetView: View {
                 .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
                 .allowsHitTesting(false)
             Group {
-                TabletPaperLayer(theme: theme, pageSize: pageSize)
+                TabletPaperLayer(theme: theme, pageSize: pageSize, millimetres: millimetres)
                     .equatable()
                 TabletInkLayer(strokes: page.strokes, pageSize: pageSize)
                     .equatable()
@@ -41,6 +44,15 @@ struct TabletSheetView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 3))
             .allowsHitTesting(false)
+            // A dark sheet on the pane's black needs an edge to be a sheet
+            // at all — OVER the paper, whose own fill covered it when it
+            // was drawn under, and the pane's alone: a picture of the page
+            // is the paper and the ink, edge to edge (`TabletRender`).
+            if theme.isDark {
+                RoundedRectangle(cornerRadius: 3)
+                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
             TabletBoxLayer(box: scribe.box, size: size, busy: busy,
                            onFullWindow: onFullWindow, onTake: onTake)
                 .disabled(!canTake)
@@ -49,13 +61,15 @@ struct TabletSheetView: View {
     }
 }
 
-/// What the theme prints on the sheet — the SAME call `TabletRender` makes
-/// for a picture taken off the page (`PageTheme.print`), in page points
-/// scaled to the frame — so a ruling is on the pane and in the picture, or
-/// in neither. Plain paper prints nothing.
+/// The paper and what it has printed on it — the SAME calls `TabletRender`
+/// makes for a picture taken off the page (`PageTheme.paper`,
+/// `PageTheme.print`), in page points scaled to the frame — so a ruling
+/// is on the pane and in the picture, in the same place, or in neither.
+/// Plain paper prints nothing.
 struct TabletPaperLayer: View, Equatable {
     let theme: PageTheme
     let pageSize: CGSize
+    let millimetres: CGSize
 
     var body: some View {
         Canvas { context, size in
@@ -63,7 +77,9 @@ struct TabletPaperLayer: View, Equatable {
             let scale = size.width / pageSize.width
             context.withCGContext { cg in
                 cg.scaleBy(x: scale, y: scale)
-                theme.print(in: cg, pageSize: pageSize)
+                cg.setFillColor(theme.paper.cgColor)
+                cg.fill(CGRect(origin: .zero, size: pageSize))
+                theme.print(in: cg, pageSize: pageSize, millimetres: millimetres)
             }
         }
     }

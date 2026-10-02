@@ -12,12 +12,13 @@ import Combine
 // notebook — a "Write on: Page | Notebook" switch, not built yet — would be
 // a second target chosen here; the funnel and the page stay as they are.
 
-/// What the pen writes with on the page.
+/// What the pen writes with on the page — the page's own pen, off the bar
+/// in its corner (`AppState.pageInkTool`, `pageInkHex`, `pageInkWidth`).
+/// A stroke takes it as it stands when the nib goes down and keeps it.
 struct TabletInk: Equatable {
     var colorHex: String
     /// In the page's own points (`TabletPage.longSide`).
     var width: Double
-    /// The pen, until the page has a pen picker of its own.
     var tool: InkTool = .pen
 
     /// The pen menu's width on a page drawn `viewScale` view points to a
@@ -72,10 +73,8 @@ struct TabletWriting {
             // THE PEN'S OWN SAMPLE: ink from the first point, a pressure
             // per point, exactly as the notebook's pen makes it
             // (`PenSampleReader`, `Stroke.starting`).
-            var started = Stroke.starting(at: sample.page, colorHex: ink.colorHex, width: ink.width,
-                                          pen: .pen(pressure: sample.pressure))
-            started.tool = ink.tool
-            stroke = started
+            stroke = Stroke.starting(at: sample.page, colorHex: ink.colorHex, width: ink.width,
+                                     pen: .pen(pressure: sample.pressure), tool: ink.tool)
             return .began
         case .drag:
             if let start = boxStart {
@@ -182,9 +181,9 @@ final class TabletScribe: ObservableObject {
     /// The page's finished strokes change once a stroke, so a full page of
     /// handwriting is not redrawn under every sample.
     @Published private(set) var stroke: Stroke?
-    /// The colour, width and tool — set by the pane from the pen menu and
-    /// the page's size on screen.
-    var ink = TabletInk(colorHex: AppState.presetColors[0], width: 3)
+    /// The colour, width and tool — set by the pane from the page's own
+    /// pen and the page's size on screen.
+    var ink = TabletInk(colorHex: PageTheme.plain.defaultInk, width: 3)
     /// A stroke went onto the page: ⌘Z is the page's now.
     var onWrite: (() -> Void)?
 

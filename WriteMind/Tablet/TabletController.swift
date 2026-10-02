@@ -284,7 +284,9 @@ final class TabletController: ObservableObject {
         }
         if let extent = outcome.extent {
             log("tablet: the driver measures \(outcome.name ?? "the tablet") at \(Int(extent.width)) x \(Int(extent.height))")
-            input.extent = extent
+            // In counts; the table says how big that is in millimetres,
+            // which is what the paper is ruled by.
+            input.extent = extent.resolved(from: selectedTablet.flatMap { TabletExtent.known(productID: $0.productID) })
         }
         if let failure = outcome.failure {
             // Once per change: a refusal re-read every time the app comes

@@ -49,6 +49,7 @@ struct TabletPane: View {
                 .allowsHitTesting(false)
             content
             corners
+            bar
         }
         .clipped()
         .paneTipHost()
@@ -77,24 +78,28 @@ struct TabletPane: View {
             let turns = appState.tabletQuarterTurns
             let frame = Self.pageFrame(in: geo.size, extent: extent, quarterTurns: turns)
             let pageSize = TabletPage.size(aspect: TabletMapping.aspect(of: extent, quarterTurns: turns))
+            let millimetres = TabletMapping.millimetres(of: extent, quarterTurns: turns)
             ZStack(alignment: .topLeading) {
                 // A click on the pane round the sheet puts a box away.
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { scribe.box.rect = nil }
                 TabletSheetView(page: sheet, scribe: scribe, pageSize: pageSize, size: frame.size,
+                                theme: sheet.theme, millimetres: millimetres,
                                 canTake: store.selectedNote != nil, busy: store.isCapturing,
                                 onFullWindow: { appState.toggleCameraFullWindow() },
-                                onTake: { choice, box in take(choice, box: box, pageSize: pageSize) })
+                                onTake: { choice, box in
+                                    take(choice, box: box, pageSize: pageSize, millimetres: millimetres)
+                                })
                     .position(x: frame.midX, y: frame.midY)
                 TabletHoverMarker(input: input, page: frame)
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .animation(.easeInOut(duration: 0.2), value: turns)
-            // The pen menu's colour and width, the width as it is SEEN on
-            // this page at this size (`TabletInk.width`).
-            .onChange(of: Self.ink(colorHex: appState.penColorHex, penWidth: appState.penWidth,
-                                   viewScale: frame.width / max(pageSize.width, 1)),
+            // The page's own pen, off the bar in the corner — its width as
+            // it is SEEN on this page at this size (`TabletInk.width`).
+            .onChange(of: Self.ink(colorHex: appState.pageInkHex, penWidth: appState.pageInkWidth,
+                                   tool: appState.pageInkTool, viewScale: frame.width / max(pageSize.width, 1)),
                       initial: true) { _, ink in scribe.ink = ink }
         }
         .overlay(alignment: .bottomLeading) { statusLine }
@@ -129,20 +134,51 @@ struct TabletPane: View {
         }
     }
 
-    /// What the scribe writes with — the pen menu's colour, its width as
-    /// seen on the page, and the pen.
-    nonisolated static func ink(colorHex: String, penWidth: Double, viewScale: CGFloat) -> TabletInk {
-        TabletInk(colorHex: colorHex, width: TabletInk.width(penWidth: penWidth, viewScale: viewScale))
+    /// What the scribe writes with — the page pen's colour, its width as
+    /// seen on the page, and its tool.
+    nonisolated static func ink(colorHex: String, penWidth: Double, tool: InkTool = .pen,
+                                viewScale: CGFloat) -> TabletInk {
+        TabletInk(colorHex: colorHex, width: TabletInk.width(penWidth: penWidth, viewScale: viewScale), tool: tool)
     }
 
-    /// One of the box's three into the note, and the box put away.
-    private func take(_ choice: TabletChoice, box: CGRect, pageSize: CGSize) {
+    /// One of the box's three into the note, and the box put away. Image
+    /// takes the paper with it, printed as the pane prints it.
+    private func take(_ choice: TabletChoice, box: CGRect, pageSize: CGSize, millimetres: CGSize) {
         // As the camera's capture does: the pen is put down so what has
         // just arrived can be picked up and dragged where it goes.
         if choice != .text { appState.canvasMode = .cursor }
-        if store.takeFromTablet(choice, strokes: sheet.strokes, box: box, pageSize: pageSize) {
+        if store.takeFromTablet(choice, strokes: sheet.strokes, box: box, pageSize: pageSize,
+                                theme: sheet.theme, millimetres: millimetres) {
             scribe.box.rect = nil
         }
+    }
+
+    /// Another paper under the writing — saved with the page — and, if the
+    /// change leaves the pen's ink unreadable, the paper's own ink instead
+    /// (`AppState.pagePaperChanged`). The paper in use, picked again, is
+    /// no change at all.
+    private func choose(_ theme: PageTheme) {
+        let old = sheet.theme
+        guard theme != old else { return }
+        sheet.setTheme(theme)
+        appState.pagePaperChanged(from: old, to: theme)
+    }
+
+    // MARK: - The bar
+
+    /// The page's pen and paper, top left, in the band above the sheet —
+    /// shown whenever the corner's own buttons are.
+    @ViewBuilder private var bar: some View {
+        if showsPageControls {
+            TabletBar(theme: sheet.theme, onTheme: choose)
+                .padding(10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    /// The page is up, so its controls are.
+    private var showsPageControls: Bool {
+        tablet.isSelected && tablet.status != .unplugged && tablet.status != .off
     }
 
     /// ONE LINE, bottom left where the camera pane names its camera: the
@@ -230,7 +266,7 @@ struct TabletPane: View {
     /// while no camera is running.
     private var corners: some View {
         HStack(spacing: 6) {
-            if tablet.isSelected, tablet.status != .unplugged, tablet.status != .off {
+            if showsPageControls {
                 // The page's own undo, redo and clear — ⌘Z and ⇧⌘Z reach
                 // the same two while the page was written on last.
                 corner(icon: "arrow.uturn.backward", label: "Undo on the Page",

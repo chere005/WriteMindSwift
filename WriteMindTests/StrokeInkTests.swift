@@ -73,6 +73,19 @@ final class StrokeInkTests: XCTestCase {
                        "a sample that is not the nib repeats the last pressure, so the arrays never part")
     }
 
+    /// The pen menu's tool is a NIB'S: a tablet stroke is written with it,
+    /// a mouse or trackpad stroke is the legacy line whatever is picked.
+    func testANibTakesThePickedToolAndAMouseNone() {
+        let nib = Stroke.starting(at: CGPoint(x: 0.1, y: 0.1), colorHex: "#000000", width: 3,
+                                  pen: .pen(pressure: 0.5), tool: .brush)
+        XCTAssertEqual(nib.tool, .brush)
+        XCTAssertEqual(nib.pressures, [0.5])
+        let mouse = Stroke.starting(at: CGPoint(x: 0.1, y: 0.1), colorHex: "#000000", width: 3, pen: .mouse,
+                                    tool: .brush)
+        XCTAssertNil(mouse.tool)
+        XCTAssertNil(mouse.pressures)
+    }
+
     func testAMouseStrokeStaysTheLegacyLine() {
         var stroke = Stroke.starting(at: CGPoint(x: 0.1, y: 0.1), colorHex: "#000000", width: 3, pen: .mouse)
         stroke.append(CGPoint(x: 0.2, y: 0.1), pen: .mouse)

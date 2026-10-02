@@ -221,7 +221,37 @@ final class TabletPageTests: XCTestCase {
         let old = TabletPage.load(from: file)
         XCTAssertEqual(old.sheet.strokes, [a])
         XCTAssertEqual(old.sheet.quarterTurns, 1)
+        XCTAssertEqual(old.sheet.theme, .plain, "a page from before there were papers is plain")
         XCTAssertNil(old.setAside)
+    }
+
+    /// THE PAPER IS THE PAGE'S, saved with it — and a change of paper is
+    /// not a step back: nothing was written.
+    func testThePaperIsKeptWithThePage() throws {
+        let page = TabletPage(url: file)
+        XCTAssertEqual(page.theme, .plain)
+        page.commit(a)
+        page.setTheme(.legal)
+        XCTAssertEqual(page.theme, .legal)
+        XCTAssertEqual(page.history.count, 1, "the stroke is a step; the paper is not")
+        page.flush()
+        let back = TabletPage(url: file)
+        XCTAssertEqual(back.theme, .legal)
+        XCTAssertEqual(back.strokes, [a])
+        let json = try XCTUnwrap(String(data: Data(contentsOf: file), encoding: .utf8))
+        XCTAssertTrue(json.contains("\"theme\":\"legal\""), json)
+    }
+
+    /// A paper this build does not know opens as plain and costs the page
+    /// nothing else — no stroke lost, nothing set aside.
+    func testAPaperThisBuildDoesNotKnowOpensPlain() throws {
+        let stroke = try XCTUnwrap(String(data: JSONEncoder().encode(a), encoding: .utf8))
+        try Data("{\"version\":1,\"quarterTurns\":1,\"theme\":\"isometric\",\"strokes\":[\(stroke)]}".utf8)
+            .write(to: file)
+        let page = TabletPage(url: file)
+        XCTAssertEqual(page.theme, .plain)
+        XCTAssertEqual(page.strokes, [a])
+        XCTAssertNil(page.setAside)
     }
 
     /// Never in ~/Documents/WriteMind, which is Sean's notes; in the test
@@ -389,6 +419,26 @@ final class TabletWritingTests: XCTestCase {
         let ink = TabletPane.ink(colorHex: "#1C1C1E", penWidth: 3, viewScale: 0.84)
         XCTAssertEqual(ink.width * 0.84, 3, accuracy: 1e-9)
         XCTAssertEqual(ink.tool, .pen)
+        XCTAssertEqual(TabletPane.ink(colorHex: "#1C1C1E", penWidth: 3, tool: .fountain, viewScale: 1).tool, .fountain,
+                       "the page's pen writes with the tool on its bar")
+    }
+
+    /// A stroke takes the page's pen as it stands when the nib goes down —
+    /// tool, colour, width — and keeps it: a change on the bar mid-stroke,
+    /// or after, is the NEXT stroke's.
+    func testAStrokeKeepsThePenItWasBegunWith() throws {
+        var writing = TabletWriting()
+        let marker = TabletInk(colorHex: "#2FBF71", width: 6, tool: .marker)
+        let pencil = TabletInk(colorHex: "#1C1C1E", width: 1, tool: .pencil)
+        _ = writing.consume(sample(0.1, 0.1, .down), ink: marker)
+        _ = writing.consume(sample(0.2, 0.1, .drag), ink: pencil)
+        guard case .finished(let stroke) = writing.consume(sample(0.2, 0.1, .up), ink: pencil) else {
+            return XCTFail("the up finishes the stroke")
+        }
+        XCTAssertEqual(stroke.tool, .marker)
+        XCTAssertEqual(stroke.colorHex, "#2FBF71")
+        XCTAssertEqual(stroke.width, 6)
+        XCTAssertEqual(stroke.pressures?.count, stroke.points.count)
     }
 
     /// The pen lifted off the tablet with the nib still down finishes the

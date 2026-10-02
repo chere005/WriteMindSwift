@@ -159,11 +159,27 @@ final class SymbolTests: XCTestCase {
                      "arrow.uturn.backward", "arrow.uturn.forward", "trash",
                      "photo", "text.viewfinder",
                      // The pane's switch while it is the page.
-                     "pencil.tip.crop.circle", "pencil.slash"]
+                     "pencil.tip.crop.circle", "pencil.slash",
+                     // The tick on the paper in use.
+                     "checkmark"]
         for icon in icons {
             XCTAssertNotNil(NSImage(systemSymbolName: icon, accessibilityDescription: nil),
                             "the camera pane asks for the missing symbol \(icon)")
         }
+    }
+
+    /// The pens' picker, on the pen menu and on the page's bar: an icon
+    /// and a name each, and no two the same.
+    func testEveryInkToolHasANameAndAnIconThatExists() {
+        for tool in InkTool.allCases {
+            XCTAssertFalse(tool.title.isEmpty, "\(tool)")
+            XCTAssertFalse(tool.shortTitle.isEmpty, "\(tool)")
+            XCTAssertFalse(tool.help.isEmpty, "\(tool)")
+            XCTAssertNotNil(NSImage(systemSymbolName: tool.icon, accessibilityDescription: nil),
+                            "\(tool.title) asks for the missing symbol \(tool.icon)")
+        }
+        XCTAssertEqual(Set(InkTool.allCases.map(\.icon)).count, InkTool.allCases.count, "two tools, one icon")
+        XCTAssertEqual(Set(InkTool.allCases.map(\.shortTitle)).count, InkTool.allCases.count)
     }
 
     func testEveryListStyleHasAnIconThatExists() {

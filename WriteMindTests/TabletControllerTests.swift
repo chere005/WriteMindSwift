@@ -126,15 +126,20 @@ final class TabletControllerTests: XCTestCase {
         XCTAssertEqual(tablets.selectedTabletID, oneByWacom.id)
         XCTAssertEqual(defaults.string(forKey: "lastTabletID"), oneByWacom.id)
         XCTAssertTrue(input.isRunning, "the funnel is open")
-        XCTAssertEqual(input.extent, TabletExtent(width: 15200, height: 9500), "the table's size until the driver says")
+        XCTAssertEqual(input.extent, TabletExtent(width: 15200, height: 9500, countsPerMillimetre: 100),
+                       "the table's size until the driver says")
     }
 
+    /// The driver's counts win; the table still says how big the tablet
+    /// is in millimetres, which is what the paper is ruled by.
     func testTheDriversOwnMeasureWins() {
         link.extent = TabletExtent(width: 15000, height: 9300)
         let tablets = controller()
         tablets.plugged(oneByWacom, registryID: 1, settle: 0)
         tablets.pick(oneByWacom)
-        XCTAssertEqual(input.extent, TabletExtent(width: 15000, height: 9300))
+        XCTAssertEqual(input.extent.width, 15000)
+        XCTAssertEqual(input.extent.height, 9300)
+        XCTAssertEqual(Double(input.extent.millimetres?.width ?? 0), 152, accuracy: 1e-9)
     }
 
     func testARememberedTabletComesBackWithoutAsking() {

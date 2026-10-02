@@ -686,11 +686,12 @@ final class NoteStore: ObservableObject {
     /// camera's three choices, made from ink that is already clean (Sean,
     /// 2026-10-02: "anything drawn can be selected and inserted"). `strokes`
     /// is the whole page and `box` the box on it, in page fractions;
-    /// `pageSize` is the page in its own points (`TabletPage.size`).
+    /// `pageSize` is the page in its own points (`TabletPage.size`), and
+    /// `theme` and `millimetres` its paper, which only Image carries.
     /// False when nothing went in, with a word in the footer about why.
     @discardableResult
     func takeFromTablet(_ choice: TabletChoice, strokes: [Stroke], box: CGRect, pageSize: CGSize,
-                        theme: PageTheme = .plain) -> Bool {
+                        theme: PageTheme = .plain, millimetres: CGSize? = nil) -> Bool {
         guard let note = selectedNote, pageSize.width > 0, pageSize.height > 0 else { return false }
         switch choice {
         case .image:
@@ -698,7 +699,8 @@ final class NoteStore: ObservableObject {
             // picture path every other picture takes, at the capture's
             // scale.
             let region = TabletSelection.pagePoints(box, pageSize: pageSize)
-            guard let picture = TabletRender.image(of: strokes, region: region, pageSize: pageSize, theme: theme),
+            guard let picture = TabletRender.image(of: strokes, region: region, pageSize: pageSize, theme: theme,
+                                                   millimetres: millimetres),
                   let imported = DrawingStore.importImage(DrawingStore.image(from: picture),
                                                           in: owningFolder(for: note.url))
             else { notice("That box is not on the page."); return false }

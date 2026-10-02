@@ -64,8 +64,10 @@ final class TabletMappingTests: XCTestCase {
     }
 
     func testTheTableKnowsTheOneByWacom() {
-        XCTAssertEqual(TabletExtent.known(productID: 0x037A), TabletExtent(width: 15200, height: 9500))
-        XCTAssertEqual(TabletExtent.known(productID: 0x037B), TabletExtent(width: 21600, height: 13500))
+        XCTAssertEqual(TabletExtent.known(productID: 0x037A),
+                       TabletExtent(width: 15200, height: 9500, countsPerMillimetre: 100))
+        XCTAssertEqual(TabletExtent.known(productID: 0x037B),
+                       TabletExtent(width: 21600, height: 13500, countsPerMillimetre: 100))
         XCTAssertNil(TabletExtent.known(productID: 0x0001))
     }
 

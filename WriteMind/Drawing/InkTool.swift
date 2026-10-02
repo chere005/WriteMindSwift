@@ -91,6 +91,50 @@ enum InkTool: String, Codable, CaseIterable {
 
     var opacity: Double { profile.opacity }
 
+    // MARK: - On the picker
+
+    /// What the tool is called — in full, for a tooltip and for VoiceOver.
+    var title: String {
+        switch self {
+        case .pen: return "Pen"
+        case .fountain: return "Fountain Pen"
+        case .pencil: return "Pencil"
+        case .marker: return "Marker"
+        case .brush: return "Brush"
+        }
+    }
+
+    /// Under its icon on the picker, where five sit side by side.
+    var shortTitle: String {
+        switch self {
+        case .fountain: return "Fountain"
+        default: return title
+        }
+    }
+
+    /// Its icon. Every one is in SF Symbols 2 or earlier, so all five draw
+    /// on macOS 14 (`SymbolTests` checks they exist at all).
+    var icon: String {
+        switch self {
+        case .pen: return "scribble"
+        case .fountain: return "signature"
+        case .pencil: return "pencil"
+        case .marker: return "highlighter"
+        case .brush: return "paintbrush.pointed"
+        }
+    }
+
+    /// One line on what it writes like.
+    var help: String {
+        switch self {
+        case .pen: return "A ballpoint: firm, a little heavier pressed hard, round at both ends — for handwriting"
+        case .fountain: return "A fountain pen: a hairline at a light touch, swelling under pressure, a tail off the end"
+        case .pencil: return "A pencil: thin, nearly even, and grey where it is not pressed hard"
+        case .marker: return "A felt marker: broad and even, pressed or not"
+        case .brush: return "A brush: from nothing to broad with pressure, and a long tail off"
+        }
+    }
+
     /// The line's width at the middle pressure, in points.
     func nibWidth(width: Double) -> Double { width * profile.nib }
 

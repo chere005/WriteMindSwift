@@ -21,48 +21,25 @@ import SwiftUI
 // this page belongs to no note. A run of the test host keeps its page in
 // `TestHost.supportDirectory` like its session.
 
-/// The paper. ONE KIND FOR NOW — themes are the next step (Sean,
-/// 2026-10-02: "it can have themed backgrounds and different pen colors
-/// and strokes to write with"): dot grid, ruled, graph, legal, blackboard.
-/// Whatever a theme puts on the sheet it puts there in TWO places, the
-/// pane and a picture taken off the page (`TabletRender`), and both ask
-/// this enum — so a ruling added here appears in both or in neither.
-enum PageTheme: String, CaseIterable, Codable {
-    case plain
-
-    /// The sheet itself.
-    var paper: NSColor {
-        switch self {
-        case .plain: return NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
-        }
-    }
-
-    /// What is printed on the sheet before anything is written on it, in
-    /// a y-down context in page points. Plain paper has nothing; the
-    /// ruled and gridded papers will draw here.
-    func print(in context: CGContext, pageSize: CGSize) {
-        switch self {
-        case .plain: break
-        }
-    }
-}
-
-/// What is written to disk: the strokes, and which way the tablet was held
+/// What is written to disk: the strokes, which way the tablet was held
 /// when they were last turned to match it — so a page saved under one turn
-/// and opened under another comes up turned to fit, never stretched.
+/// and opened under another comes up turned to fit, never stretched — and
+/// the paper they are written on.
 struct TabletSheet: Equatable {
     static let version = 1
 
     var strokes: [Stroke] = []
     /// `AppState.tabletQuarterTurns` the strokes are aligned to.
     var quarterTurns = 1
+    /// The paper, saved WITH the page: it is the page's, not the app's.
+    var theme = PageTheme.plain
     /// How many strokes in the file could not be read — 0 for a clean file.
     /// Not written: it is a fact about one reading of one file.
     var unreadable = 0
 }
 
 extension TabletSheet: Codable {
-    private enum CodingKeys: String, CodingKey { case version, strokes, quarterTurns }
+    private enum CodingKeys: String, CodingKey { case version, strokes, quarterTurns, theme }
 
     /// One stroke that may not read. A bad element in a plain `[Stroke]`
     /// fails the whole array, and with it every good stroke on the page.
@@ -78,6 +55,9 @@ extension TabletSheet: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         quarterTurns = TabletMapping.turns((try? container.decodeIfPresent(Int.self, forKey: .quarterTurns)) ?? nil ?? 1)
+        // A page from before there were papers is plain, and so is a paper
+        // this build does not know — which costs the page nothing else.
+        theme = ((try? container.decodeIfPresent(PageTheme.self, forKey: .theme)) ?? nil) ?? .plain
         guard container.contains(.strokes) else { return }
         if let read = try? container.decode([Readable].self, forKey: .strokes) {
             strokes = read.compactMap(\.stroke)
@@ -94,6 +74,7 @@ extension TabletSheet: Codable {
         try container.encode(Self.version, forKey: .version)
         try container.encode(strokes, forKey: .strokes)
         try container.encode(quarterTurns, forKey: .quarterTurns)
+        try container.encode(theme, forKey: .theme)
     }
 }
 
@@ -124,6 +105,8 @@ final class TabletPage: ObservableObject {
     @Published private(set) var future: [[Stroke]] = []
     /// Which way the tablet was held for the strokes as they are.
     private(set) var quarterTurns: Int
+    /// The paper (`PageTheme`), kept in the page's own file.
+    @Published private(set) var theme: PageTheme
     /// Where a file that could not be read was put, when one was.
     let setAside: URL?
 
@@ -162,6 +145,7 @@ final class TabletPage: ObservableObject {
             file = PageFile(url: url, known: loaded.known)
             strokes = loaded.sheet.strokes
             quarterTurns = loaded.sheet.quarterTurns
+            theme = loaded.sheet.theme
             setAside = loaded.setAside
             if let aside = loaded.setAside {
                 let line = "tablet page: \(url.lastPathComponent) could not be read whole — kept as "
@@ -176,6 +160,7 @@ final class TabletPage: ObservableObject {
             file = nil
             strokes = []
             quarterTurns = 1
+            theme = .plain
             setAside = nil
         }
         if flushOnQuit {
@@ -228,6 +213,15 @@ final class TabletPage: ObservableObject {
         history.append(strokes)
         if history.count > Self.historyLimit { history.removeFirst(history.count - Self.historyLimit) }
         future.removeAll()
+    }
+
+    /// Another paper under the writing. NOT A STEP BACK — nothing was
+    /// written, and an undo that took the paper away with a stroke would be
+    /// two changes for one key — but saved with the page like a stroke.
+    func setTheme(_ theme: PageTheme) {
+        guard theme != self.theme else { return }
+        self.theme = theme
+        scheduleSave()
     }
 
     // MARK: - Turning
@@ -334,7 +328,7 @@ final class TabletPage: ObservableObject {
     private func save(wait: Bool) {
         guard let file else { return }
         dirty = false
-        let sheet = TabletSheet(strokes: strokes, quarterTurns: quarterTurns)
+        let sheet = TabletSheet(strokes: strokes, quarterTurns: quarterTurns, theme: theme)
         let log = log
         let work = { Self.write(sheet, to: file, log: log) }
         if wait { queue.sync(execute: work) } else { queue.async(execute: work) }

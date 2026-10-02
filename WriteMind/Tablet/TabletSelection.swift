@@ -88,18 +88,23 @@ enum TabletRender {
 
     /// The part of the page inside `region` (page points), its paper and
     /// everything written over it, cut at the box's edges — "the picture of
-    /// a page".
+    /// a page". The paper is printed by the pane's own printer
+    /// (`PageTheme.print`) for the same page in the same millimetres, so
+    /// a ruling is where the pane showed it; nil millimetres is a page of
+    /// the assumed size (`TabletMapping.assumedMillimetres`).
     static func image(of strokes: [Stroke], region: CGRect, pageSize: CGSize, theme: PageTheme = .plain,
-                      scale: CGFloat = pixelsPerPoint) -> CGImage? {
-        render(region: region, scale: scale, paper: theme.paper.cgColor) { context in
-            theme.print(in: context, pageSize: pageSize)
+                      millimetres: CGSize? = nil, scale: CGFloat = pixelsPerPoint) -> CGImage? {
+        let measured = millimetres ?? TabletMapping.assumedMillimetres(for: pageSize)
+        return render(region: region, scale: scale, paper: theme.paper.cgColor) { context in
+            theme.print(in: context, pageSize: pageSize, millimetres: measured)
             paint(strokes, in: context, pageSize: pageSize, as: nil)
         }
     }
 
     /// The strokes alone, BLACK ON WHITE whatever colour they were written
-    /// in and whatever the paper, round their own box with a margin — what
-    /// Text reads.
+    /// in and whatever the paper — chalk on a blackboard included; no
+    /// paper is asked here at all — round their own box with a margin:
+    /// what Text reads.
     static func ink(of strokes: [Stroke], pageSize: CGSize, scale: CGFloat = pixelsPerPoint) -> CGImage? {
         guard let box = TabletSelection.inkBounds(strokes, pageSize: pageSize) else { return nil }
         let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)

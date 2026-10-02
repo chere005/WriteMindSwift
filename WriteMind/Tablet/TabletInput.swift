@@ -27,18 +27,23 @@ import Combine
 // onto the page, the rotation, the pen's state from one event to the next —
 // is pure and tested with synthetic samples. Only the monitors are not.
 
-/// The tablet's active area in its own counts.
+/// The tablet's active area in its own counts — and, when it is known, how
+/// many counts make a millimetre, which is what the paper's ruling is
+/// measured by (`PageTheme`).
 struct TabletExtent: Equatable {
     var width: Double
     var height: Double
+    /// Counts in a millimetre; nil for a tablet nobody has measured.
+    var countsPerMillimetre: Double?
 
     /// One by Wacom, small and medium — the Linux driver's table
-    /// (wacom_wac.c), 100 counts a millimetre. The driver's own answer wins
-    /// when it gives one; this is for when it does not.
+    /// (wacom_wac.c), 100 counts a millimetre: the small one is 152 × 95
+    /// mm. The driver's own answer wins when it gives one; this is for
+    /// when it does not.
     static func known(productID: Int) -> TabletExtent? {
         switch productID {
-        case 0x037A: return TabletExtent(width: 15200, height: 9500)   // CTL-472
-        case 0x037B: return TabletExtent(width: 21600, height: 13500)  // CTL-672
+        case 0x037A: return TabletExtent(width: 15200, height: 9500, countsPerMillimetre: 100)   // CTL-472
+        case 0x037B: return TabletExtent(width: 21600, height: 13500, countsPerMillimetre: 100)  // CTL-672
         default: return nil
         }
     }
@@ -47,11 +52,40 @@ struct TabletExtent: Equatable {
     /// which the widening below then grows to whatever the pen reaches.
     static let fallback = TabletExtent(width: 15200, height: 9500)
 
+    /// The long side assumed for a tablet nobody has measured — the small
+    /// One by Wacom's, in millimetres.
+    static let assumedLongSide = 152.0
+
     /// WIDENED TO THE LARGEST VALUE EVER SEEN, so a wrong table entry or a
     /// driver that answered for some other tablet can never clip the page:
-    /// a count past the edge moves the edge.
+    /// a count past the edge moves the edge — and not the scale, so the
+    /// tablet is that much bigger in millimetres too.
     func widened(toInclude counts: CGPoint) -> TabletExtent {
-        TabletExtent(width: max(width, Double(counts.x)), height: max(height, Double(counts.y)))
+        var wider = self
+        wider.width = max(width, Double(counts.x))
+        wider.height = max(height, Double(counts.y))
+        return wider
+    }
+
+    /// The active area in millimetres, the way it shipped (landscape) —
+    /// nil while nobody knows the counts' size.
+    var millimetres: CGSize? {
+        guard let perMillimetre = countsPerMillimetre, perMillimetre > 0 else { return nil }
+        return CGSize(width: width / perMillimetre, height: height / perMillimetre)
+    }
+
+    /// The driver's own measure, which is in counts and says nothing about
+    /// millimetres, given the size the table knows this tablet to be: THE
+    /// TABLET KEEPS ITS SIZE IN MILLIMETRES whatever unit the driver
+    /// counts in, because that is a fact about the tablet and the count is
+    /// a fact about the driver. A measure that already knows its scale, or
+    /// a tablet the table does not know, is left as it is.
+    func resolved(from table: TabletExtent?) -> TabletExtent {
+        guard countsPerMillimetre == nil, let table, let perMillimetre = table.countsPerMillimetre,
+              table.width > 0, width > 0 else { return self }
+        var resolved = self
+        resolved.countsPerMillimetre = perMillimetre * width / table.width
+        return resolved
     }
 }
 
@@ -83,6 +117,26 @@ enum TabletMapping {
         guard extent.width > 0, extent.height > 0 else { return 1 }
         let landscape = extent.width / extent.height
         return CGFloat(turns(quarterTurns) % 2 == 0 ? landscape : 1 / landscape)
+    }
+
+    /// The page in millimetres — the tablet's active area, turned as the
+    /// page is. A tablet nobody has measured is taken to be the small One
+    /// by Wacom's length along its long side, at its own shape, so a paper
+    /// is still ruled about as a hand writes.
+    static func millimetres(of extent: TabletExtent, quarterTurns: Int) -> CGSize {
+        let landscape = extent.millimetres
+            ?? assumedMillimetres(for: CGSize(width: extent.width, height: extent.height))
+        return turns(quarterTurns) % 2 == 0 ? landscape : CGSize(width: landscape.height, height: landscape.width)
+    }
+
+    /// A sheet the shape of `size` whose long side is the assumed one.
+    static func assumedMillimetres(for size: CGSize) -> CGSize {
+        let long = max(size.width, size.height)
+        guard long > 0, size.width > 0, size.height > 0 else {
+            return CGSize(width: TabletExtent.assumedLongSide, height: TabletExtent.assumedLongSide)
+        }
+        let scale = TabletExtent.assumedLongSide / Double(long)
+        return CGSize(width: Double(size.width) * scale, height: Double(size.height) * scale)
     }
 
     /// The biggest rectangle of `aspect` that fits `pane` less `margin` all

@@ -155,6 +155,21 @@ final class AppState: ObservableObject {
         didSet { defaults.set(cameraAspect.rawValue, forKey: Keys.cameraAspect) }
     }
     @Published var penColorHex: String { didSet { defaults.set(penColorHex, forKey: Keys.penColorHex) } }
+    /// What a TABLET'S pen writes with in the notebook (Sean, 2026-10-02:
+    /// "different pen colors and strokes to write with"). Only a nib takes
+    /// it: a mouse or a trackpad stroke is the legacy line, tool nil,
+    /// exactly as it always was.
+    @Published var penTool: InkTool { didSet { defaults.set(penTool.rawValue, forKey: Keys.penTool) } }
+    /// THE PAGE'S OWN PEN: its tool, its colour and its size, on the bar
+    /// in the page's corner and remembered here like the notebook pen's.
+    /// Its own and not the notebook pen's, because the paper under it is
+    /// its own — chalk on a blackboard would otherwise leave the notebook
+    /// writing white on white. New strokes take them; strokes already on
+    /// the page keep what they were written with.
+    @Published var pageInkTool: InkTool { didSet { defaults.set(pageInkTool.rawValue, forKey: Keys.pageInkTool) } }
+    @Published var pageInkHex: String { didSet { defaults.set(pageInkHex, forKey: Keys.pageInkHex) } }
+    /// As it is SEEN on the page (`TabletInk.width`).
+    @Published var pageInkWidth: Double { didSet { defaults.set(pageInkWidth, forKey: Keys.pageInkWidth) } }
     /// The part of the video the pane is zoomed into, in pane fractions of
     /// the unzoomed picture (Sean, 2026-09-19: "drag a square to resize
     /// camera"). Nil is the whole picture.
@@ -288,6 +303,16 @@ final class AppState: ObservableObject {
     /// note's again.
     func notebookChanged() { if pageWrittenLast { pageWrittenLast = false } }
 
+    /// The page's paper changed from `old`: INK THE CHANGE LEAVES
+    /// UNREADABLE BECOMES THE PAPER'S OWN (`PageTheme.ink(_:after:)`) —
+    /// chalk on the board, black back on white — and a colour picked on
+    /// purpose stays as it was picked, through the same paper picked again
+    /// or another white one.
+    func pagePaperChanged(from old: PageTheme, to theme: PageTheme) {
+        let ink = theme.ink(pageInkHex, after: old)
+        if ink != pageInkHex { pageInkHex = ink }
+    }
+
     /// ⌘Z TAKES BACK THE LAST STROKE ON THE PAGE while the page is what
     /// was written on last. The page has no keyboard focus of its own —
     /// the pen is in one hand and ⌘Z under the other — and left to the
@@ -317,6 +342,10 @@ final class AppState: ObservableObject {
         static let cameraRotation = "cameraRotation"
         static let tabletQuarterTurns = "tabletQuarterTurns"
         static let penColorHex = "penColorHex"
+        static let penTool = "penTool"
+        static let pageInkTool = "pageInkTool"
+        static let pageInkHex = "pageInkHex"
+        static let pageInkWidth = "pageInkWidth"
         static let canvasMode = "canvasMode"
         static let cameraZoom = "cameraZoom"
         static let cameraAspect = "cameraAspect"
@@ -349,6 +378,11 @@ final class AppState: ObservableObject {
         cameraAspect = CameraAspect(rawValue: defaults.string(forKey: Keys.cameraAspect) ?? "") ?? .free
         evaluator = Evaluator(rawValue: defaults.string(forKey: Keys.evaluator) ?? "") ?? .python
         penColorHex = defaults.string(forKey: Keys.penColorHex) ?? Self.presetColors[0]
+        // A tool this build does not know is the pen, as it is on a stroke.
+        penTool = InkTool(rawValue: defaults.string(forKey: Keys.penTool) ?? "") ?? .pen
+        pageInkTool = InkTool(rawValue: defaults.string(forKey: Keys.pageInkTool) ?? "") ?? .pen
+        pageInkHex = defaults.string(forKey: Keys.pageInkHex) ?? PageTheme.plain.defaultInk
+        pageInkWidth = defaults.object(forKey: Keys.pageInkWidth) as? Double ?? 3
         // A launch comes up in whichever mode it was left in, and the
         // footer says which one that is — a pane that swallows clicks
         // with nothing on screen to say why is the trap the hidden video
