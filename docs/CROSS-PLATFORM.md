@@ -15,6 +15,112 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### The app takes the tablet itself, so the pen stops moving the pointer
+Sean, 2026-10-02, with the page up and the pointer flying round the other
+display under his pen: "how can i disable wacom from taking over my
+mouse?", "shouldn't WriteMind need some permissions like this?", "fix the
+wacom not being captured by writemind properly issues". Asking the Wacom
+driver does not work — its scripting interface answers every read and
+ignores every write (measured on driver 6.4.14-2) — so the app opens the
+tablet's HID device EXCLUSIVELY and reads the pen's raw reports itself.
+While it holds the device nothing else hears the tablet: the driver goes
+quiet and the pointer stays put. What the port has to copy:
+
+- **Held only while all three are true**: a tablet is the chosen input
+  and plugged in; what the pen writes on is on screen (the page, or in
+  Notebook mode a note); and the app is the active one. Any one of them
+  going closes the device at once, and the pen is an ordinary pen again —
+  in the app's own notebook, and in every other app. Closing mid-stroke
+  ends the stroke where it was. And the hold follows the pick: another
+  tablet chosen while one is held closes the one and opens the other.
+- **The permission, and a first launch never asks.** On macOS this is
+  Input Monitoring. It is only ever READ, and nothing is opened until it
+  reads granted (the system's own open would ask by itself); the question
+  goes up only as the direct result of the user picking the tablet from
+  the input list. Picking it again asks again.
+- **Electron: node-hid holds it, WebHID only reads it.** To HOLD the
+  device the open has to be exclusive, and that is `node-hid` in the main
+  process: on macOS it opens exclusively by default (hidapi's seize —
+  the same call this app makes) and needs the same Input Monitoring
+  permission. Electron has no call of its own for that one; the
+  `node-mac-permissions` module reads it and asks for it
+  (`getAuthStatus('input-monitoring')`,
+  `askForInputMonitoringAccess()`) — read it before every open, ask only
+  from the pick.
+  WebHID in the renderer (`navigator.hid.requestDevice({filters:
+  [{vendorId: 0x056a}]})`, from a user gesture — the pick IS that
+  gesture; `navigator.hid.getDevices()` afterwards reads what was granted
+  without asking) gives the raw reports and so the counts, but as far as
+  is known it does not open the device exclusively, so by itself it does
+  not stop the pointer — check before relying on it. On Windows the
+  vendor driver usually holds the device and the open is refused; on
+  Linux the kernel's own wacom driver has it and detaching that is not
+  something to do uninvited. Refused anywhere: fall back (below).
+- **Which device.** Vendor 0x056A, the picked tablet's product id. The
+  One by Wacom has two HID interfaces: the one that is a mouse to the OS
+  (usage page 1, usage 2, 10-byte input reports) carries the pen and is
+  the one that has to be held; the other (vendor page 0xFF00, 64-byte
+  reports) carries nothing anyone reads.
+- **The raw pen report** (One by Wacom, the Bamboo-pen class): report id
+  2, ten bytes with the id. Byte 1 is flags — 0x80 in range, 0x40
+  proximity (x and y are valid), 0x20 ready (tip, switches and pressure
+  are valid), 0x08 eraser end, 0x04 upper side switch, 0x02 lower side
+  switch, 0x01 tip. x is little-endian at bytes 2–3 and y at 4–5, in the
+  tablet's RAW LANDSCAPE counts from the top left, y increasing downward
+  (0…15200 × 0…9500 on the small one, 100 counts a millimetre) —
+  whichever way the vendor driver's own orientation is set, and the same
+  frame the quarter turn in the entry below assumes. Pressure is
+  little-endian at 6–7, 0…2047, scaled to 0…1. Byte 8 is the distance
+  from the surface. Out of range is the pen leaving; in range without
+  proximity is the pen coming near with no position yet (never a point
+  at 0, 0); the tip and the switches count only when ready. The lower
+  switch is the selection switch; the upper one does nothing. WebHID
+  hands the report without its id byte (`event.reportId === 2`, nine
+  data bytes) — shift the offsets by one. Anything that is not exactly
+  this report is logged in hex and ignored, never guessed at.
+- **The mode.** With no vendor driver running the tablet is a plain
+  relative mouse and sends no pen reports until feature report id 2 is
+  set to 2. Read it first; set it only if it is not already 2; put back
+  what it was on closing. (`device.receiveFeatureReport(2)` /
+  `sendFeatureReport(2, Uint8Array.of(2))`.)
+- **The extent is the raw sensor's**, from a table by product id, widened
+  by the farthest count the pen is seen to reach — never what the vendor
+  driver reports, which is in ITS orientation (a driver set to portrait
+  said 9499 × 15199 for a tablet whose counts run to 15200 × 9500).
+- **One route at a time.** The raw reports become the same pen samples
+  the pointer events do — same pen state, same turn, same stream. From
+  the first raw report until the device is closed, pen pointer events
+  are swallowed and draw nothing (one stroke by two routes would be
+  two). If pen pointer events made more than half a second after that
+  first report keep arriving, something else still hears the tablet: log
+  it once and say so.
+- **The fallback is the entry below**, unchanged: no permission, an open
+  refused, no device, or a device held whose reports cannot be read, and
+  the page still takes the pen from pointer events, with the pointer
+  moving. That last one matters: held, nothing else hears the tablet, so
+  unreadable reports would be a pen that writes nowhere. 32 reports in a
+  row inside a second with none of them a pen report, before any pen
+  report has been read since the device was opened, and the app closes
+  it, says it cannot read what the tablet sends, and does not open it
+  again until the tablet is picked or plugged in again. Try the open again when something
+  changes (the app coming back to the front is one, and is when a
+  permission given in the system's settings is first seen), never on a
+  timer.
+- **One line in the pane** says the one useful thing: held — "pen
+  captured"; never asked — pick the tablet again to be asked, with a
+  button to the permission's setting; refused — the permission by name,
+  with the same button; allowed but still refused by the OS — quit and
+  reopen; held by somebody else or failed — why, with the OS's own error
+  number; and, held but pointer events still coming, that the pointer
+  may still move.
+- **The log** gets one line for each of: the permission as read and as
+  answered, capture start and stop, each device opened and closed with
+  its result, the mode report, the first twelve raw reports in hex and
+  the first of each unknown kind after, the first parsed sample, and —
+  with each capture's first report — whether the pen was already down
+  (the driver then saw the button go down and never sees it come up).
+  Never one per sample.
+
 ### The tablet's orientation, by name, and the writing turning with it
 Sean, 2026-10-02: "make sure i can orient the page with the device by
 rotating or flipping to make it match portrait or landscape". What the
@@ -202,7 +308,9 @@ tablet a marker on the page shows where the nib is.
 Where the platform can stop the pen moving the pointer while this page
 is up, it should — the pen is a writing instrument on the page, the
 trackpad and mouse still drive everything else, and a pen tap must never
-click whatever the pointer happens to be over. ONLY while it is up: with
+click whatever the pointer happens to be over. (How: the entry at the
+top — the app takes the tablet's HID device itself; the vendor driver
+cannot be asked.) ONLY while it is up: with
 the pane put away the pen is an ordinary pen again, or the notebook's
 own pen has nothing to draw with. The switch that shows and hides the
 pane, its menu item and its panel call it the page while the tablet is
@@ -280,7 +388,8 @@ selected and inserted"). What the port has to copy:
   arrive in SCREEN coordinates through the OS's own tablet mapping, not
   in tablet counts; reading the counts themselves (and so the quarter turn
   in the entry above) means WebHID's raw reports, which needs a permission
-  per device and which the vendor driver may hold open. Draw the finished
+  per device — the entry at the top has the report's layout and the
+  rules for holding the device. Draw the finished
   strokes to one canvas and the live stroke to another on top, so 120
   samples a second redraw one stroke and not the page.
 

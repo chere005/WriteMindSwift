@@ -227,19 +227,6 @@ final class TabletMillimetreTests: XCTestCase {
         XCTAssertEqual(Double(wider.millimetres?.width ?? 0), 153, accuracy: 1e-9)
     }
 
-    /// THE TABLET KEEPS ITS SIZE IN MILLIMETRES whatever the driver counts
-    /// in: its measure is in counts, the table knows the tablet.
-    func testTheDriversCountsAreGivenTheTablesMillimetres() throws {
-        let one = try XCTUnwrap(TabletExtent.known(productID: 0x037A))
-        let same = TabletExtent(width: 15200, height: 9500).resolved(from: one)
-        XCTAssertEqual(same.countsPerMillimetre, 100)
-        let finer = TabletExtent(width: 30400, height: 19000).resolved(from: one)
-        XCTAssertEqual(Double(finer.millimetres?.width ?? 0), 152, accuracy: 1e-9)
-        XCTAssertEqual(Double(finer.millimetres?.height ?? 0), 95, accuracy: 1e-9)
-        XCTAssertNil(TabletExtent(width: 100, height: 50).resolved(from: nil).countsPerMillimetre,
-                     "a tablet the table does not know stays unmeasured")
-    }
-
     /// Nobody has measured it: the small One's long side, at its own shape.
     func testAnUnmeasuredTabletIsTakenToBeTheSmallOnesLength() {
         let unknown = TabletExtent(width: 20000, height: 10000)

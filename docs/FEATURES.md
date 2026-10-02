@@ -361,10 +361,18 @@ is how the code is put together.
   pressure and colour kept, held together as one group) or **Text** (read
   into the note as words). They land under the caret, at the size a camera
   capture of a page would. Esc, or a click off the box, puts it away.
-  While the page is on screen the pen stays off the pointer — and if macOS
-  or the Wacom driver will not allow that, the page says so in one line
-  and still takes the pen; put the page away (**Hide Page**, ⌘Y) and the
-  pen is a pointer again.
+  While the page is on screen and WriteMind is in front, **the pen stays
+  off the pointer**: WriteMind takes the tablet for itself and the Wacom
+  driver hears nothing of it, so the pointer stays where the trackpad
+  left it and a tap of the pen clicks nothing. macOS calls that **Input
+  Monitoring** and asks about it the first time you pick the tablet —
+  allow WriteMind in System Settings › Privacy & Security › Input
+  Monitoring (it may want WriteMind quit and reopened). A line at the
+  bottom of the page says where things stand: "pen captured", or why the
+  pen is still moving the pointer and the one thing to do about it, with
+  a button to that setting. Either way the page takes the pen. Put the
+  page away (**Hide Page**, ⌘Y) or switch to another app and the pen is
+  an ordinary pen again.
 - **Or the tablet writes straight into the note.** **Write on: Page |
   Notebook** on the page's bar (and in the View menu) sends the pen to the
   notebook instead: the tablet, turned the way it sits, lands on the

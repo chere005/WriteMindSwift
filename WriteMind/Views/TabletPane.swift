@@ -102,7 +102,7 @@ struct TabletPane: View {
         case .unplugged:
             placeholder(icon: "cable.connector.slash", title: "\(name) is unplugged",
                         detail: "Plug it back in and the page comes back — or pick a camera.") { InputDevicePicker() }
-        case .connecting, .ready, .unavailable:
+        case .standby, .captured, .fallback:
             page
         }
     }
@@ -218,18 +218,18 @@ struct TabletPane: View {
         tablet.isSelected && tablet.status != .unplugged && tablet.status != .off
     }
 
-    /// ONE LINE, bottom left where the camera pane names its camera: the
-    /// tablet's name while the driver has the pen, and otherwise why the
-    /// pen is moving the pointer as well.
+    /// ONE LINE, bottom left where the camera pane names its camera: that
+    /// WriteMind has the pen, or why the pen is moving the pointer as well
+    /// and the one thing to do about it (`line(for:name:)`).
     @ViewBuilder private var statusLine: some View {
         if let line = Self.line(for: tablet.status, name: name) {
             HStack(spacing: 8) {
                 Label(line.text, systemImage: line.icon)
                     .font(.caption)
                     .lineLimit(2)
-                if line.opensAutomation {
-                    Button("Open Automation Settings") {
-                        if let url = URL(string: Self.automationSettings) { NSWorkspace.shared.open(url) }
+                if line.opensSettings {
+                    Button("Open Input Monitoring Settings") {
+                        if let url = URL(string: Self.inputMonitoringSettings) { NSWorkspace.shared.open(url) }
                     }
                     .controlSize(.small)
                 }
@@ -238,56 +238,6 @@ struct TabletPane: View {
             .padding(.vertical, 5)
             .background(.ultraThinMaterial, in: Capsule())
             .padding(12)
-        }
-    }
-
-    nonisolated static let automationSettings = "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
-
-    /// What the line says. Pure, so every status is known to have its words.
-    struct StatusLine: Equatable {
-        let icon: String
-        let text: String
-        /// Offer the way to System Settings › Privacy & Security › Automation.
-        var opensAutomation = false
-    }
-
-    nonisolated static func line(for status: TabletController.Status, name: String) -> StatusLine? {
-        let alsoPointer = "so the pen moves the pointer too"
-        switch status {
-        case .off, .unplugged:
-            return nil
-        case .ready:
-            return StatusLine(icon: "pencil.tip", text: name)
-        case .connecting:
-            return StatusLine(icon: "ellipsis.circle", text: "Asking the Wacom driver to keep the pen on the page…")
-        case .unavailable(let failure):
-            switch failure {
-            case .noDriver:
-                return StatusLine(icon: "exclamationmark.triangle",
-                                  text: "The Wacom driver isn't running, \(alsoPointer).")
-            case .automationDenied:
-                return StatusLine(icon: "hand.raised",
-                                  text: "WriteMind isn't allowed to ask the Wacom driver, \(alsoPointer).",
-                                  opensAutomation: true)
-            case .needsConsent:
-                return StatusLine(icon: "hand.raised",
-                                  text: "Pick \(name) in Input Devices again to let WriteMind ask the Wacom driver — until then the pen moves the pointer too.")
-            case .timedOut:
-                return StatusLine(icon: "exclamationmark.triangle",
-                                  text: "The Wacom driver didn't answer, \(alsoPointer).")
-            case .noTablet:
-                return StatusLine(icon: "exclamationmark.triangle",
-                                  text: "The Wacom driver doesn't see the tablet yet, \(alsoPointer).")
-            case .noReply:
-                return StatusLine(icon: "exclamationmark.triangle",
-                                  text: "The Wacom driver gave no answer, \(alsoPointer).")
-            case .other(let status):
-                return StatusLine(icon: "exclamationmark.triangle",
-                                  text: "The Wacom driver said no (\(status)), \(alsoPointer).")
-            case .refusedUnderTest:
-                return StatusLine(icon: "exclamationmark.triangle",
-                                  text: "A test run does not talk to the Wacom driver.")
-            }
         }
     }
 

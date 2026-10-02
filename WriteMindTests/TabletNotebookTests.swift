@@ -7,7 +7,7 @@ import XCTest
 // 2026-10-02: "do the same for drawing mode in the notebook itself and let
 // the wacom control that as well.. as a separate mode"). The tablet held
 // turned is fitted onto the notes, the nib writes the note's own strokes,
-// the side switch is the layer's marquee, and the driver's context and the
+// the side switch is the layer's marquee, and holding the tablet and the
 // funnel follow the notebook being on screen.
 
 private func assertPoint(_ got: CGPoint, _ want: CGPoint, _ message: String = "",
@@ -615,19 +615,19 @@ final class TabletInputTargetTests: XCTestCase {
     }
 }
 
-/// THE CONTEXT FOLLOWS THE TARGET: in Notebook mode the notebook on screen
+/// THE TABLET FOLLOWS THE TARGET: in Notebook mode the notebook on screen
 /// is what keeps the pen off the pointer, whether or not the page is up.
 @MainActor
-final class TabletNotebookContextTests: XCTestCase {
+final class TabletNotebookCaptureTests: XCTestCase {
     private var suite: String!
-    private var link: TabletControllerTests.StandInLink!
+    private var hid: StandInHID!
     private var input: TabletInput!
     private let oneByWacom = TabletDevice(model: "CTL-472", productID: 0x037A, serial: "2DA00L1059230")
 
     override func setUp() {
         super.setUp()
         suite = "WriteMindTests-\(UUID().uuidString)"
-        link = TabletControllerTests.StandInLink()
+        hid = StandInHID()
         input = TabletInput()
         input.pageAppeared()
     }
@@ -637,28 +637,27 @@ final class TabletNotebookContextTests: XCTestCase {
         super.tearDown()
     }
 
-    func testInNotebookModeTheContextFollowsTheNotebook() {
-        let tablets = TabletController(defaults: UserDefaults(suiteName: suite)!, link: link, input: input,
+    func testInNotebookModeTheTabletIsHeldForTheNotebook() {
+        let tablets = TabletController(defaults: UserDefaults(suiteName: suite)!, hid: hid, input: input,
                                        live: false)
+        tablets.appBecameActive()
         tablets.plugged(oneByWacom, registryID: 1, settle: 0)
         tablets.pick(oneByWacom)
-        XCTAssertEqual(tablets.currentContext, 7)
+        XCTAssertTrue(hid.isOpen)
         input.notebookAppeared()
         input.aim(at: .notebook)
-        XCTAssertEqual(tablets.currentContext, 7, "both up: the one context serves either")
-        XCTAssertEqual(link.calls.count, 1)
-        XCTAssertEqual(link.letGone, [])
+        XCTAssertEqual(hid.seizes.count, 1, "both up: held once, for either")
+        XCTAssertEqual(hid.releases, 0)
         input.pageDisappeared()
-        XCTAssertEqual(tablets.currentContext, 7, "the page put away while the pen writes in the notebook")
+        XCTAssertTrue(hid.isOpen, "the page put away while the pen writes in the notebook")
         input.notebookDisappeared()
-        XCTAssertEqual(link.letGone, [7], "no notebook on screen: the pen is a pointer again")
-        link.nextContext = 8
+        XCTAssertEqual(hid.releases, 1, "no notebook on screen: the pen is a pointer again")
         input.notebookAppeared()
-        XCTAssertEqual(link.calls.last, .init(existing: nil, ask: false), "back on screen: taken, asking nothing")
-        XCTAssertEqual(tablets.currentContext, 8)
+        XCTAssertEqual(hid.seizes.count, 2, "back on screen: taken")
+        XCTAssertEqual(hid.asks, 0, "asking nothing")
         input.aim(at: .page)
-        XCTAssertEqual(link.letGone, [7, 8], "back to a page that is put away")
-        XCTAssertNil(tablets.currentContext)
+        XCTAssertEqual(hid.releases, 2, "back to a page that is put away")
+        XCTAssertFalse(tablets.capture.isCaptured)
     }
 }
 

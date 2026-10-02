@@ -190,12 +190,12 @@ CoreMind's `bin/report-status.sh`.
 - **THE WACOM IS AN INPUT DEVICE, CHOSEN EXACTLY LIKE A CAMERA.** Sean,
   2026-10-02: "wacom should basically just be chosen as if it were an
   input display". `TabletController` finds Wacom tablets by IOKit's own
-  notices for a USB DEVICE with vendor 0x056A — the HID device is never
-  opened, so there is no Input Monitoring prompt — and Input Devices lists
-  them under the cameras ("One by Wacom (CTL-472)", named for the box, not
-  the USB descriptor). Picking one turns the camera off and the pane that
-  showed the video shows THE PAGE (`TabletPane`); picking a camera gives
-  it back. Both menus go through `InputDevices.pick`, and
+  notices for a USB DEVICE with vendor 0x056A — a registry read, which
+  opens nothing and asks nothing — and Input Devices lists them under the
+  cameras ("One by Wacom (CTL-472)", named for the box, not the USB
+  descriptor). Picking one turns the camera off and the pane that showed
+  the video shows THE PAGE (`TabletPane`); picking a camera gives it
+  back. Both menus go through `InputDevices.pick`, and
   `AppState.inputSource` is DERIVED from the pick — one writer, fed by
   the controller, never stored — so ⌘Y, the pane's switch and the
   whole-window view work on whichever pane it is. The tablet is read
@@ -220,63 +220,154 @@ CoreMind's `bin/report-status.sh`.
   ONE PLACE forbids, and the bar squeezed to fit it. ONE WRITER:
   `AppState.orientTablet`, and the way it already sits picked again
   publishes nothing. It is the tablet's, so it holds for Page and Notebook
-  mode alike and is never set aside. **The pen is kept off the pointer by
-  a driver CONTEXT** — Wacom's Driver Request Interface, Apple Events to
-  'WaWT' (WacomTabletDriver, `com.wacom.wacomtablet`), ported in
-  `WacomDriver` with Wacom's MIT notice. NOT the sample's 'WaCM': on driver
-  6.4 that is TabletDriver.app, which counts the tablets and answers every
-  other question — the size, the name, the context — with an empty reply
-  (logged the first time the real driver was asked, 2026-10-02); the
-  context codes are compiled into WacomTabletDriver alone. A context over
-  tablet 1 with `pContextMovesSystemCursor` false. A context acts only
-  while WriteMind is in front, so it is re-asserted every time the app
-  comes back (kept if the driver still has it, made again if not) and
-  made again when the driver restarts — seen by KVO on
-  `NSWorkspace.runningApplications`, because the driver is
-  LSBackgroundOnly and LSUIElement and NSWorkspace posts no launch or
-  quit notice for such an app (its documentation says so; a probe saw
-  neither). **AND THE CONTEXT FOLLOWS THE TARGET**: made when what the
-  pen writes on comes on screen — the page, or in Notebook mode a note
-  (below) — let go when the last of it goes
-  (`TabletInput.targetShowingChanged` → `TabletController.targetShowing`)
-  — left standing with the pane put away, it kept the pen off the pointer
-  in front of no page at all, and the notebook's own pen was dead. A
-  pick still asks with the pane away (the question is the pick's); what
-  it makes waits for the target. And it is let go on turning the tablet
-  off, on unplugging and — posted, not waited for — on quitting. The
-  pane is a "connecting" page from the moment a pick or a replug lands,
-  even while an earlier conversation is still out. A property is
-  only ever SET through the context; the raw tablet's routing is every
-  application's tablet. **A FIRST LAUNCH NEVER ASKS, AND ONLY A PICK
-  ASKS**: Automation permission is READ with
-  `AEDeterminePermissionToAutomateTarget(askUserIfNeeded: false)` on
-  every other path — a launch reconnecting the remembered tablet, the
-  app coming to the front, a replug — and those stop at `needsConsent`;
-  `askUserIfNeeded: true` happens only as the direct result of Sean
-  picking the tablet from a menu (picking it again finishes a question
-  never answered). Every send is off the main thread with a two-second
-  timeout and every failure is a `WacomDriver.Failure` the pane says in
-  one line, with System Settings › Automation offered for a refusal.
-  `WacomDriver.Wire` REFUSES UNDER `TestHost` on the first line of both
-  doors — the test host is the app, and an Apple Event from it would put
-  the prompt in front of Sean — and `WacomDriverTests` proves it with
-  spies standing where the real send would be; the conversations are
-  tested against a stand-in driver. **What the driver sends with Mvsc
-  false was not seen before this was written**, so `TabletInput` takes
-  the pen from EVERY route: native `.tabletPoint`/`.tabletProximity` and
-  mouse events with a tablet subtype, a LOCAL monitor and a GLOBAL one
-  (the global route counts only while WriteMind is in front), the same
-  sample by two routes counted once by its timestamp. While the tablet is
-  the input AND its target is on screen (`TabletInput.isCapturing`) the
+  mode alike and is never set aside.
+- **WRITEMIND TAKES THE TABLET ITSELF: THE DRIVER'S WRITES ARE IGNORED,
+  SO ITS HID DEVICE IS SEIZED.** Sean, 2026-10-02, with the page up and
+  the pointer flying round the other display under his pen: "how can i
+  disable wacom from taking over my mouse?", "i did, it's still
+  controlling my mouse", "shouldn't WriteMind need some permissions like
+  this?", "fix the wacom not being captured by writemind properly
+  issues". The first build asked the Wacom driver for a CONTEXT with
+  `pContextMovesSystemCursor` false, over its Apple Event interface
+  (Wacom's Driver Request Interface). **That cannot work on this driver,
+  and the evidence is measured** (driver 6.4.14-2, probes that day): to
+  'WaWT' (WacomTabletDriver, `com.wacom.wacomtablet`) every READ answers
+  — `core/cnte` one tablet, `core/getd` Xdim 9499, Ydim 15199, "One by
+  Wacom", the pen's mapping and mode — and EVERY WRITE IS IGNORED:
+  `core/crel` for a context returned an empty reply, five ways, and no
+  context existed afterwards; `core/setd` of the pen's screen mapping
+  returned an empty reply, four ways, and read back unchanged; the
+  dictionary's own 'Core' class is errAEEventNotHandled (-1708); and
+  'WaCM' (TabletDriver.app) only counts tablets. Nor does
+  `CGAssociateMouseAndMouseCursorPosition(0)` hold the pointer — the
+  driver posts absolute positions: 493 pointer moves in 509 pen events.
+  So `WacomDriver.swift`, its Automation prompt, its usage string and
+  its tests are GONE, whole — nothing of that path is kept, and do not
+  bring it back for this driver. **So WriteMind takes the device**
+  (`Tablet/TabletCapture.swift`): the tablet's USB interface 0 carries
+  ONE HID device with two clients — WindowServer's event service and the
+  driver's `IOHIDLibUserClient` (ioreg) — and a device opened with
+  `kIOHIDOptionsTypeSeizeDevice` delivers nothing to anybody else
+  (IOHIDFamily: the other clients' reports are dropped until the seizing
+  client closes), so the driver goes quiet, the pointer stays where the
+  trackpad left it, and WriteMind reads the pen's raw reports itself.
+  Closing gives the driver the pen back. (Written before the seize had
+  been run against the real tablet — nothing but the app itself may open
+  it — so what the driver does when its reports stop, and whether it
+  takes them up again cleanly, is read from the first sessions' log; if
+  the open is refused or the driver keeps posting, the fallback and the
+  pane's line below are what Sean sees.) **HELD ONLY WHILE ALL THREE
+  ARE TRUE** — a tablet
+  is the input and plugged in, what the pen writes on is on screen (the
+  page, or in Notebook mode a note: `TabletInput.targetIsShowing`), and
+  WriteMind is the active app — and let go the moment any one goes: a
+  pen held for a page nobody can see writes nowhere and leaves the
+  notebook's own pen dead, and in another app the pen is that app's.
+  **AND THE HOLD FOLLOWS THE PICK**: another tablet picked while one is
+  held (two plugged in) lets go of the one and takes the other — left
+  held, the first went on writing under "pen captured" and the one
+  ticked in the menu was a dead pen.
+  `TabletCapture` is that rule as a VALUE (conditions in, `ask` / `seize`
+  / `release` out; an open that lands late is known by its attempt
+  number and is nobody's), `TabletController` is its shell, and the
+  doors to macOS are the `TabletHID` protocol so the tests put a
+  stand-in there. **INPUT MONITORING, AND A FIRST LAUNCH NEVER ASKS**:
+  the tablet's HID device is a mouse to macOS
+  (`RequiresTCCAuthorization`), so opening it needs Input Monitoring —
+  and IOKit's own open ASKS BY ITSELF if nobody has. So the permission
+  is only ever READ (`IOHIDCheckAccess`) — and only once a tablet is the
+  input — and NOTHING IS OPENED UNTIL IT READS GRANTED; the question
+  (`IOHIDRequestAccess`) goes up only as the direct result of Sean
+  picking the tablet from a menu. Picking it again is how a pick
+  remembered from before, or a question put away, gets asked. There is
+  no usage string for Input Monitoring; the grant is keyed to the
+  signature (`tools/signing.sh`). **`LiveTabletHID` REFUSES UNDER
+  `TestHost` ON THE FIRST LINE OF EVERY DOOR** — the test host is the
+  app, and from it an ask is a prompt on Sean's screen and an open is
+  his tablet taken from under his hand — and `LiveTabletHIDTests` proves
+  it with spies standing where IOKit is first touched. NEVER open or
+  seize the real tablet, send it a report, or send the driver an Apple
+  Event from a test, a script or a probe; reading the registry is the
+  limit. Opening, the mode report and closing run on a queue of their
+  own (a control request to a device that has stopped answering waits
+  out the USB stack); the reports are scheduled on the MAIN run loop in
+  the common modes. **WHAT IS CLOSED DIES ON THE MAIN THREAD**: neither
+  the close nor the unscheduling waits for a report already on its way
+  up, and IOKit's loop there holds the device by a bare pointer and
+  copies into the report buffer — so the buffer is freed in a block on
+  the main queue, behind it, and the device's last reference is not
+  dropped before that block has run (`LiveTabletHID.close`). And
+  "register nil" does not take the callback off (IOKit's set is hashed
+  on callback and context, compared by context): `sink` going nil is
+  what stops the reports. **THE RAW REPORT** (`WacomPenPacket`, the
+  Bamboo-pen class's layout as the Linux driver reads it — the layout,
+  none of its GPL code): id 2, ten bytes; byte 1 is 0x80 in range, 0x40 proximity (x
+  and y are good), 0x20 ready (tip, switches and pressure are good),
+  0x08 eraser, 0x04 upper switch, 0x02 lower switch, 0x01 tip; x and y
+  little-endian at 2 and 4, RAW LANDSCAPE counts from the top left, y
+  down; pressure little-endian at 6, 0…2047; distance at 8. Anything
+  that is not exactly that — the second interface sends 64 bytes under
+  the same id — is written to the log in hex and left alone; nothing is
+  guessed. **AND A HELD TABLET THAT CANNOT BE READ IS GIVEN BACK**: held,
+  the driver hears nothing, so reports this build cannot read would be a
+  pen that writes nowhere at all — 32 in a row inside a second with not
+  one of them the pen's, before the pen has been read once in that
+  capture, and `TabletCapture.reported` lets go, the pane says it cannot
+  read what the tablet sends, the page writes from the driver's events
+  again, and only a pick (or a replug) tries it again. With no driver running the tablet is a plain relative mouse
+  until feature report [2, 2] sets the pen's mode, so the mode is read,
+  set only if it is not already the pen's (a tablet the driver set up
+  is sent nothing), and put back on closing. **ONE FUNNEL, ONE ROUTE AT
+  A TIME**: a raw report becomes the same `TabletReading` an event does
+  and goes through the same `TabletPen`, the same turn and the same
+  sample stream (`TabletInput.raw`); from the first raw report of a
+  capture until the tablet is let go the driver's events are swallowed
+  and draw nothing, and letting go lifts the pen (`rawEnded`). Events
+  the driver made well after that first report (`stragglers`) mean it
+  still hears the tablet — logged once, and the pane says the pointer
+  may still move. **THE FALLBACK IS THE DRIVER'S EVENTS**, exactly as
+  before WriteMind took the tablet: native
+  `.tabletPoint`/`.tabletProximity` and mouse events with a tablet
+  subtype, a LOCAL monitor and a GLOBAL one (the global route counts
+  only while WriteMind is in front), the same sample by two routes
+  counted once by its timestamp. A refused open (`kIOReturnExclusiveAccess`
+  0xe00002c5: somebody else has seized it; `kIOReturnNotPermitted`
+  0xe00002e2 with the permission reading granted: macOS wants the app
+  quit and reopened), no permission, no device, or reports that cannot
+  be read, and the page still
+  writes from those events — with the pointer moving — and the pane's
+  ONE LINE (`TabletPane.line`, in `Views/TabletStatusLine.swift`, pure)
+  says the one useful thing: pick again to be asked, the Input
+  Monitoring switch (with a button to it), quit and reopen, or why with
+  IOKit's number. Held, it says "pen captured" and nothing more. A
+  refused open is tried again at the next change — coming back to the
+  front is one, and is also when a permission given in System Settings
+  is first seen — never in a loop of its own. While the tablet is the
+  input AND its target is on screen (`TabletInput.isCapturing`) the
   local monitor SWALLOWS every pen event — a tap must never click
   whatever the pointer happens to be over — and hands everything else
-  back untouched; otherwise it hands back everything. The pressure is read only off an event that defines it
-  (a spy in `TabletReadingTests` proves a hover is never asked), the
-  extent comes from the driver, else a table by product id, and is
-  WIDENED to the farthest count ever seen so a wrong entry can never clip
-  the page. The first event of each kind from each route, every status
-  change and every context made or refused go to /tmp/writemind-debug.log
-  — the first real session is read from there, not from Sean.
+  back untouched; otherwise it hands back everything. The pressure is
+  read only off an event that defines it (a spy in `TabletReadingTests`
+  proves a hover is never asked). **THE EXTENT IS THE RAW SENSOR'S**: a
+  table by product id (0x037A → 15200 × 9500 counts, 100 a millimetre),
+  WIDENED to the farthest count ever seen so a wrong entry can never
+  clip the page — and never the driver's (the trap below). **THE LOG IS
+  HOW A SESSION IS READ** (/tmp/writemind-debug.log, one line each,
+  never one per sample): every status change, what Input Monitoring
+  reads whenever that changes, the pick's question and its answer,
+  capture start and stop, each HID device opened (usage page, usage, the
+  IOReturn in hex) and closed, what the mode report read and whether it
+  was set, the first twelve raw reports of a pick in hex and the first
+  of each unknown kind after, the first parsed reading, each capture's
+  first report as it starts delivering — WITH WHETHER THE PEN WAS DOWN
+  (`TabletInput.penAsTaken`: a pen tap is what brings WriteMind to the
+  front, so the tablet can be taken with the nib on it, and the driver,
+  cut off, never posts its button coming up; what macOS makes of that
+  has not been seen — if a session shows a stuck button or drag beside
+  that line, hold the seize until the driver's events say the pen is
+  up) — the first event
+  of each kind from each monitor, the first of the driver's events to
+  arrive while the tablet is held, and the driver still posting.
 - **THE PAGE IS THE PICTURE OF A PAGE, AND ANYTHING ON IT CAN BE TAKEN.**
   Sean, 2026-10-02: "in normal mode its as if we were looking at the
   picture of a page, and anything drawn can be selected and inserted".
@@ -418,10 +509,8 @@ CoreMind's `bin/report-status.sh`.
   small One by Wacom held turned a ruling is 8/152 of the page whatever
   size the pane shows it, and a bigger tablet gets more lines, not fatter
   ones. The millimetres come from `TabletExtent.countsPerMillimetre` (100
-  in the table); the driver measures in counts, so its answer is given the
-  table's millimetres (`resolved(from:)`), widening moves the edge and
-  not the scale, and a tablet nobody measured is taken to be 152 mm along
-  its long side. `layout(millimetres:)` is the pure part, tested;
+  in the table); widening moves the edge and not the scale, and a tablet
+  nobody measured is taken to be 152 mm along its long side. `layout(millimetres:)` is the pure part, tested;
   **`print` IS THE ONE PRINTER** — the pane's `TabletPaperLayer` and
   Image's `TabletRender.image` both call it with the same page and the
   same millimetres, and `PagePaperPrintTests` renders the two for every
@@ -545,10 +634,10 @@ CoreMind's `bin/report-status.sh`.
   `TabletInput.aim(at:)` (fed from the app, as the turn now is too) and
   two counts — pages, and notebooks: a note open under its layer, counted
   by `NotebookTabletLayer` appearing — give `targetIsShowing`, and both
-  the funnel's swallowing and the driver's context follow it. In
+  the funnel's swallowing and the hold on the tablet follow it. In
   Notebook mode the page may be put away; with no note open there is
   nothing to write on and the pen is a pointer. Switching with both up
-  is no change at all: the one context serves either. Switching drops
+  is no change at all: the tablet stays held, for either. Switching drops
   whatever was half-done for either (`TabletScribe.dropUnderWay`): the
   lift of a stroke begun on the page lands nowhere, and the page's box
   goes. The samples' one consumer is made the moment a tablet is the
@@ -567,7 +656,7 @@ CoreMind's `bin/report-status.sh`.
   (`TabletInput.notebookIsShowing`, `TabletPane.setAsideLine`): "The pen
   is writing on the notebook" while a note is up, and while none is, that
   there is none and the pen is a pointer until there is — the funnel and
-  the context have let go then, and the line said otherwise. The page's
+  the hold on the tablet have let go then, and the line said otherwise. The page's
   pen and paper, its undo, redo and clear and its hover marker are out of
   play, and the turn stays — it is the tablet's, and holds for the
   notebook. **THE BAR FITS ITS PANE**: the bar and the corner's buttons
@@ -1543,9 +1632,13 @@ WriteMind/
                           sits (TabletOrientationButton: the tablet drawn
                           the way it lies, its popover the four by name;
                           every turn handed to TabletScribe.align), the
-                          bar, one line on why the pen also moves the
-                          pointer when it does, and the page set aside
-                          while the pen writes in the notebook
+                          bar, the one line about the pen, and the page
+                          set aside while the pen writes in the notebook
+  Views/TabletStatusLine.swift
+                          that one line's words, pure: pen captured, or
+                          why the pen also moves the pointer and the one
+                          thing to do about it (Input Monitoring, quit
+                          and reopen, IOKit's number)
   Views/TabletBar.swift   the bar top left of the page: Write on: Page |
                           Notebook (TabletTargetSwitch), then the page's
                           pen (its ink on a chip of the paper, InkChip;
@@ -1561,22 +1654,27 @@ WriteMind/
                           being written, and the box — SectionBox itself
   Views/InputDevicePicker.swift
                           the pane's copy of the Input Devices list
-  Tablet/WacomDriver.swift
-                          Wacom's Driver Request Interface, ported (MIT):
-                          the Apple Events for a context with Mvsc false,
-                          the typed failures, and the Wire that refuses
-                          under TestHost. Descriptors pure and tested
+  Tablet/TabletCapture.swift
+                          WriteMind taking the tablet itself:
+                          WacomPenPacket (one raw report read, pure),
+                          TabletCapture (when to ask, seize and release —
+                          a value, pure), the TabletHID protocol, and
+                          LiveTabletHID — Input Monitoring and the HID
+                          device opened to seize, refusing under TestHost
   Tablet/TabletController.swift
                           the tablets on the USB bus (IOKit notices), the
-                          pick, and the context made, kept and let go
-                          with the target;
+                          pick, and TabletCapture's shell: the three
+                          conditions gathered, its commands carried out,
+                          the reports turned into readings, the status;
                           InputDevices.pick for both kinds of input
   Tablet/TabletInput.swift
-                          the pen from every route through one funnel:
+                          the pen from both routes through one funnel:
                           the tablet's size in counts and millimetres,
                           the reading of an event, counts to the turned
-                          page, the pen's state, the sample stream, and
-                          whether its target is on screen
+                          page, the pen's state, the sample stream, the
+                          raw route and the driver's events ignored
+                          while it delivers, and whether its target is
+                          on screen
   Tablet/TabletOrientation.swift
                           how the tablet sits, by Wacom's four names, as
                           quarter turns; where its top edge lands; and
@@ -1730,6 +1828,27 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
 
 ## Traps that have cost real time here
 
+- **The Wacom driver's dimensions are ORIENTED; the pen's counts are
+  not.** Asked for the tablet's size the driver answers in whatever
+  orientation ITS OWN setting has — on Sean's Mac, set to portrait, Xdim
+  9499 × Ydim 15199 — while the counts the pen sends, by NSEvent
+  `absoluteX/Y` and by raw report alike, stay in the RAW LANDSCAPE frame
+  (x was seen up to 13217, past that "width"). WriteMind took the
+  driver's answer as the extent and then turned it again by its own
+  quarter turn: every stroke landed in the wrong place on a page of the
+  wrong shape (2026-10-02). The extent is the raw sensor's — the table
+  by product id, widened by what the pen reaches (`TabletExtent.known`)
+  — and the driver is never asked. The same goes for anything else it
+  reports about geometry: its mapping and orientation are its own
+  business, upstream of nothing WriteMind reads.
+- **IOKit's HID open asks for Input Monitoring by itself.** A HID device
+  that is a keyboard, a mouse or a touchpad to macOS carries
+  `RequiresTCCAuthorization`, and `IOHIDDeviceOpen` on one calls
+  `IOHIDRequestAccess` on its way in — a prompt, if nobody has answered.
+  The Wacom's pen interface is a mouse. So "a first launch never asks"
+  is kept by never opening it until `IOHIDCheckAccess` reads granted
+  (`TabletCapture.changed`), not by being careful about when the ask is
+  made.
 - **A USB device is not found by its vendor alone.** `IOServiceMatching(
   "IOUSBHostDevice")` with a bare `idVendor` is read by the USB family's
   own matching rules, which want a vendor AND a product (or a class), and

@@ -3,25 +3,35 @@ import Combine
 
 // THE PEN, FROM EVERY ROUTE IT MIGHT TAKE, THROUGH ONE FUNNEL.
 //
-// Measured with Sean's One by Wacom (2026-10-02), with the driver moving
-// the pointer as it does by default: the nib's strokes arrive as
-// leftMouseDown/Dragged/Up whose SUBTYPE is `.tabletPoint`, a hover as a
-// mouseMoved with that subtype, the side switch as rightMouseDown/Dragged/Up
-// with buttonMask 0x2, and the pen coming near or going away as a
-// mouseMoved with the `.tabletProximity` subtype. `absoluteX/Y` are the
-// tablet's own counts, origin top left, y down.
+// TWO ROUTES. The one that keeps the pen off the pointer is RAW CAPTURE:
+// WriteMind holds the tablet's HID device and its reports come here as
+// readings (`raw`, from `TabletCapture` by way of the controller). The
+// other is what the Wacom driver posts when WriteMind does not hold the
+// tablet — THE FALLBACK, which writes just as well and moves the pointer
+// while it does.
 //
-// What the driver sends once WriteMind's context has taken the pen off the
-// pointer (Mvsc false) nobody has yet seen — "pure tablet events", Wacom's
-// docs say, which ought to be `.tabletPoint` / `.tabletProximity` events
-// of their own, and which might be routed to another application if the
-// pointer stopped over its window. So everything that could be the pen is
-// taken: native tablet events AND mouse events with a tablet subtype, from
-// a LOCAL monitor (events sent to WriteMind) and a GLOBAL one (events sent
-// elsewhere — watched, never touched), de-duplicated by timestamp so a
-// sample that came by two routes counts once. The first real session is
-// diagnosed from /tmp/writemind-debug.log: the first event of each kind is
-// written there, with which monitor saw it.
+// The fallback, measured with Sean's One by Wacom (2026-10-02): the nib's
+// strokes arrive as leftMouseDown/Dragged/Up whose SUBTYPE is
+// `.tabletPoint`, a hover as a mouseMoved with that subtype, the side
+// switch as rightMouseDown/Dragged/Up with buttonMask 0x2, and the pen
+// coming near or going away as a native `.tabletProximity` event and as a
+// mouseMoved with that subtype. `absoluteX/Y` are the tablet's own counts,
+// origin top left, y down — the RAW LANDSCAPE frame, whichever way the
+// driver's orientation setting is turned, and the same frame the raw
+// reports are in. Everything that could be the pen is taken: native tablet
+// events AND mouse events with a tablet subtype, from a LOCAL monitor
+// (events sent to WriteMind) and a GLOBAL one (events sent elsewhere —
+// watched, never touched), de-duplicated by timestamp so a sample that came
+// by two routes counts once.
+//
+// ONE ROUTE AT A TIME: from the first raw report of a capture until the
+// tablet is let go, the driver's events are ignored — the same stroke by
+// both routes would be two strokes. A seized tablet ought to send the
+// driver nothing, so events that KEEP coming say the driver still hears it;
+// that is written down once and said in the pane.
+//
+// A session is diagnosed from /tmp/writemind-debug.log: the first event of
+// each kind is written there, with which monitor saw it.
 //
 // Everything that decides anything — the reading of one event, the mapping
 // onto the page, the rotation, the pen's state from one event to the next —
@@ -36,10 +46,19 @@ struct TabletExtent: Equatable {
     /// Counts in a millimetre; nil for a tablet nobody has measured.
     var countsPerMillimetre: Double?
 
-    /// One by Wacom, small and medium — the Linux driver's table
-    /// (wacom_wac.c), 100 counts a millimetre: the small one is 152 × 95
-    /// mm. The driver's own answer wins when it gives one; this is for
-    /// when it does not.
+    /// THE RAW SENSOR'S OWN EXTENT, landscape as it shipped: One by Wacom,
+    /// small and medium — the Linux driver's table (wacom_wac.c), 100
+    /// counts a millimetre; the small one is 152 × 95 mm.
+    ///
+    /// THE WACOM DRIVER'S DIMENSIONS ARE NEVER USED. It reports them
+    /// ORIENTED — with its orientation set to portrait on Sean's Mac it
+    /// said Xdim 9499 × Ydim 15199 — while the counts the pen sends, by
+    /// NSEvent and by raw report alike, stay in the raw landscape frame (x
+    /// was seen up to 13217, past that "width"). Taken as the extent and
+    /// then turned again by the page's own quarter turn, they put every
+    /// stroke in the wrong place (2026-10-02). The table, and what the pen
+    /// is seen to reach, are the only two things that say how big the
+    /// tablet is.
     static func known(productID: Int) -> TabletExtent? {
         switch productID {
         case 0x037A: return TabletExtent(width: 15200, height: 9500, countsPerMillimetre: 100)   // CTL-472
@@ -56,10 +75,9 @@ struct TabletExtent: Equatable {
     /// One by Wacom's, in millimetres.
     static let assumedLongSide = 152.0
 
-    /// WIDENED TO THE LARGEST VALUE EVER SEEN, so a wrong table entry or a
-    /// driver that answered for some other tablet can never clip the page:
-    /// a count past the edge moves the edge — and not the scale, so the
-    /// tablet is that much bigger in millimetres too.
+    /// WIDENED TO THE LARGEST VALUE EVER SEEN, so a wrong table entry can
+    /// never clip the page: a count past the edge moves the edge — and not
+    /// the scale, so the tablet is that much bigger in millimetres too.
     func widened(toInclude counts: CGPoint) -> TabletExtent {
         var wider = self
         wider.width = max(width, Double(counts.x))
@@ -72,20 +90,6 @@ struct TabletExtent: Equatable {
     var millimetres: CGSize? {
         guard let perMillimetre = countsPerMillimetre, perMillimetre > 0 else { return nil }
         return CGSize(width: width / perMillimetre, height: height / perMillimetre)
-    }
-
-    /// The driver's own measure, which is in counts and says nothing about
-    /// millimetres, given the size the table knows this tablet to be: THE
-    /// TABLET KEEPS ITS SIZE IN MILLIMETRES whatever unit the driver
-    /// counts in, because that is a fact about the tablet and the count is
-    /// a fact about the driver. A measure that already knows its scale, or
-    /// a tablet the table does not know, is left as it is.
-    func resolved(from table: TabletExtent?) -> TabletExtent {
-        guard countsPerMillimetre == nil, let table, let perMillimetre = table.countsPerMillimetre,
-              table.width > 0, width > 0 else { return self }
-        var resolved = self
-        resolved.countsPerMillimetre = perMillimetre * width / table.width
-        return resolved
     }
 }
 
@@ -185,9 +189,10 @@ struct TabletReading: Equatable {
 
     let kind: Kind
     let timestamp: TimeInterval
-    /// True for an event of the tablet's own type, false for a mouse event
-    /// carrying a tablet subtype — for the log, which is how the first
-    /// session says which route the driver took.
+    /// True for the tablet's own word — an event of a tablet type, or a
+    /// raw report (`WacomPenPacket.reading`) — and false for a mouse event
+    /// carrying a tablet subtype. For the log, which is how a session says
+    /// which route the pen took.
     let native: Bool
 
     /// Every event type the funnel watches.
@@ -400,8 +405,9 @@ final class TabletInput: ObservableObject {
     /// watch it.
     @Published private(set) var pen: TabletSample?
 
-    /// The tablet's area in counts — the driver's answer, else the table,
-    /// widened by the pen. The page's shape follows it.
+    /// The tablet's area in counts — the raw sensor's, from the table,
+    /// widened by the pen; never the driver's oriented measure
+    /// (`TabletExtent.known`). The page's shape follows it.
     @Published var extent = TabletExtent.fallback
     /// How the tablet is held (`AppState.tabletQuarterTurns`).
     var quarterTurns = 1
@@ -431,9 +437,23 @@ final class TabletInput: ObservableObject {
     /// SWALLOWS every pen event — a tap on the tablet must never click a
     /// button or move the caret under a pointer it happens to have left
     /// somewhere — and at every other time it hands every event back as it
-    /// came, to a pen that is an ordinary pen again: the driver's context
-    /// goes with the last of them (`targetShowingChanged`).
+    /// came, to a pen that is an ordinary pen again: the tablet itself is
+    /// let go with the last of them (`targetShowingChanged`).
     var isCapturing: Bool { isRunning && targetIsShowing }
+
+    /// RAW CAPTURE IS DELIVERING: when the first raw report of this capture
+    /// came, nil while WriteMind does not hold the tablet or has heard
+    /// nothing from it yet. While it is set the driver's events are ignored.
+    private(set) var rawSince: TimeInterval?
+    /// The driver went on posting pen events while WriteMind held the
+    /// tablet: it still hears it, and the pointer may still move. Said once
+    /// in the log, and in the pane (`driverStillPostsChanged`) until the
+    /// tablet is picked again.
+    private(set) var driverStillPosts = false {
+        didSet { if driverStillPosts != oldValue { driverStillPostsChanged?(driverStillPosts) } }
+    }
+    var driverStillPostsChanged: ((Bool) -> Void)?
+    private var seizedEventNoted = false
 
     private var state = TabletPen()
     private var local: Any?
@@ -452,6 +472,8 @@ final class TabletInput: ObservableObject {
         isRunning = true
         seen = []
         widened = false
+        seizedEventNoted = false
+        driverStillPosts = false
         guard !TestHost.isActive, local == nil else { return }
         local = NSEvent.addLocalMonitorForEvents(matching: TabletReading.watched) { [weak self] event in
             guard let self else { return event }
@@ -470,6 +492,8 @@ final class TabletInput: ObservableObject {
         local = nil
         global = nil
         state = TabletPen()
+        rawSince = nil
+        driverStillPosts = false
         if pen != nil { pen = nil }
     }
 
@@ -484,9 +508,9 @@ final class TabletInput: ObservableObject {
     /// Told when the target comes on screen (true) and when it goes
     /// (false) — the last page or note going, the pen sent to a target that
     /// is not up: the controller's cue to take the pen off the pointer, or
-    /// to give it back (`TabletController.targetShowing`). Only when that
-    /// CHANGES: from the page to the notebook with both up is one context
-    /// serving either.
+    /// to give it back (`TabletController.targetChanged`). Only when that
+    /// CHANGES: from the page to the notebook with both up the tablet
+    /// stays held, and serves either.
     var targetShowingChanged: ((Bool) -> Void)?
 
     /// Where the pen writes from now on.
@@ -523,8 +547,83 @@ final class TabletInput: ObservableObject {
         noteFirst(event, reading, route)
         guard isCapturing else { return event }
         if route == .global, !appIsActive() { return event }
+        if let rawSince {
+            // The raw route has this stroke. The event is still the pen's,
+            // and still swallowed — a tap must not click — but it draws
+            // nothing.
+            noteWhileSeized(event, at: reading.timestamp, from: route, rawSince: rawSince)
+            return nil
+        }
         feed(reading)
         return nil
+    }
+
+    /// TWO LINES AT MOST: the first event of the driver's to arrive while
+    /// the tablet is held, whatever it turns out to be, and the first that
+    /// was made late enough to mean the driver is still posting.
+    private func noteWhileSeized(_ event: NSEvent, at timestamp: TimeInterval, from route: Route,
+                                 rawSince: TimeInterval) {
+        let what = "type=\(event.type.rawValue) from the \(route.rawValue) monitor, made "
+            + "\(String(format: "%+.2f", timestamp - rawSince)) s from the first raw report"
+        if !seizedEventNoted {
+            seizedEventNoted = true
+            log("tablet: a pen event from the driver while seized — \(what); ignored")
+        }
+        if !driverStillPosts, Self.stillPosting(eventAt: timestamp, rawSince: rawSince) {
+            log("tablet: driver still posts events while seized — \(what)")
+            driverStillPosts = true
+        }
+    }
+
+    /// How long after the first raw report an event of the driver's has to
+    /// be MADE to count as the driver still posting: events it made before
+    /// the tablet was taken are still on their way up the queue for a
+    /// moment after.
+    static let stragglers: TimeInterval = 0.5
+
+    static func stillPosting(eventAt timestamp: TimeInterval, rawSince: TimeInterval) -> Bool {
+        timestamp > rawSince + stragglers
+    }
+
+    /// One reading off the tablet itself, while WriteMind holds it
+    /// (`TabletController`, from `WacomPenPacket.reading`) — through the
+    /// same pen state, the same turn and the same stream as an event's.
+    func raw(_ reading: TabletReading) {
+        guard isCapturing else { return }
+        if rawSince == nil {
+            rawSince = reading.timestamp
+            log("tablet: raw capture is delivering — the driver's events are ignored from here; "
+                + Self.penAsTaken(reading))
+        }
+        feed(reading)
+    }
+
+    /// WHETHER THE PEN WAS DOWN AS THE TABLET WAS TAKEN, for the log, by
+    /// the tablet's own first word of a capture — it comes within a
+    /// hundredth of a second of the last one the driver heard. A pen tap on
+    /// WriteMind's window is an ordinary click that brings it to the front,
+    /// so the tablet can be taken with the nib (or the switch, the driver's
+    /// right button) still down: the driver posted the button going down
+    /// and, hearing nothing more, never posts it coming up. The ink is
+    /// whole either way — the down came by the driver's event, the rest of
+    /// the stroke and its lift by the raw reports — but what macOS makes of
+    /// a button the driver left down has not been seen, and this is how a
+    /// session says it happened.
+    static func penAsTaken(_ first: TabletReading) -> String {
+        guard case .point(_, let tip, let sideSwitch, _, _) = first.kind, tip || sideSwitch else {
+            return "its first report has nothing pressed"
+        }
+        return "its first report has the pen DOWN, so the driver saw it go down and will not see it lift"
+    }
+
+    /// WriteMind let go of the tablet: the driver has the pen again. A
+    /// stroke under way ends here, as it does when the pen leaves — the
+    /// driver's next event would otherwise carry on a line from wherever
+    /// the nib had been.
+    func rawEnded(at timestamp: TimeInterval) {
+        guard rawSince != nil else { return }
+        rawSince = nil
+        feed(TabletReading(kind: .proximity(entering: false), timestamp: timestamp, native: true))
     }
 
     /// The pure part's shell: run a reading through the pen's state and

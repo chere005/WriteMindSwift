@@ -66,8 +66,8 @@ final class PenSampleTests: XCTestCase {
         XCTAssertNil(PenSample.reading(try event(.rightMouseDown, subtype: tablet, pressure: 0.5)))
     }
 
-    /// A pure tablet event — what the driver sends once a context stops
-    /// the pen moving the cursor — is the pen.
+    /// A pure tablet event — one of the tablet's own type, should the
+    /// driver ever send the nib that way — is the pen.
     func testAPureTabletEventIsThePen() throws {
         let cg = try XCTUnwrap(CGEvent(source: nil))
         cg.type = .tabletPointer

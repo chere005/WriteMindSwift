@@ -6,7 +6,7 @@ import SwiftUI
 /// marker where the nib is. Over the drawing layer, in the same frame.
 ///
 /// It is also the notes pane's word to the tablet: a note is on screen
-/// (`TabletInput.notebookAppeared`, which is what the driver's context and
+/// (`TabletInput.notebookAppeared`, which is what holding the tablet and
 /// the funnel's swallowing follow in Notebook mode), where it is and how far
 /// it has scrolled (`NotebookScribe.place`), what the notebook's pen writes
 /// with, and where a finished stroke goes (`NoteStore.inkFromTablet`).
