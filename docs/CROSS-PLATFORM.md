@@ -15,6 +15,47 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### A code block, an evaluation cell or maths always lands as a cell of its own
+Sean, 2026-10-02: "make math and code block insertion sensible..". One rule
+for the code button / its key, the evaluation-cell key and the maths palette,
+asked with the whole note and where the caret is, and the same answer in the
+markdown and the rendered view.
+- **At the insertion bar** the cell is made there — with the code language
+  picked under the button (the + on the bar offers the plain one).
+- **Never nested.** Inside a fenced block: the same kind does nothing and
+  the status line says why (a code block in code; an evaluation cell in a
+  cell already running in that environment). The evaluation key in any
+  other fenced cell turns it into one — except an answer, after which a new
+  cell is made. Maths in a block that is already Wolfram Language (maths,
+  a Wolfram evaluation cell, Wolfram code) goes in as the bare WL at the
+  caret. Inline maths in other code is refused. Anything else goes AFTER
+  the block — after its answer when it has one, never between code and
+  what it said.
+- **A cell of its own**: a blank line above and below. A paragraph is cut
+  at the caret (the spaces at the cut dropped; at the front of its words
+  the block goes above, at the end below). A heading, a list, a quote or a
+  rule is cut only between lines — above the caret's line when the caret
+  is at the front of its words or in its marker, below otherwise — so no
+  item's words are split and no marker is left bare. On an empty line of a
+  run of empty lines that is a cell of its own, the block takes that one
+  line and the rest stay.
+- **A selection is the content**: code verbatim, the text either side
+  staying cells (an item's words take the item). Maths replaces a
+  selection only when the maths still holds it — the selection reads as
+  maths (no word in it: a name of two or more letters that is not one the
+  maths is set with and not a function's head) and is a whole term of
+  what is inserted; otherwise the words stay and the maths goes after
+  them. The palette opens with a selection that reads as maths, inline
+  when it sits inside a line; a shape picked then takes it into its first
+  slot. A selection with a fence in it is refused.
+- **The caret ends where typing goes** (between an empty block's fences, at
+  the end of what it was given, at the end of display maths), and **one
+  undo takes the whole insertion back** in both views — in the rendered
+  view the new cell opens for typing and the undo lives with it.
+- Port note: the opening at the bar must be ONE change on the undo stack; a
+  wrapper that announces a change around a call that announces it again
+  registers it twice, and undo then runs past the end of the text.
+
 ### ⌘T keeps everything where it was
 Sean, 2026-10-02: "preserve the position of things as much as possible
 between markdown and wysiwyg mode". The two modes lay the same cells out

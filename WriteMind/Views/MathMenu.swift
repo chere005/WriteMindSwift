@@ -12,6 +12,8 @@ struct MathMenu: View {
     @State private var values: [String] = MathTemplate.all[0].initialValues
     @State private var wl: String = ""
     @State private var onItsOwnLine = true
+    /// The selection the palette was opened over, when it reads as maths.
+    @State private var seed: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -97,7 +99,7 @@ struct MathMenu: View {
         }
         .padding(16)
         .frame(width: 420)
-        .onAppear { rebuild() }
+        .onAppear { start() }
     }
 
     private func value(_ index: Int) -> Binding<String> {
@@ -112,8 +114,23 @@ struct MathMenu: View {
 
     private func choose(_ template: MathTemplate) {
         selected = template
-        values = template.initialValues
+        values = template.values(seed: seed)
         rebuild()
+    }
+
+    /// OPENED OVER A SELECTION THAT READS AS MATHS, the palette starts from
+    /// it (Sean, 2026-10-02: "make math and code block insertion
+    /// sensible.."): the WL is the selection, so Insert sets exactly what
+    /// was selected, in the sentence when it sits in one; and a shape
+    /// picked afterwards takes it into its first slot. It used to start
+    /// from the first shape whatever was selected, and Insert replaced the
+    /// selection with that.
+    private func start() {
+        guard let found = appState.editor.mathsSeed() else { return rebuild() }
+        seed = found.wl
+        onItsOwnLine = !found.inline
+        values = selected.values(seed: found.wl)
+        wl = found.wl
     }
 
     /// The fields drive the WL, until the WL itself is edited — then that is

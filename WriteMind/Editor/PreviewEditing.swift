@@ -8,10 +8,22 @@ enum PreviewEditing {
     /// A new, empty block at `offset`, with the blank lines it needs on both
     /// sides. Returns the note and where the block starts.
     static func insertBlock(in markdown: String, at offset: Int) -> (markdown: String, caret: Int) {
+        insertBlock(in: markdown, replacing: NSRange(location: offset, length: 0))
+    }
+
+    /// The same, in the place of `range` — what comes out of the note to
+    /// make way for the block: a selection that is becoming its content,
+    /// the spaces at a cut (`Insertion`). The spacing either side is read
+    /// off what is left either side, and the blank cell below off the note
+    /// AS IT IS: cutting a paragraph out first and then asking left the
+    /// blank lines either side of the hole looking like a cell of their
+    /// own, and the block came out with a spare empty line under it.
+    static func insertBlock(in markdown: String, replacing range: NSRange) -> (markdown: String, caret: Int) {
         let ns = markdown as NSString
-        let clamped = min(max(offset, 0), ns.length)
+        let range = MarkdownFormatting.clamp(range, to: ns.length)
+        let clamped = range.location
         let before = ns.substring(to: clamped)
-        let after = ns.substring(from: clamped)
+        let after = ns.substring(from: NSMaxRange(range))
 
         let lead = before.isEmpty ? "" : (before.hasSuffix("\n\n") ? "" : (before.hasSuffix("\n") ? "\n" : "\n\n"))
         // The blank lines a new block needs under it, EXCEPT where the
@@ -23,7 +35,7 @@ enum PreviewEditing {
         let trail: String
         if after.isEmpty {
             trail = ""
-        } else if opensABlankCell(in: markdown, at: clamped) {
+        } else if opensABlankCell(in: markdown, at: NSMaxRange(range)) {
             trail = "\n\n"
         } else {
             trail = after.hasPrefix("\n\n") ? "" : (after.hasPrefix("\n") ? "\n" : "\n\n")

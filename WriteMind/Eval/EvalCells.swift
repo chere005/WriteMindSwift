@@ -212,8 +212,8 @@ enum EvalCells {
     /// Changing a cell's environment rewrites its fence and nothing else
     /// — the body is untouched, and so is any Out cell under it. This is
     /// also what TURNS A CELL INTO AN EVALUATION CELL (⌘9 over a fenced
-    /// block): the fence goes from `python` to `eval python`, and a code
-    /// cell becomes a cell the note runs.
+    /// block, through `Insertion`): the fence goes from `python` to
+    /// `eval python`, and a code cell becomes a cell the note runs.
     ///
     /// The open line is replaced whole rather than patched, because an
     /// info string is one opaque string to the parser and picking it
@@ -231,28 +231,5 @@ enum EvalCells {
             range: NSRange(location: open.location, length: (line as NSString).length),
             replacement: replacement,
             selection: NSRange(location: open.location + (replacement as NSString).length, length: 0))
-    }
-
-    /// ⌘9 — an evaluation cell here. An existing fenced block becomes
-    /// one; anything else gets a new one after it.
-    ///
-    /// Nothing is thrown away: a Python code cell keeps its code and its
-    /// colouring and simply starts running, which is what "turn this into
-    /// an evaluation cell" has to mean for it to be worth a key.
-    static func makeEvaluation(_ evaluator: Evaluator, at cell: NSRange?,
-                               in text: String) -> MarkdownFormatting.Edit {
-        if let cell, NSMaxRange(cell) <= (text as NSString).length,
-           MarkdownFormatting.fenced((text as NSString).substring(with: cell)) != nil,
-           let converted = setEnvironment(evaluator, of: cell, in: text) {
-            return converted
-        }
-        let fresh = "```\(evaluator.fence)\n\n```"
-        guard let cell else {
-            let end = (text as NSString).length
-            return MarkdownFormatting.Edit(range: NSRange(location: end, length: 0),
-                                           replacement: (text.isEmpty ? "" : "\n\n") + fresh,
-                                           selection: NSRange(location: end, length: 0))
-        }
-        return CellCommands.paste(fresh, after: cell, in: text)
     }
 }

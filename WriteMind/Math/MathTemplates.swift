@@ -30,6 +30,17 @@ struct MathTemplate: Identifiable, Equatable {
 
     var initialValues: [String] { slots.map(\.initial) }
 
+    /// What the fields start as when the palette was opened over a
+    /// selection that reads as maths: the selection in the first slot, so
+    /// the shape picked wraps it — √ of it, the integral of it — and the
+    /// rest as they always start. A shape with no slots has nowhere to put
+    /// it.
+    func values(seed: String?) -> [String] {
+        var values = initialValues
+        if let seed, !values.isEmpty { values[0] = seed }
+        return values
+    }
+
     /// The WL this writes. A slot left empty falls back to what it suggested —
     /// an empty integrand is a slip, not an intention.
     func wl(_ values: [String]) -> String {

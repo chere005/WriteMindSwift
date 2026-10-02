@@ -121,6 +121,9 @@ struct EditorPane: View {
                 }
                 .onAppear {
                     appState.editor.pasteImage = { store.pasteImage(from: $0) }
+                    // Why a command did nothing — a code block asked for
+                    // inside one — goes where the camera's notices go.
+                    appState.editor.say = { store.notice($0) }
                     // How an evaluation's answer reaches the note: the
                     // bridge's own write, which takes no keyboard and
                     // moves no caret.

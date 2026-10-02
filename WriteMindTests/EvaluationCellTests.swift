@@ -438,42 +438,6 @@ final class EvaluationCellTests: XCTestCase {
         XCTAssertFalse(EvaluationKeys.isRun(.control), "⌃↩ is still a line break")
     }
 
-    // MARK: - ⌘9 makes the cell
-
-    func testTurningACodeCellIntoAnEvaluationCellKeepsTheCode() {
-        let code = "# Notes\n\n```python\nprint(1)\n```\n\nAfter it."
-        let edit = EvalCells.makeEvaluation(.python, at: cell(code, at: 1), in: code)
-        let after = (code as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
-        XCTAssertEqual(after, "# Notes\n\n```eval python\nprint(1)\n```\n\nAfter it.")
-        XCTAssertEqual(MarkdownParser.positioned(from: after).count, 3, "no cell was added")
-    }
-
-    func testMakingOneAnywhereElsePutsANewEmptyCellAfterIt() {
-        let prose = "# Notes\n\nJust words."
-        let edit = EvalCells.makeEvaluation(.wolfram, at: cell(prose, at: 1), in: prose)
-        let after = (prose as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
-        XCTAssertEqual(after, "# Notes\n\nJust words.\n\n```eval wl\n\n```")
-        XCTAssertEqual(Evaluator.from(fence: "eval wl"), .wolfram)
-    }
-
-    func testMakingOneWithNothingOpenAppendsIt() {
-        let edit = EvalCells.makeEvaluation(.cpp, at: nil, in: "")
-        XCTAssertEqual(edit.replacement, "```eval c++\n\n```")
-        let onto = EvalCells.makeEvaluation(.cpp, at: nil, in: "Words.")
-        XCTAssertEqual(("Words." as NSString).replacingCharacters(in: onto.range,
-                                                                 with: onto.replacement),
-                       "Words.\n\n```eval c++\n\n```")
-    }
-
-    func testPressingItOnOneThatIsAlreadyOneChangesNothing() {
-        let already = "```eval python\nx\n```"
-        let edit = EvalCells.makeEvaluation(.python, at: cell(already, at: 0), in: already)
-        // Nothing to convert and nothing to add: the fence is already
-        // right, so the edit is the empty one `paste` makes after it.
-        let after = (already as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
-        XCTAssertTrue(after.hasPrefix("```eval python\nx\n```"), after)
-    }
-
     // MARK: - What moves when an answer lands
 
     func testWhatIsBelowTheAnswerMovesAndWhatIsAboveItDoesNot() {

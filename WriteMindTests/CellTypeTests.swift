@@ -95,7 +95,7 @@ final class CellTypeOpeningTests: XCTestCase {
     func testACodeCellTakesTheCharacterInSIDEItsFences() {
         // The one kind that is not a prefix: the character typed at the bar
         // is the first line of the code, not a word in front of a block.
-        XCTAssertEqual(typed(.code), "First cell\n\n```\nx\n```\n\nSecond cell")
+        XCTAssertEqual(typed(.code(.plain)), "First cell\n\n```\nx\n```\n\nSecond cell")
     }
 
     /// ⌘9 AT A BAR MAKES THE CELL THERE (Sean, 2026-09-22: "make sure if
@@ -134,7 +134,7 @@ final class CellTypeOpeningTests: XCTestCase {
             .list(.dashes): .dashes(["x"]),
             .list(.numbered): .numbered(["x"]),
             .quote: .quote("x"),
-            .code: .code(language: nil, body: "x"),
+            .code(.plain): .code(language: nil, body: "x"),
             .text: .paragraph("x"),
         ]
         for (kind, block) in wanted {
@@ -153,7 +153,7 @@ final class CellTypeOpeningTests: XCTestCase {
         XCTAssertEqual(typed(.list(.dots), ""), "First cell\n\n- \n\nSecond cell")
         XCTAssertEqual(typed(.quote, ""), "First cell\n\n> \n\nSecond cell")
         XCTAssertEqual(typed(.heading(.title), ""), "First cell\n\n# \n\nSecond cell")
-        XCTAssertEqual(typed(.code, ""), "First cell\n\n```\n\n```\n\nSecond cell")
+        XCTAssertEqual(typed(.code(.plain), ""), "First cell\n\n```\n\n```\n\nSecond cell")
         XCTAssertEqual(typed(.text, ""), "First cell\n\n\n\nSecond cell")
     }
 
@@ -162,7 +162,7 @@ final class CellTypeOpeningTests: XCTestCase {
         // cell and not after the closing fence.
         XCTAssertEqual(CellTypes.open(.list(.dots), in: note, at: 12).caret, 14)
         XCTAssertEqual(CellTypes.open(.heading(.section), in: note, at: 12).caret, 16)
-        XCTAssertEqual(CellTypes.open(.code, in: note, at: 12).caret, 16)
+        XCTAssertEqual(CellTypes.open(.code(.plain), in: note, at: 12).caret, 16)
         XCTAssertEqual(CellTypes.open(.text, in: note, at: 12).caret, 12)
     }
 
@@ -171,7 +171,7 @@ final class CellTypeOpeningTests: XCTestCase {
     func testTheCellRangeIsTheWholeOfTheNewCell() {
         XCTAssertEqual(CellTypes.open(.list(.dots), writing: "x", in: note, at: 12).cell,
                        NSRange(location: 12, length: 3))
-        XCTAssertEqual(CellTypes.open(.code, writing: "x", in: note, at: 12).cell,
+        XCTAssertEqual(CellTypes.open(.code(.plain), writing: "x", in: note, at: 12).cell,
                        NSRange(location: 12, length: 9))
         XCTAssertEqual(CellTypes.open(.text, writing: "x", in: note, at: 12).cell,
                        NSRange(location: 12, length: 1))
@@ -196,7 +196,7 @@ final class CellTypeOpeningTests: XCTestCase {
             (.heading(.section), .heading(level: 3, text: "x")),
             (.list(.dots), .bullets(["x"])),
             (.quote, .quote("x")),
-            (.code, .code(language: nil, body: "x")),
+            (.code(.plain), .code(language: nil, body: "x")),
         ]
         for note in notes {
             let before = MarkdownParser.blocks(from: note)
@@ -278,7 +278,7 @@ final class ArmedTypeTests: XCTestCase {
     }
 
     func testReturnAtABarSetToACodeBlockOpensOneWithTheCaretInside() {
-        let view = armed("First cell\n\nSecond cell", at: 12, as: .code)
+        let view = armed("First cell\n\nSecond cell", at: 12, as: .code(.plain))
         view.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         XCTAssertEqual(view.string, "First cell\n\n```\n\n```\n\nSecond cell")
         XCTAssertEqual(view.selectedRange().location, 16)
@@ -331,7 +331,7 @@ final class PreviewArmedTypeTests: XCTestCase {
     }
 
     func testACodeCellIsHandedOverAsItsCodeWithTheFencesKept() {
-        let opened = MarkdownPreview.opened(.write("x"), as: .code, at: 12, in: note)
+        let opened = MarkdownPreview.opened(.write("x"), as: .code(.plain), at: 12, in: note)
         XCTAssertEqual(opened?.draft, "x", "the fences are not typed in")
         XCTAssertEqual(opened?.fence, MarkdownPreview.Fence(open: "```", close: "```"))
         XCTAssertEqual(opened?.editing, NSRange(location: 12, length: 9))

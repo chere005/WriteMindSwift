@@ -61,7 +61,7 @@ final class ArmedBarFormatTests: XCTestCase {
         // A fenced block is a pair of lines rather than a prefix, so it is
         // named apart rather than spelled out beside the others.
         let (view, bridge) = armed(at: 12)
-        bridge.codeBlock(language: "swift")
+        bridge.codeBlock(.python)
         XCTAssertTrue(view.string.contains("```"), view.string)
         XCTAssertTrue(view.string.hasPrefix("First cell\n\n"), view.string)
         XCTAssertTrue(view.string.hasSuffix("\n\nSecond cell"), view.string)

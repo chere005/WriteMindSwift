@@ -9,6 +9,9 @@ final class EditorBridge {
     /// keyboard — the source editor or a block in the preview. Returns true
     /// when it was taken, and the paste stops there.
     var pasteImage: ((NSPasteboard) -> Bool)?
+    /// A line in the footer, where the camera's notices go: why a command
+    /// did nothing. Set by `EditorPane`.
+    var say: ((String) -> Void)?
     /// Opens a block for editing when there is no text view to talk to —
     /// the preview, with nothing clicked yet. Returns true when there will
     /// be one in a moment, so a button press is not lost (Sean, 2026-09-19:
@@ -151,11 +154,15 @@ final class EditorBridge {
     /// and works by opening the cell the bar stands for:
     ///
     /// - one that NAMES A KIND — the heading ladder, the three lists, the
-    ///   quote, the fenced block — is the whole of the job: the cell opens
-    ///   with that marker already in it and the caret where the words go;
-    /// - anything else — bold, the text style, maths — opens a PLAIN cell
-    ///   and then runs in it, exactly as it would have run in a cell that
-    ///   was already open.
+    ///   quote — is the whole of the job: the cell opens with that marker
+    ///   already in it and the caret where the words go;
+    /// - anything else — bold, the text style — opens a PLAIN cell and then
+    ///   runs in it, exactly as it would have run in a cell that was
+    ///   already open.
+    ///
+    /// ⌘8, ⌘9 and the maths palette make their cell at the bar too, but
+    /// through `insert`, which asks `Insertion` with the bar's offset and
+    /// lands the whole of it as one edit.
     ///
     /// It used to record the kind and wait for a character, which the + on
     /// the bar still does (Sean, 2026-09-20: "the list of style types that
@@ -191,7 +198,7 @@ final class EditorBridge {
     /// do it as soon as there is. SwiftUI builds the text view a turn or two
     /// after the block opens, so this waits — briefly, and never forever.
     /// `opensACell` is what tells the two kinds of command apart at a bar.
-    /// One WRITES something — bold, a style, maths — and a bar is a
+    /// One WRITES something — bold, a style — and a bar is a
     /// perfectly good place to write it, so a cell is opened there and the
     /// command runs in it. The other acts ON a cell — delete it, duplicate
     /// it, move it, split it — and at a bar there is no such cell; making
@@ -460,28 +467,17 @@ final class EditorBridge {
         lines(MarkdownFormatting.toggleBullets)
     }
 
-    /// ⌘9 AT A BAR MAKES THE CELL THERE, ready to be typed into (Sean,
-    /// 2026-09-22: "make sure if the input cursor is horizontal, hitting
-    /// cmd+9 puts a new evaluation cell at that position"). Returns true
-    /// when that was the whole of the command.
-    ///
-    /// It is the same rule every other command that NAMES A KIND follows
-    /// — the list, the ladder, the quote, the fenced block — and ⌘9 was
-    /// the one that did not: it asked for `caretCell()`, and the caret at
-    /// a bar is parked against the cell BELOW it, so the key turned that
-    /// cell into an evaluation cell instead of making one where the bar
-    /// was.
-    @discardableResult
-    func evaluationCellAtBar(_ evaluator: Evaluator) -> Bool {
-        atArmedBar(.evaluation(evaluator))
-    }
+    /// ⌘8, the code button and Insert ▸ Code Block, in the language picked
+    /// under the button.
+    func codeBlock(_ language: CodeLanguage) { insert(.code(language)) }
 
-    /// The language goes with the fence the Insert menu writes, and not
-    /// with a bar: the + offers one Code Block and so does ⌘8 at a bar.
-    func codeBlock(language: String = "") {
-        if atArmedBar(.code) { return }
-        lines { MarkdownFormatting.codeBlock(text: $0, selection: $1, language: language) }
-    }
+    /// ⌘9 — an evaluation cell here, or the cell the caret is in turned
+    /// into one (Sean, 2026-09-21: "cmd+9 should start a new cell or turn
+    /// the existing cell to an evaluation cell"), and at a bar one made
+    /// there (Sean, 2026-09-22: "make sure if the input cursor is
+    /// horizontal, hitting cmd+9 puts a new evaluation cell at that
+    /// position").
+    func evaluationCell(_ evaluator: Evaluator) { insert(.evaluation(evaluator)) }
 
     func quote() {
         if atArmedBar(.quote) { return }
@@ -492,16 +488,47 @@ final class EditorBridge {
 
     /// Maths, kept as Wolfram Language whichever way it goes in.
     func insertMath(_ wl: String, display: Bool) {
-        perform { [weak self] in self?.applyMath(wl, display: display) }
+        guard !wl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        insert(.maths(wl, onItsOwnLine: display))
     }
 
-    private func applyMath(_ wl: String, display: Bool) {
-        guard let tv = textView else { return }
-        let canonical = WLPrinter.canonical(wl.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard !canonical.isEmpty else { return }
-        apply(MarkdownFormatting.insertMath(text: tv.string, selection: tv.selectedRange(),
-                                            wl: canonical, display: display))
+    /// What the maths palette opens with: the selection, when it reads as
+    /// maths.
+    func mathsSeed() -> MathSelection.Seed? {
+        guard let tv = textView else { return nil }
+        return MathSelection.seed(in: tv.string, selection: tv.selectedRange())
     }
+
+    /// On the rendered page, which keeps the whole note and where its caret
+    /// is in it: the page asks `Insertion` itself and lands the answer.
+    var insertInDocument: ((Insertion.Thing) -> Void)?
+
+    /// ⌘8, ⌘9 AND THE MATHS PALETTE, in whichever pane is up (Sean,
+    /// 2026-10-02: "make math and code block insertion sensible.."). Where
+    /// the block goes and what it holds is `Insertion`'s, from the note
+    /// and the caret — the bar's offset while the bar is the cursor — so
+    /// both panes give one answer; a refusal is a line in the footer.
+    private func insert(_ thing: Insertion.Thing) {
+        if let insertInDocument { insertInDocument(thing); return }
+        guard let tv = textView else { return }
+        let bar = (tv as? PasteAwareTextView)?.armedSeam
+        let selection = bar.map { NSRange(location: $0, length: 0) } ?? tv.selectedRange()
+        switch Insertion.insert(thing, in: tv.string, at: selection, atBar: bar != nil) {
+        case .refused(let why):
+            say?(why.message)
+        case .edit(let edit):
+            // The caret takes over from the bar before the note moves
+            // under it.
+            (tv as? PasteAwareTextView)?.armedSeam = nil
+            applyInsertion(edit)
+        }
+    }
+
+    /// An insertion through the text view, as one change and so one step
+    /// of undo. The rendered page sends an insertion that stays in the
+    /// words of its open cell — inline maths, the bare WL — through here
+    /// too, onto that cell's own stack.
+    func applyInsertion(_ edit: MarkdownFormatting.Edit) { apply(edit) }
 
     /// Through `perform`, like every other command on the bar: with
     /// nothing open it opens a cell — at the insertion bar when one is up,

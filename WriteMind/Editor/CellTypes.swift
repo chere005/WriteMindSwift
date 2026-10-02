@@ -24,6 +24,11 @@ import Foundation
 /// the Format menu names it, the three list styles, the quote, and the
 /// fenced block the Insert menu calls Code Block.
 ///
+/// ⌘8, ⌘9 and the maths palette build their cells here too, through
+/// `Insertion`, which decides where in the note the cell goes and hands
+/// this the cell to build — so a code block in Python is `.code(.python)`
+/// whether the + made it plain at a bar or the button made it anywhere.
+///
 /// There is no table on the list because there are no tables: the feature
 /// came out whole on 2026-09-20 (Sean: "tables is weird right now... just
 /// completely remove tables as a feature and we'll rebuild that from
@@ -39,7 +44,11 @@ enum CellTypes {
         case heading(MarkdownFormatting.Heading)
         case list(MarkdownFormatting.ListStyle)
         case quote
-        case code
+        /// A fenced block in a language. The + offers the plain one; ⌘8 and
+        /// the code button carry the language picked under the button,
+        /// wherever they are pressed — at a bar included, where they used
+        /// to drop it.
+        case code(CodeLanguage)
         /// A cell the note RUNS, in one of the environments the badge
         /// offers (Sean, 2026-09-22: "make sure if the input cursor is
         /// horizontal, hitting cmd+9 puts a new evaluation cell at that
@@ -64,7 +73,8 @@ enum CellTypes {
             case .heading(let level): return level.name
             case .list(let style): return "\(style.title) List"
             case .quote: return "Quote"
-            case .code: return "Code Block"
+            case .code(let language):
+                return language == .plain ? "Code Block" : "\(language.title) Block"
             case .evaluation(let evaluator): return "\(evaluator.title) Evaluation Cell"
             }
         }
@@ -78,7 +88,7 @@ enum CellTypes {
         [.text],
         MarkdownFormatting.Heading.ladder.filter { $0 != .body }.map { Kind.heading($0) },
         MarkdownFormatting.ListStyle.allCases.map { Kind.list($0) } + [.quote],
-        [.code],
+        [.code(.plain)],
     ]
 
     /// The same list, flat.
@@ -104,8 +114,8 @@ enum CellTypes {
             return MarkdownFormatting.toggleList(text: markdown, selection: selection, style: style)
         case .quote:
             return MarkdownFormatting.toggleQuote(text: markdown, selection: selection)
-        case .code:
-            return MarkdownFormatting.codeBlock(text: markdown, selection: selection)
+        case .code(let language):
+            return MarkdownFormatting.codeBlock(text: markdown, selection: selection, language: language.fence)
         case .evaluation(let evaluator):
             // The same fenced block the Insert menu writes, with the info
             // string that makes it one the note runs. Nothing else about
@@ -141,13 +151,13 @@ enum CellTypes {
     }
 
     /// The cell the caret has landed in — what the rendered page opens for
-    /// typing.
+    /// typing, after a seam and after an `Insertion` alike.
     ///
     /// Asked in that order because the ends are ambiguous: the caret after
     /// `- ` is at the end of the bullet cell AND at the start of nothing,
     /// and the caret in an empty cell is at the start of the run of blank
     /// lines that cell is. A caret inside a cell always means that cell.
-    private static func cell(at caret: Int, in markdown: String) -> NSRange {
+    static func cell(at caret: Int, in markdown: String) -> NSRange {
         let blocks = MarkdownParser.positioned(from: markdown).map(\.range)
         if let inside = blocks.first(where: { $0.location < caret && caret < NSMaxRange($0) }) {
             return inside

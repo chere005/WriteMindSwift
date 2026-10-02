@@ -104,41 +104,6 @@ final class MathMarkupTests: XCTestCase {
     }
 }
 
-final class InsertMathTests: XCTestCase {
-    func testInlineMathsGoesInWhereTheCaretIs() {
-        let edit = MarkdownFormatting.insertMath(text: "the area is  here",
-                                                 selection: NSRange(location: 12, length: 0),
-                                                 wl: "Pi", display: false)
-        let after = (("the area is  here") as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
-        XCTAssertEqual(after, "the area is `wl:Pi` here")
-        XCTAssertEqual(edit.selection.length, 0)
-    }
-
-    func testMathsOnItsOwnLineOpensALineForItself() {
-        let text = "before"
-        let edit = MarkdownFormatting.insertMath(text: text, selection: NSRange(location: 6, length: 0),
-                                                 wl: "Sqrt[2]", display: true)
-        let after = (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
-        XCTAssertEqual(after, "before\n```wl\nSqrt[2]\n```\n")
-    }
-
-    func testMathsAtTheStartOfALineDoesNotAddAnEmptyOne() {
-        let text = "before\n\nafter"
-        let edit = MarkdownFormatting.insertMath(text: text, selection: NSRange(location: 8, length: 0),
-                                                 wl: "Pi", display: true)
-        let after = (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
-        XCTAssertEqual(after, "before\n\n```wl\nPi\n```\nafter")
-    }
-
-    func testTheSelectionIsReplacedNotWrapped() {
-        let text = "keep this"
-        let edit = MarkdownFormatting.insertMath(text: text, selection: NSRange(location: 5, length: 4),
-                                                 wl: "E", display: false)
-        let after = (text as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
-        XCTAssertEqual(after, "keep `wl:E`")
-    }
-}
-
 /// The calculus the menu grew on 2026-09-19.
 final class CalculusTypesettingTests: XCTestCase {
     private func set(_ wl: String) -> String {

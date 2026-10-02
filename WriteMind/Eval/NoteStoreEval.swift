@@ -47,12 +47,6 @@ extension NoteStore {
         }
     }
 
-    /// ⌘9 — an evaluation cell here. The cell the caret is in becomes
-    /// one if it is a fenced block; otherwise a new one goes in after it.
-    func makeEvaluationCell(_ evaluator: Evaluator, at cell: NSRange?) {
-        writeCell?(EvalCells.makeEvaluation(evaluator, at: cell, in: text))
-    }
-
     /// Whether ⇧↩ means "run" where the caret is. Asked by the text
     /// views, which must not swallow the key anywhere else.
     func isEvaluationCell(_ cell: NSRange?) -> Bool {

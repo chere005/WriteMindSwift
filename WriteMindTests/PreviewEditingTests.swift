@@ -35,6 +35,16 @@ final class PreviewEditingTests: XCTestCase {
                                 .heading(level: 1, text: "asdf")])
     }
 
+    func testABlockInThePlaceOfACellIsSpacedByWhatIsLeftNotByTheHole() {
+        // The paragraph comes out to make way for the block that holds it;
+        // cut out first, the empty lines either side of the hole read as a
+        // blank cell, and the block got a spare line under it.
+        let (markdown, caret) = PreviewEditing.insertBlock(in: "A\n\nBody\n\nC",
+                                                           replacing: NSRange(location: 3, length: 4))
+        XCTAssertEqual(markdown, "A\n\n\n\nC")
+        XCTAssertEqual(caret, 3)
+    }
+
     func testANewBlockInAnEmptyNoteIsJustTheCaret() {
         let (markdown, caret) = PreviewEditing.insertBlock(in: "", at: 0)
         XCTAssertEqual(markdown, "")

@@ -184,7 +184,7 @@ struct TopBar: View {
                               ? "A fenced block, set in monospace"
                               : "A fenced \(appState.codeLanguage.title) block, coloured",
                           keys: ["⌘", "8"], bare: true) {
-                    appState.editor.codeBlock(language: appState.codeLanguage.fence)
+                    appState.editor.codeBlock(appState.codeLanguage)
                 }
             } menu: {
                 Picker("Language", selection: $appState.codeLanguage) {

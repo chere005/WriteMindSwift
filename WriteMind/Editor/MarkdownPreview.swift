@@ -530,6 +530,9 @@ struct MarkdownPreview: View {
                 return kind != nil
             }
             bridge.barIsUp = { armedSeam != nil }
+            // ⌘8, ⌘9 and the maths palette: this page holds the note and
+            // where its caret is in it, so it asks `Insertion` itself.
+            bridge.insertInDocument = { thing in insert(thing) }
             // An answer written under a cell while somebody is typing in
             // another one: the note changes, and everything holding a raw
             // offset further down it moves by the same amount. Nothing
@@ -577,6 +580,7 @@ struct MarkdownPreview: View {
             bridge.cellEditInDocument = nil
             bridge.armedBar = nil
             bridge.barIsUp = nil
+            bridge.insertInDocument = nil
             bridge.writeInDocument = nil
             bridge.armBarInDocument = nil
         }
@@ -1876,6 +1880,137 @@ struct MarkdownPreview: View {
         // Nothing before the cut moved, so the head still begins where the
         // whole cell did — and the seam under it is the one between them.
         armSeam(beside: cell.range, below: true)
+    }
+
+    // MARK: - ⌘8, ⌘9 and the maths palette
+
+    /// WHERE THIS PAGE'S CARET IS, IN THE NOTE — what `Insertion` is asked
+    /// with, so the page and the source pane give one answer for one place
+    /// (Sean, 2026-10-02: "make math and code block insertion sensible..").
+    ///
+    /// The bar is its own offset. An open cell's caret is the cell's start
+    /// plus how far into its editor the caret is — past the fence line for
+    /// a code cell, whose editor holds its code alone; an open reminder's,
+    /// its words' start plus that. Cells held by their brackets are the
+    /// first of them, whole. With nothing open, it is where `openSomething`
+    /// would have put the caret: the end of the note's first cell.
+    static func insertionSpot(in markdown: String, cursor: Cursor, fence: Fence?, inEditor: NSRange?,
+                              bar: Int?, held: [NSRange]) -> (selection: NSRange, atBar: Bool) {
+        if let bar { return (NSRange(location: bar, length: 0), true) }
+        let inside = inEditor ?? NSRange(location: 0, length: 0)
+        switch cursor {
+        case .cell(let range):
+            let lead = fence.map { ($0.open as NSString).length + 1 } ?? 0
+            return (NSRange(location: range.location + lead + inside.location, length: inside.length), false)
+        case .item(let words):
+            return (NSRange(location: words.location + inside.location, length: inside.length), false)
+        case .none:
+            if let first = held.min(by: { $0.location < $1.location }) { return (first, false) }
+            let end = MarkdownParser.positioned(from: markdown).first.map { NSMaxRange($0.range) } ?? 0
+            return (NSRange(location: end, length: 0), false)
+        }
+    }
+
+    /// The cell an insertion left the caret in, and where the caret goes in
+    /// the editor that opens it: past the fence line in a fenced cell.
+    static func landing(at caret: Int, in markdown: String) -> (cell: NSRange, caret: Int) {
+        let cell = CellTypes.cell(at: caret, in: markdown)
+        let source = (markdown as NSString).substring(with: cell)
+        let lead = MarkdownFormatting.fenced(source).map { ($0.open as NSString).length + 1 } ?? 0
+        return (cell, max(0, caret - cell.location - lead))
+    }
+
+    /// An insertion that stays in the words of the cell open in front of
+    /// it — inline maths, the bare WL in a maths cell — in that editor's
+    /// own coordinates, so it goes through the editor and onto the
+    /// editor's own undo stack like a keystroke. Nil for anything that
+    /// makes a cell: that is the note's, and opens the cell it made.
+    static func editorEdit(_ edit: MarkdownFormatting.Edit, cursor: Cursor, fence: Fence?,
+                           draftLength: Int) -> MarkdownFormatting.Edit? {
+        guard !edit.replacement.contains("\n") else { return nil }
+        let start: Int
+        switch cursor {
+        case .none: return nil
+        case .cell(let range): start = range.location + (fence.map { ($0.open as NSString).length + 1 } ?? 0)
+        case .item(let words): start = words.location
+        }
+        guard edit.range.location >= start, NSMaxRange(edit.range) <= start + draftLength,
+              edit.selection.location >= start else { return nil }
+        return MarkdownFormatting.Edit(
+            range: NSRange(location: edit.range.location - start, length: edit.range.length),
+            replacement: edit.replacement,
+            selection: NSRange(location: edit.selection.location - start, length: edit.selection.length))
+    }
+
+    /// What `Insertion` says, carried out on this page: in the open
+    /// editor when it stays in its words, otherwise over the note — and
+    /// then the cell the caret landed in opens, a code cell as its code,
+    /// with the caret where typing goes.
+    private func insert(_ thing: Insertion.Thing) {
+        guard editable else { return }
+        let inEditor = cursor == .none ? nil : bridge.textView?.selectedRange()
+        let spot = Self.insertionSpot(in: markdown, cursor: cursor, fence: fence, inEditor: inEditor,
+                                      bar: armedSeam?.offset, held: selectedCells)
+        switch Insertion.insert(thing, in: markdown, at: spot.selection, atBar: spot.atBar) {
+        case .refused(let why):
+            bridge.say?(why.message)
+        case .edit(let edit):
+            let open = ((editingItem == nil ? draft : itemDraft) as NSString).length
+            if !spot.atBar, bridge.textView != nil,
+               let local = Self.editorEdit(edit, cursor: cursor, fence: fence, draftLength: open) {
+                bridge.applyInsertion(local)
+                return
+            }
+            let before = markdown, was = cursor, held = selectedCells, bar = armedSeam
+            let caretWas = inEditor?.location ?? 0
+            // THE EDITOR WITH THE KEYBOARD LETS GO FIRST. A cell made where
+            // the open one started has the same place on the page, so
+            // SwiftUI hands it the same editor — and an editor holding the
+            // keyboard takes no text from outside, so it kept the old
+            // words and the next keystroke wrote them over the code.
+            bridge.textView?.window?.makeFirstResponder(nil)
+            markdown = (markdown as NSString).replacingCharacters(in: edit.range, with: edit.replacement)
+            let landing = Self.landing(at: edit.selection.location, in: markdown)
+            beginEditing(landing.cell, caret: .at(landing.caret))
+            offerUndo(restoring: before, cursor: was, caret: caretWas, held: held, bar: bar)
+        }
+    }
+
+    /// ONE ⌘Z TAKES IT BACK, the way it does in the source pane. A change
+    /// to the whole note has no text view of its own to be undone in, so
+    /// the way back is put on the undo stack of the editor the new cell
+    /// opened in — first, under anything typed into it afterwards, and
+    /// gone with that editor when the cell closes, the way everything
+    /// typed in a cell on this page is. It waits for that editor: SwiftUI
+    /// builds it a turn or two after the cell opens. A stack the editor
+    /// brought from the cell it was before is emptied, because its steps
+    /// are about words that are not in it any more.
+    private func offerUndo(restoring before: String, cursor was: Cursor, caret: Int, held: [NSRange],
+                           bar: SeamID?, attempts: Int = 10) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+            guard let view = bridge.textView as? BlockTextView, view.window?.firstResponder === view,
+                  let undo = view.undoManager
+            else {
+                if attempts > 0 {
+                    offerUndo(restoring: before, cursor: was, caret: caret, held: held, bar: bar,
+                              attempts: attempts - 1)
+                }
+                return
+            }
+            undo.removeAllActions()
+            undo.registerUndo(withTarget: view) { view in
+                view.window?.makeFirstResponder(nil)
+                markdown = before
+                switch was {
+                case .cell(let range): beginEditing(range, caret: .at(caret))
+                case .item(let words): openItem(words, caret: .at(caret))
+                case .none:
+                    cursor = .none
+                    selectedCells = held
+                    if let bar { arm(bar) }
+                }
+            }
+        }
     }
 
     private func moveWholeSection(up: Bool) {

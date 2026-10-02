@@ -371,18 +371,14 @@ struct FormatMenu: Commands {
             // already did.
             Divider()
 
-            // ⌘9 — AN EVALUATION CELL HERE: the cell the caret is in
-            // becomes one, or a new one goes in after it (Sean,
+            // ⌘9 — AN EVALUATION CELL HERE: a fenced cell the caret is
+            // in becomes one, and anywhere else a new one is made where
+            // the caret is, by the rule every block follows (Sean,
             // 2026-09-21: "cmd+9 should start a new cell or turn the
-            // existing cell to an evaluation cell"). Running one is ⇧↩,
-            // which belongs to the cell and not to this menu — a menu
-            // key equivalent would swallow shift-return everywhere.
-            Button("Evaluation Cell") {
-                // At a bar the cell is MADE THERE and that is the whole
-                // of it; anywhere else the caret's own cell becomes one.
-                guard !editor.evaluationCellAtBar(appState.evaluator) else { return }
-                store.makeEvaluationCell(appState.evaluator, at: editor.caretCell())
-            }
+            // existing cell to an evaluation cell"; `Insertion`). Running
+            // one is ⇧↩, which belongs to the cell and not to this menu —
+            // a menu key equivalent would swallow shift-return everywhere.
+            Button("Evaluation Cell") { editor.evaluationCell(appState.evaluator) }
             .shortcut(.evaluationCell)
             .disabled(store.selectedNote == nil)
 
@@ -430,8 +426,8 @@ struct InsertMenu: Commands {
 
             Divider()
 
-            Button("\(appState.codeLanguage == .plain ? "Code Block" : appState.codeLanguage.title + " Block")") {
-                appState.editor.codeBlock(language: appState.codeLanguage.fence)
+            Button(CellTypes.Kind.code(appState.codeLanguage).name) {
+                appState.editor.codeBlock(appState.codeLanguage)
             }
             .shortcut(.codeBlock)
             .disabled(store.selectedNote == nil)

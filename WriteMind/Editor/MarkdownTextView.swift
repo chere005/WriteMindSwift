@@ -475,8 +475,14 @@ struct MarkdownTextView: NSViewRepresentable {
         if added > 0 {
             let opening = (updated as NSString).substring(with: NSRange(location: place, length: added))
             let range = NSRange(location: place, length: 0)
+            // ONE CHANGE, ONE STEP OF UNDO. `insertText` asks
+            // `shouldChangeText` and calls `didChangeText` itself, so
+            // wrapping it in a second pair put the opening on the undo
+            // stack twice: one ⌘Z took it out twice over — half the note
+            // mid-note, and an exception at the end of it, where the second
+            // removal ran past the last character (2026-10-02).
             guard tv.shouldChangeText(in: range, replacementString: opening) else { return }
-            tv.insertText(opening, replacementRange: range)
+            tv.textStorage?.replaceCharacters(in: range, with: opening)
             tv.didChangeText()
         }
         tv.setSelectedRange(NSRange(location: min(caret, (tv.string as NSString).length), length: 0))

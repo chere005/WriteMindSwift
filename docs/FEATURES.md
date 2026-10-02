@@ -179,8 +179,10 @@ is how the code is put together.
 - **Evaluation cells, which are not code cells.** A code cell is code you
   are writing about; an evaluation cell is code the note runs, and the file
   says which: ```eval wl, ```eval python, ```eval c, ```eval c++,
-  ```eval rust. ⌘9 makes one, or
-  turns the cell the caret is in into one — the code is kept. ⇧↩ runs it,
+  ```eval rust. ⌘9 makes one where the caret is — the way a code block
+  goes in, below — or turns a code cell the caret is in into one, the code
+  kept; in a cell already running that way it does nothing and the footer
+  says so, and in an answer it makes a new cell under the answer. ⇧↩ runs it,
   and nothing else does. At its far left is a badge saying which
   environment it is — click it to pick another and the fence is rewritten
   — and once the cell has been run that becomes `In[n]`, with `Out[n]`
@@ -199,9 +201,20 @@ is how the code is put together.
   all, and neither does a cell whose closing ``` has not been typed yet.
 - **Code blocks, in five languages.** The `</>` button (⌘8) fences the
   selection or opens an empty block; its chevron tags the fence C, C++,
-  Wolfram, Python or TypeScript, and the block is coloured — in the editor
-  and in the preview — by a palette that has a light and a dark half, so it
-  reads either way round.
+  Wolfram, Python or TypeScript — at the insertion line too — and the block
+  is coloured — in the editor and in the preview — by a palette that has a
+  light and a dark half, so it reads either way round.
+- **A block always lands as a cell of its own.** A code block, an
+  evaluation cell or maths on its own line goes in with a blank line above
+  and below it, never glued to the words: in the middle of a paragraph the
+  paragraph is cut there and the block goes between the halves; in a
+  heading, a list or a quote it goes above or below the line the caret is
+  on, so no item is split; at the insertion line it is made there. What
+  was selected becomes what the block holds, and the caret ends inside it,
+  where typing goes. A block is never put inside another: ⌘8 in a code
+  block does nothing and the footer says why, and anything else asked for
+  inside a fenced cell goes in after it — after its answer, when it has
+  one. ⌘Z takes the whole of it back in one step, in both panes.
 - **Strikethrough.** ⇧⌘X, written `~~like this~~`, struck through in the
   editor and in the preview.
 - **Crop a picture.** Select one and the crop button sits at its bottom
@@ -338,7 +351,13 @@ is how the code is put together.
   Fill in the parts, watch it set, and insert it inline or on its own line.
   What the note holds is the WL — `Integrate[x^2, {x, 0, 1}]` — in a code
   span or a ```wl block, so the file is still plain markdown; the preview
-  typesets it.
+  typesets it. Open it over a selection that reads as maths — `x^2 + 1` —
+  and it starts from that: Insert sets exactly the selection, in the
+  sentence when it sits in one, and a shape picked first wraps it (√ of
+  it). Selected words are never thrown away; the maths goes after them.
+  Inside a maths block — or a Wolfram cell — what the palette writes goes
+  in as plain WL where the caret is, which is how a Greek letter or a ∑ is
+  added to maths already there.
 - **Any camera the Mac can see.** The **Input Devices** menu in the menu bar
   lists built-in, USB, Continuity Camera and Desk View devices with a
   checkmark on the live one; plugging one in refreshes the list. The

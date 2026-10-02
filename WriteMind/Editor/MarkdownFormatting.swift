@@ -29,28 +29,6 @@ enum MarkdownFormatting {
     static let indentUnit = "    "
     static let tabWidth = 4
 
-    // MARK: - Maths
-
-    /// Put maths in, as WL. Inline it is a code span the preview typesets;
-    /// on its own line it is a ```wl block, and this is where the line breaks
-    /// around it come from — a fence that starts mid-line is not a fence.
-    static func insertMath(text: String, selection: NSRange, wl: String, display: Bool) -> Edit {
-        let ns = text as NSString
-        let range = clamp(selection, to: ns.length)
-        let body: String
-        if display {
-            let before = range.location > 0 ? ns.substring(to: range.location) : ""
-            let after = ns.substring(from: NSMaxRange(range))
-            let lead = (before.isEmpty || before.hasSuffix("\n")) ? "" : "\n"
-            let tail = after.hasPrefix("\n") ? "" : "\n"
-            body = lead + MathMarkup.block(wl) + tail
-        } else {
-            body = MathMarkup.inline(wl)
-        }
-        return Edit(range: range, replacement: body,
-                    selection: NSRange(location: range.location + (body as NSString).length, length: 0))
-    }
-
     // MARK: - Code blocks
 
     /// A fenced code block round the selection, on lines of its own — or an

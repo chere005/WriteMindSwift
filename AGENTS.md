@@ -1100,14 +1100,12 @@ CoreMind's `bin/report-status.sh`.
   bullet list, or a quoted section, etc.. it should create a cell at the
   position of the bar ready for that type of input"). The bar is in no
   cell, so `EditorBridge.atArmedBar` makes one: a command that NAMES a
-  kind — the ladder, the three lists, the quote, the fenced block, and
-  ⌘9's evaluation cell (`CellTypes.Kind.evaluation`, which is that same
-  fenced block with `eval ` on its info string; it is deliberately NOT
-  on the + menu, since three environments would triple a list for a
-  cell its own key already makes) —
+  kind — the ladder, the three lists, the quote —
   opens the cell with that marker already in it and is finished, and
-  anything else — bold, the text style, maths — opens a PLAIN cell and
-  then runs in it. `perform(opensACell:)` tells those from the third
+  anything else — bold, the text style — opens a PLAIN cell and then
+  runs in it. ⌘8, ⌘9 and the maths palette make theirs there through
+  `Insertion` (the rule after the next), as one edit and one step of
+  undo. `perform(opensACell:)` tells those from the third
   sort, the commands that act ON a cell — delete, duplicate, move,
   split, merge — which still do nothing at a bar, because an empty cell
   made to be deleted is churn in the note and a step on the undo stack
@@ -1146,7 +1144,16 @@ CoreMind's `bin/report-status.sh`.
   runs — `setHeading`, `toggleList`, `toggleQuote`, `codeBlock` — over the
   cell that just opened. `CellTypes.open` is the whole rule and both panes
   call it; anything that wants a new kind adds a case there and nowhere
-  else. Three things about it that are not obvious: the command is applied
+  else — `Insertion` builds ⌘8's, ⌘9's and the palette's cells with it
+  too, so `.code` carries a language (the + offers the plain one) and
+  `.evaluation` an environment (not on the + menu: three environments
+  would triple a list for a cell its own key already makes). And THE
+  BAR'S OPENING IS ONE CHANGE: `MarkdownTextView.openSeam` replaces the
+  characters between one `shouldChangeText` and one `didChangeText`; it
+  used to call `insertText` between them, which asks and tells for
+  itself, so the opening went on the undo stack twice — one ⌘Z after
+  typing at the bar under the last cell threw an NSRangeException
+  (2026-10-02, measured with undo grouped by hand). Three things about it that are not obvious: the command is applied
   while the cell is still EMPTY and the character is typed afterwards, so
   `- `, `> `, `### ` and a pair of fences all leave the caret exactly
   where the words go; `setHeading` needs `evenIfEmpty: true` for that,
@@ -1168,6 +1175,54 @@ CoreMind's `bin/report-status.sh`.
   `MarkdownPreview.arming` says the same thing — or pressing the + a
   second time to look at the choice throws it away behind the menu that
   is still ticking it.
+- **A BLOCK ASKED FOR IS A CELL OF ITS OWN, AND `Insertion` SAYS
+  WHERE.** Sean, 2026-10-02: "make math and code block insertion
+  sensible..". ⌘8 (and the code button, and Insert ▸ Code Block), ⌘9 and
+  the maths palette all go through `EditorBridge.insert`, which asks the
+  pure `Insertion.insert` with the whole note and the caret in it — the
+  bar's offset while the bar is the cursor; on the rendered page
+  `MarkdownPreview.insertionSpot` reads it out of the open cell, past the
+  fence line of a code cell, so both panes give ONE answer — and gets
+  back one edit or a refusal said in the footer (`EditorBridge.say`).
+  The rules, in the order asked: AT THE BAR the cell is made there, ⌘8's
+  language with it. INSIDE A FENCED BLOCK nothing is ever nested: the
+  same kind does nothing and says why (⌘8 in code; ⌘9 in a cell already
+  running in that environment); ⌘9 in any other fenced cell turns it into
+  one, the 2026-09-21 rule, except an `out` answer, which is never code;
+  maths in a block that is already Wolfram Language (```wl, ```eval wl,
+  Wolfram code) goes in as the BARE WL at the caret, since composing one
+  is what the palette's α and ∑ are for; inline maths in any other code
+  is refused; anything else goes AFTER the block as a cell — after its
+  answer when it has one, never between code and what it said. A BLOCK
+  IS A CELL — a blank line above and below, never glued into a paragraph
+  or an item: a paragraph is cut at the caret, spaces at the cut dropped
+  (at the front of its words the block goes above, at the end below);
+  a heading, a list, a quote or a rule is cut only BETWEEN LINES — above
+  the caret's line when the caret is at the front of its words or in its
+  marker, below it otherwise — so no item's words are split and no
+  marker is left bare; on an empty line of a blank cell the block takes
+  that one line and the rest stay the note's. A SELECTION IS THE CONTENT:
+  code and evaluation cells take it verbatim, the text either side
+  staying cells (an item's words take the item, marker and all); maths
+  takes a selection's place only when it still HOLDS it
+  (`MathSelection.holds`: the selection reads as WL — no word in it — and
+  is a whole term of the maths), otherwise the words stay and the maths
+  goes after them; the palette opens SEEDED from a selection that reads
+  as maths, in the sentence when it sits in one, and a shape picked then
+  takes it into its first slot; a selection with a fence in it is
+  refused. THE CARET ENDS WHERE TYPING GOES — between an empty block's
+  fences, at the end of what it was given, at the end of display maths'
+  WL, after inline maths, which stays in the sentence (never in front of
+  a marker) and is a plain cell of its own where there are no words. ONE
+  ⌘Z TAKES IT BACK: the source pane applies the one edit; the rendered
+  page sends an edit that stays in its open cell's words (inline maths,
+  bare WL) through that cell's editor, and otherwise changes the note,
+  opens the cell the caret landed in (a code cell as its code) and puts
+  the way back on that editor's own undo stack (`offerUndo`). The cell's
+  text is `CellTypes.open`'s, its spacing `PreviewEditing.insertBlock`'s
+  (`replacing:` a selection, the spacing read off the note as it is).
+  The map of what each command did before, context by context in both
+  panes, is in the commit that made this.
 - **Arming is a reading of where the caret is, not a mode a click turns
   on.** `CellSeams.arm` answers it from the selection alone, and
   `textViewDidChangeSelection` is the only place the markdown pane sets
@@ -1535,11 +1590,11 @@ CoreMind's `bin/report-status.sh`.
   refused by default.** Sean, 2026-09-21: "finish the work on evaluation
   cells", and "evaluation cells are completely different from code
   cells". An evaluation cell is ```eval wl, ```eval python, ```eval c,
-  ```eval c++ or ```eval rust — ⌘9 makes one, turns the caret's cell
-  into one, or at an
-  ARMED BAR makes one there (the same rule every other kind-naming
-  command follows; it used to ask `caretCell()` and so restyled the
-  cell BELOW the bar), ⇧↩
+  ```eval c++ or ```eval rust — ⌘9 makes one where the caret is, turns
+  a fenced cell the caret is in into one, or at an ARMED BAR makes one
+  there (`Insertion`'s rule, above; it used to ask `caretCell()`, so at
+  a bar it restyled the cell BELOW the bar and anywhere else it ignored
+  the caret and went after the whole cell), ⇧↩
   runs it AND NOTHING ELSE DOES, the badge at its left picks the
   environment, and the answer goes under it in an ```out cell.
   **`CellMark` IS THE MARGIN**, one column for both halves of a pair so
@@ -1770,6 +1825,10 @@ WriteMind/
   Editor/PreviewEditing.swift
                           the document surgery — insert, split, remove, list
                           continuation. Pure, tested
+  Editor/Insertion.swift  where ⌘8's, ⌘9's and the maths palette's block
+                          goes and what it holds, as one edit or a
+                          refusal — both panes. Pure, tested
+
   Editor/PaneMapping.swift
                           a point on one pane on the other, through the
                           cells both have (PaneMapping), and the top of the
@@ -1851,6 +1910,9 @@ WriteMind/
   Math/MathTemplates.swift
                           the palette — every entry writes WL with #1, #2 …
                           filled in from its fields
+  Math/MathSelection.swift
+                          whether a selection reads as maths (the palette
+                          opens with it) and whether maths still holds it
   Views/ContentView.swift top bar over [sidebar | HSplitView(editor, camera)]
   Views/TopBar.swift      text style menu (the heading ladder) · B I U ·
                           bullets · quote · code block · T · outdent/indent ·
@@ -2011,7 +2073,7 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   (dots, dashes or numbers, whichever the chevron picked) · ⌃⌘Q quote ·
   ⌘[ ⌘] outdent/indent (⇥ and ⇧⇥ too) · ⌘1–⌘7 the heading ladder (title,
   chapter, author, section, subsection, subsubsection, body) · ⌘8 code
-  block · ⌃⌘↑/↓ move section · ⌃G group/ungroup what is picked on the
+  block · ⌘9 evaluation cell · ⌃⌘↑/↓ move section · ⌃G group/ungroup what is picked on the
   drawing layer · ⌥⌘Z / ⇧⌥⌘Z undo and redo the
   DRAWING (⌘Z does it too while the pen is up; ⌘Z and ⇧⌘Z are the
   tablet page's straight after the pen wrote on it; a click of the tablet
@@ -2437,6 +2499,16 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   the same broken promise, sideways. The other thing the two panes do not
   share is where their own left margin is (`CellInsertions.plusLeading`,
   `MarkdownPreview.sideInset`).
+- **A cell opened where the open one started gets the SAME editor.** The
+  rendered page's rows are keyed by where their cell starts, so a block
+  made above the open cell — at the front of its words — opens at that
+  cell's offset, and SwiftUI updates the editor already there instead of
+  building one. `BlockEditor.updateNSView` takes no text from outside
+  while its view holds the keyboard, so it kept the old paragraph and the
+  next keystroke wrote it over the new code. `MarkdownPreview.insert`
+  takes the keyboard away first (`makeFirstResponder(nil)`) and so does
+  its undo; the undo also empties the stack an editor brings from the
+  cell it was before (`RenderedInsertionTests`).
 - **`NSApplication.shared` turns mouse coalescing back ON.** Setting
   `NSEvent.isMouseCoalescingEnabled = false` in `WriteMindApp.init` did
   nothing at all: that init runs before the application is made, and
