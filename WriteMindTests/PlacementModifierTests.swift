@@ -103,6 +103,73 @@ final class PlacementModifierTests: XCTestCase {
         }
     }
 
+    // MARK: - A click on a node is the node's
+
+    /// A rectangle in the middle of the pane, 80 × 40 points.
+    private func chart(_ node: ShapeItem = ShapeItem(kind: .rectangle, center: CGPoint(x: 0.5, y: 0.5),
+                                                     width: 0.2, aspect: 0.5, colorHex: "#000000"))
+        -> Drawing {
+        Drawing(items: [.shape(node)])
+    }
+
+    private let onTheNode = CGPoint(x: 205, y: 152)
+    private let blank = CGPoint(x: 40, y: 40)
+
+    /// Sean's flow chart is a loop — draw a box, double-click it for its
+    /// label, draw the next — and the box staying armed (Sean,
+    /// 2026-10-02: "after drawing a rectangle dont exit rectangle
+    /// mode..") took both clicks of the double-click: two boxes stacked
+    /// on the one clicked, and no label.
+    func testADoubleClickOnANodeLabelsItWhileAShapeIsArmed() throws {
+        let drawing = chart()
+        let id = try XCTUnwrap(drawing.items.first?.id)
+        for armed in [CanvasPlacement.shape(.rectangle), .shape(.diamond), .line(start: .none, end: .arrow)] {
+            XCTAssertEqual(armed.release(from: onTheNode, to: onTheNode, clicks: 1, in: drawing, size: size),
+                           .pick([id]), "the first click of the two picks the node with \(armed.title) armed")
+            XCTAssertEqual(armed.release(from: onTheNode, to: onTheNode, clicks: 2, in: drawing, size: size),
+                           .label(id), "the second opens its label with \(armed.title) armed")
+        }
+    }
+
+    /// Everything else a click or a drag did with a shape armed, it still
+    /// does.
+    func testAClickOnBlankPaperOrADragFromANodeStillDraws() {
+        let drawing = chart()
+        let box = CanvasPlacement.shape(.rectangle)
+        XCTAssertEqual(box.release(from: blank, to: blank, clicks: 1, in: drawing, size: size), .put,
+                       "a click on blank paper puts one down at its own size")
+        XCTAssertEqual(box.release(from: blank, to: blank, clicks: 2, in: drawing, size: size), .put)
+        XCTAssertEqual(box.release(from: onTheNode, to: CGPoint(x: 300, y: 250), clicks: 1,
+                                   in: drawing, size: size), .put, "a box drawn from inside a box")
+        XCTAssertEqual(box.release(from: onTheNode, to: CGPoint(x: 206, y: 153), clicks: 1,
+                                   in: drawing, size: size), .pick(Set(drawing.items.map(\.id))),
+                       "a hand that shook a point is still a click")
+    }
+
+    /// A mark is a stamp, and a tick in a box is what a box is for.
+    func testAMarkClickedOntoANodeGoesDownInIt() {
+        let drawing = chart()
+        for kind in ShapeItem.Kind.allCases where !kind.isNode {
+            XCTAssertEqual(CanvasPlacement.shape(kind).release(from: onTheNode, to: onTheNode, clicks: 1,
+                                                               in: drawing, size: size), .put, kind.title)
+        }
+    }
+
+    /// The same clicks with nothing armed pick a group whole and open no
+    /// label in one — and a click means one thing whatever is armed.
+    func testANodeInAGroupIsPickedWithItsGroupAndOpensNoLabel() {
+        let group = UUID()
+        let node = ShapeItem(kind: .rectangle, center: CGPoint(x: 0.5, y: 0.5), width: 0.2, aspect: 0.5,
+                             colorHex: "#000000", group: group)
+        let partner = ShapeItem(kind: .oval, center: CGPoint(x: 0.1, y: 0.1), colorHex: "#000000", group: group)
+        let drawing = Drawing(items: [.shape(node), .shape(partner)])
+        let box = CanvasPlacement.shape(.rectangle)
+        XCTAssertEqual(box.release(from: onTheNode, to: onTheNode, clicks: 1, in: drawing, size: size),
+                       .pick([node.id, partner.id]))
+        XCTAssertEqual(box.release(from: onTheNode, to: onTheNode, clicks: 2, in: drawing, size: size),
+                       .pick([node.id, partner.id]))
+    }
+
     /// The pane takes every drag while a shape is armed, so the footer
     /// says what has it and how to put it away; a mark goes back on its
     /// own, and its line says where it goes.

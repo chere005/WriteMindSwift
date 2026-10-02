@@ -234,12 +234,13 @@ struct TopBar: View {
         Group {
             BarButton(systemImage: "square.on.circle", label: "Shapes",
                       help: "Flow-chart shapes, and arrows between them — hold ⌥ and drag from a node",
-                      isOn: appState.connectActive) {
+                      isOn: appState.shapesLit) {
                 showShapes.toggle()
             }
             .popover(isPresented: $showShapes, arrowEdge: .bottom) { ShapeMenu(isPresented: $showShapes) }
             BarButton(systemImage: "checkmark.circle", label: "Marks",
-                      help: "Check marks, crosses, stars, arrows — the things drawn all the time") {
+                      help: "Check marks, crosses, stars, arrows — the things drawn all the time",
+                      isOn: appState.marksLit) {
                 showMarks.toggle()
             }
             .popover(isPresented: $showMarks, arrowEdge: .bottom) { MarkMenu(isPresented: $showMarks) }

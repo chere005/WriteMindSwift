@@ -6,13 +6,11 @@ struct ShapeMenu: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var store: NoteStore
 
-    private let nodes: [ShapeItem.Kind] = [.rectangle, .roundedRectangle, .oval, .diamond, .triangle, .parallelogram]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Flow Chart").font(.headline)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(64), spacing: 6), count: 3), spacing: 6) {
-                ForEach(nodes) { kind in
+                ForEach(CanvasPlacement.flowChart) { kind in
                     PaletteButton(title: kind.title, symbol: kind.symbol,
                                   isOn: appState.placing == .shape(kind)) {
                         appState.arm(.shape(kind))
@@ -43,13 +41,11 @@ struct MarkMenu: View {
     @Binding var isPresented: Bool
     @EnvironmentObject private var appState: AppState
 
-    private let marks: [ShapeItem.Kind] = [.check, .cross, .question, .star, .rectangle, .oval, .triangle]
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Marks").font(.headline)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(64), spacing: 6), count: 3), spacing: 6) {
-                ForEach(marks) { kind in
+                ForEach(CanvasPlacement.marks) { kind in
                     PaletteButton(title: kind.title, symbol: kind.symbol,
                                   isOn: appState.placing == .shape(kind)) {
                         // PICKING A MARK ARMS IT; THE CLICK IS WHERE IT

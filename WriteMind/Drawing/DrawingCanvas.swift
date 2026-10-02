@@ -828,9 +828,13 @@ struct DrawingCanvas: View {
                     // put down (Sean, 2026-09-21).
                     connectPreview = (start, Self.dragEnd(doc(value.location), from: start))
                 case .placing(let start):
-                    placePreview = (start, placing?.end(doc(value.location), from: start,
-                                                        modifiers: NSEvent.modifierFlags)
-                                        ?? doc(value.location))
+                    let end = placing?.end(doc(value.location), from: start, modifiers: NSEvent.modifierFlags)
+                        ?? doc(value.location)
+                    // No ghost of a box landing on the node a click is
+                    // about to pick up (`CanvasPlacement.release`).
+                    let puts = placing?.release(from: start, to: end, clicks: 1,
+                                                in: drawing, size: size) == .put
+                    placePreview = puts ? (start, end) : nil
                 default:
                     break
                 }
@@ -870,10 +874,21 @@ struct DrawingCanvas: View {
                     }
                 case .placing(let start):
                     let modifiers = NSEvent.modifierFlags
-                    place(from: start,
-                          to: placing?.end(doc(value.location), from: start, modifiers: modifiers)
-                              ?? doc(value.location),
-                          in: size, modifiers: modifiers)
+                    let end = placing?.end(doc(value.location), from: start, modifiers: modifiers)
+                        ?? doc(value.location)
+                    // A click on a node is the node's while a shape stays
+                    // armed: picked, and labelled on the second click.
+                    switch placing?.release(from: start, to: end, clicks: NSApp.currentEvent?.clickCount ?? 1,
+                                            in: drawing, size: size) ?? .put {
+                    case .put:
+                        place(from: start, to: end, in: size, modifiers: modifiers)
+                    case .pick(let ids):
+                        placePreview = nil
+                        selection = ids
+                    case .label(let id):
+                        placePreview = nil
+                        beginLabel(id)
+                    }
                 case .marquee(let start, let additive):
                     let rect = CanvasGeometry.rect(from: start, to: doc(value.location))
                     selection = Self.marqueePicked(rect, in: drawing, size: size,
@@ -888,10 +903,14 @@ struct DrawingCanvas: View {
     }
 
     private func begin(at point: CGPoint, in size: CGSize) {
-        // Something is armed: this drag is where it goes.
+        // Something is armed: this drag is where it goes. And it is the
+        // way out of a label being typed and an arrow's style bar, as any
+        // press on the layer is: a shape stays armed now, so the next box
+        // is drawn straight after the last one was labelled.
         if placing != nil {
+            styling = nil
+            editingLabel = nil
             interaction = .placing(from: point)
-            placePreview = (point, point)
             return
         }
         // ⌥ from a node draws a connector without the arrow tool being on

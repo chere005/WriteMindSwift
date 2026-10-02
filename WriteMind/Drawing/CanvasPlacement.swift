@@ -68,9 +68,70 @@ enum CanvasPlacement: Equatable {
     /// modifier is asked (`DrawingCanvas.begin`), so while a tool is armed
     /// there is no marquee for it to collide with.
     func staysArmed(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        isDrawn || modifiers.contains(.command)
+    }
+
+    /// DRAWN rather than stamped: a node, corner to corner, or a line,
+    /// press to release. What is drawn stays armed (`staysArmed`), and a
+    /// click on a node is then the node's (`release`).
+    var isDrawn: Bool {
         switch self {
         case .line: return true
-        case .shape(let kind): return kind.isNode || modifiers.contains(.command)
+        case .shape(let kind): return kind.isNode
+        }
+    }
+
+    /// What a release does while this is armed.
+    enum Release: Equatable {
+        /// The armed thing goes down, from the press to the release.
+        case put
+        /// The node clicked is picked up — with its group, as any click
+        /// picks one up (`CanvasGroups.whole`).
+        case pick(Set<UUID>)
+        /// The node double-clicked opens its label.
+        case label(UUID)
+    }
+
+    /// A CLICK ON A NODE IS THE NODE'S while something drawn is armed.
+    /// Sean's flow chart is a loop — draw a box, double-click it to give
+    /// it its label, draw the next — and a box that stays armed (Sean,
+    /// 2026-10-02: "after drawing a rectangle dont exit rectangle
+    /// mode..") took both clicks of the double-click: two boxes at their
+    /// own size stacked on the one clicked, and no label. So a press
+    /// that never moved, landing on a node, picks it up, and the second
+    /// click of a double-click opens its label, as the same clicks do
+    /// with nothing armed — a node inside a group picks the group and
+    /// opens no label there either. Anywhere else a click still puts one
+    /// down at its own size; a drag that starts on a node still draws
+    /// (a box round a box); and a mark is a stamp, so a tick clicked onto
+    /// a box goes down in it.
+    func release(from: CGPoint, to: CGPoint, clicks: Int, in drawing: Drawing, size: CGSize) -> Release {
+        guard isDrawn, !Self.isDrag(from: from, to: to),
+              let index = drawing.index(at: from, in: size),
+              case .shape(let node) = drawing.items[index], node.kind.isNode
+        else { return .put }
+        let picked = CanvasGroups.whole([node.id], in: drawing.items)
+        return clicks == 2 && picked == [node.id] ? .label(node.id) : .pick(picked)
+    }
+
+    /// THE TWO PALETTES' SHAPES, tile for tile, here and not in their
+    /// views so the bar can light the button whose palette holds what is
+    /// armed (`AppState.shapesLit`, `marksLit`). The Marks palette shares
+    /// the box, the circle and the triangle with the flow chart, and
+    /// holds every line.
+    static let flowChart: [ShapeItem.Kind] = [.rectangle, .roundedRectangle, .oval, .diamond, .triangle,
+                                              .parallelogram]
+    static let marks: [ShapeItem.Kind] = [.check, .cross, .question, .star, .rectangle, .oval, .triangle]
+
+    var isOnFlowChart: Bool {
+        if case .shape(let kind) = self { return Self.flowChart.contains(kind) }
+        return false
+    }
+
+    var isOnMarks: Bool {
+        switch self {
+        case .shape(let kind): return Self.marks.contains(kind)
+        case .line: return true
         }
     }
 
@@ -89,7 +150,7 @@ enum CanvasPlacement: Equatable {
     /// there for the same reason — and a tool that no longer goes back on
     /// its own says how it is put away.
     var footer: String {
-        staysArmed([]) ? "\(title): every drag draws one, Esc to stop" : "\(title): click where it goes"
+        isDrawn ? "\(title): every drag draws one, Esc to stop" : "\(title): click where it goes"
     }
 
     /// Under this, the drag was a click.

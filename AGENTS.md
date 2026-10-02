@@ -970,19 +970,38 @@ CoreMind's `bin/report-status.sh`.
   tile is lit); another tile; the arrow tool, which now puts an armed
   shape away as arming a shape always put the arrow tool away (`begin`
   asks the placement first, so a shape left beside it would take every
-  drag meant for the arrow); a mode, the pen, ⌘P; and the Text Box and
-  Add Image buttons (`AppState.putToolsAway` — they put the pen down
-  already, and a shape left armed would take the click that finishes the
-  text box). While it is armed the footer names it after the mode, in the
-  same colour (`CanvasPlacement.footer`: "Rectangle: every drag draws
-  one, Esc to stop"), the pointer stays the crosshair and the handles
-  stay hidden; what was just drawn is the selection, so ⌫ and ⌘Z take it
-  back without disarming. EVERY RULE OF THE PRESS IS KEPT: the placement
-  is asked before any mode, modifier or object under the pointer, so a
-  plain click ON an object puts a node down there at its own size, a mark
-  too, and a line nothing — the pane is the tool's until it is put away.
-  A capture from the camera or the tablet puts the pen down as it did and
-  leaves an armed shape armed.
+  drag meant for the arrow); a mode, the pen, ⌘P; and EVERY WAY ONTO THE
+  PAGE — the bar's Text Box, the pen menu's Add Image, Insert ▸ Image…
+  and Insert ▸ Text Box, the camera's capture and the tablet's
+  (`AppState.putToolsAway`). Each of those put the pen down so what
+  arrived could be typed in or picked up, and a shape left armed took
+  that click and put a box down on it; the first cut routed the bar's
+  two and missed the other four, so `CanvasModeTests` now reads the
+  sources and fails on a call that drops something on the page without
+  it. While it is armed the footer names it after the mode, in the same
+  colour (`CanvasPlacement.footer`: "Rectangle: every drag draws one,
+  Esc to stop"), and the bar lights the button whose palette holds it,
+  as it lights the pen and the arrow tool (`AppState.shapesLit`,
+  `marksLit`; both for the box, circle and triangle the two palettes
+  share, from the one list each palette is laid out from,
+  `CanvasPlacement.flowChart` and `marks`) — the lit tile alone was
+  inside a popover that closes as it is picked. The pointer stays the
+  crosshair and the handles stay hidden; what was just drawn is the
+  selection, so ⌫ and ⌘Z take it back without disarming. The placement
+  is asked before any mode, modifier or object under the pointer, and
+  **A CLICK ON A NODE IS THE NODE'S** (`CanvasPlacement.release`): Sean's
+  flow chart is a loop — draw a box, double-click it for its label, draw
+  the next — and a box left armed took both clicks of the double-click,
+  two boxes at their own size stacked on the one clicked and no label.
+  With a node or a line armed, a press that never moved and lands on a
+  node picks it, its group whole, and the second click of a double-click
+  opens its label — the same answer as with nothing armed, a node in a
+  group opening none. Anywhere else a click puts a node down at its own
+  size; a drag that starts inside a node still draws; a mark clicked
+  onto a node goes down in it, a tick in a box; and the drag shows no
+  ghost of a box over the node it is about to pick. A placement press
+  ends a label being typed and an arrow's style bar, as any press on the
+  layer does, so the next box follows the last label straight away.
 - **A group is a shared id, and every rule about it is in `CanvasGroups`.**
   Sean, 2026-09-20: "toggle grouping with the button on the screen or
   ctrl+g". `group: UUID?` sits on `Stroke`, `ImageItem` and `ShapeItem`
@@ -1767,7 +1786,9 @@ WriteMind/
                           marker while the pen is near; the notes pane's
                           word to the tablet (on screen, where, which pen)
   Views/ShapeMenu.swift   the Shapes popover (nodes, the arrow tool) and the
-                          Marks popover (checks, crosses, stars, arrows)
+                          Marks popover (checks, crosses, stars, arrows),
+                          laid out from `CanvasPlacement.flowChart` and
+                          `marks`, the lists the bar lights its buttons by
   Views/CameraPane.swift  the preview, or a placeholder that says why not;
                           rotate buttons and the section selector (drag a
                           box, then Writing or Page)

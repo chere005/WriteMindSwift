@@ -413,15 +413,17 @@ struct InsertMenu: Commands {
 
     var body: some Commands {
         CommandMenu("Insert") {
+            // The same as the bar's: every tool put away, so the picture
+            // or the box that arrives takes the next click.
             Button("Image…") {
-                appState.canvasMode = .cursor
+                appState.putToolsAway()
                 store.chooseImage()
             }
             .shortcut(.insertImage)
             .disabled(store.selectedNote == nil)
 
             Button("Text Box") {
-                appState.canvasMode = .cursor
+                appState.putToolsAway()
                 store.addTextBox(colorHex: appState.penColorHex)
             }
             .disabled(store.selectedNote == nil)

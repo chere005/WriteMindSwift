@@ -288,10 +288,13 @@ final class AppState: ObservableObject {
     }
 
     /// EVERY TOOL PUT AWAY — the pen, the arrow tool, an armed shape — for
-    /// something dropped on the page from the bar to be typed in or
-    /// picked up: a text box, a picture. Those buttons put the pen down
-    /// already; a shape left armed would take the click that finishes the
-    /// text box and put a rectangle down instead.
+    /// something dropped on the page to be typed in or picked up: a text
+    /// box or a picture from the bar or the Insert menu, a capture from
+    /// the camera or the tablet. Each of those put the pen down already;
+    /// a shape left armed would take the click that finishes the text box,
+    /// or picks up the picture, and put a rectangle down instead. Every
+    /// one of them comes through here (`CanvasModeTests` reads the
+    /// sources for it).
     func putToolsAway() {
         canvasMode = .cursor
         connectActive = false
@@ -325,6 +328,18 @@ final class AppState: ObservableObject {
         case .cursor: return nil
         }
     }
+
+    /// WHICH OF THE BAR'S TWO PALETTE BUTTONS IS LIT — the bar lights a
+    /// tool that holds the pane, as it lights the pen, and a shape now
+    /// holds it until it is put away (Sean, 2026-10-02: "after drawing a
+    /// rectangle dont exit rectangle mode.."). The Shapes button for the
+    /// arrow tool and the flow chart's nodes, the Marks button for its
+    /// own tiles; both for the box, the circle and the triangle the two
+    /// palettes share, since either tile puts it away. The lit tile is
+    /// inside a popover that closes when it is picked, so the bar is
+    /// where it shows.
+    var shapesLit: Bool { connectActive || placing?.isOnFlowChart == true }
+    var marksLit: Bool { placing?.isOnMarks == true }
 
     /// Whose ⌘Z it is. The drawing's while the pen is up, while something
     /// on the layer is picked, while a shape is waiting to be put down,

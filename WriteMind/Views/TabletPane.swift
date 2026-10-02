@@ -182,9 +182,9 @@ struct TabletPane: View {
     /// One of the box's three into the note, and the box put away. Image
     /// takes the paper with it, printed as the pane prints it.
     private func take(_ choice: TabletChoice, box: CGRect, pageSize: CGSize, millimetres: CGSize) {
-        // As the camera's capture does: the pen is put down so what has
+        // As the camera's capture does: every tool is put away so what has
         // just arrived can be picked up and dragged where it goes.
-        if choice != .text { appState.canvasMode = .cursor }
+        if choice != .text { appState.putToolsAway() }
         if store.takeFromTablet(choice, strokes: sheet.strokes, box: box, pageSize: pageSize,
                                 theme: sheet.theme, millimetres: millimetres) {
             scribe.box.rect = nil

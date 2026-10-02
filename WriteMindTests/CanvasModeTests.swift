@@ -130,6 +130,71 @@ final class CanvasModeTests: XCTestCase {
         XCTAssertFalse(app.canvasOwnsPane)
     }
 
+    /// EVERY WAY ONTO THE PAGE PUTS THE TOOLS AWAY, not only the bar's:
+    /// Insert ▸ Image… (⇧⌘I) and Insert ▸ Text Box, the camera's capture
+    /// and the tablet's. Each put the pen down so what arrived could be
+    /// typed in or picked up, and each left a shape armed — which, now
+    /// that a shape stays armed, took that click and put a box down on
+    /// what had just arrived.
+    func testEveryWayOntoThePagePutsTheToolsAway() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "WriteMind", directoryHint: .isDirectory)
+        let sources = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" }) ?? []
+        var drops = 0
+        for file in sources {
+            let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
+            for (index, line) in lines.enumerated() {
+                guard ["store.addTextBox(", "store.chooseImage(", "store.captureNotebook(",
+                       "store.takeFromTablet("].contains(where: line.contains) else { continue }
+                drops += 1
+                let before = lines[max(0, index - 2)..<index].joined(separator: "\n")
+                XCTAssertTrue(before.contains("appState.putToolsAway()"),
+                              "\(file.lastPathComponent):\(index + 1) drops something on the page "
+                              + "with a tool still in hand")
+            }
+        }
+        XCTAssertEqual(drops, 6, "the bar's Text Box, the pen menu's Add Image, the Insert menu's "
+                       + "two, the camera's capture, the tablet's")
+    }
+
+    /// THE BAR LIGHTS A TOOL THAT HOLDS THE PANE: the arrow tool always
+    /// did, and a shape now holds it too until it is put away. The button
+    /// lit is the one whose palette has the tile — both of them for the
+    /// box, the circle and the triangle the two palettes share, since
+    /// either tile puts it away.
+    func testTheBarLightsThePaletteThatHoldsWhatIsArmed() {
+        let app = state()
+        XCTAssertFalse(app.shapesLit)
+        XCTAssertFalse(app.marksLit)
+
+        app.arm(.shape(.diamond))
+        XCTAssertTrue(app.shapesLit, "a diamond is on the flow chart's palette")
+        XCTAssertFalse(app.marksLit)
+
+        app.arm(.shape(.check))
+        XCTAssertFalse(app.shapesLit)
+        XCTAssertTrue(app.marksLit, "a tick is on the Marks palette")
+
+        app.arm(.line(start: .arrow, end: .arrow))
+        XCTAssertFalse(app.shapesLit)
+        XCTAssertTrue(app.marksLit, "so are the lines")
+
+        app.arm(.shape(.rectangle))
+        XCTAssertTrue(app.shapesLit, "a box is on both")
+        XCTAssertTrue(app.marksLit)
+
+        app.connectActive = true
+        XCTAssertTrue(app.shapesLit, "the arrow tool is the flow chart's")
+        XCTAssertFalse(app.marksLit, "and it put the box away")
+
+        app.putToolsAway()
+        XCTAssertFalse(app.shapesLit)
+        XCTAssertFalse(app.marksLit)
+    }
+
     func testTheModeIsRememberedTheWayThePensSizeIs() {
         let first = state()
         first.canvasMode = .pen

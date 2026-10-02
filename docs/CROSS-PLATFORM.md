@@ -30,17 +30,32 @@ Sean, 2026-10-02: "after drawing a rectangle dont exit rectangle mode..".
   tile, so it can be found); another tile; the arrow tool — the arrow tool
   and an armed shape each put the other away, since an armed shape is
   asked for the press first and would take every drag meant for the
-  arrow; a mode or the pen; and a text box or a picture dropped from the
-  bar, which is there to be typed in or picked up and would otherwise
-  lose its click to the armed shape.
+  arrow; a mode or the pen; and EVERY way something is dropped on the
+  page to be typed in or picked up — a text box or a picture from the bar
+  or the Insert menu, a capture from the camera or the tablet — which
+  would otherwise lose its click to the armed shape. Route them all
+  through one call; the first cut here did the bar's two and missed the
+  menu's and the captures.
 - **While armed**: the footer names it and says every drag draws one and
-  Esc stops it; the pointer stays the crosshair and the selection handles
-  stay hidden; what was just drawn is selected, so delete and undo take
-  it back without disarming.
-- **Kept as it was**: an armed tool takes the press before any mode,
-  modifier or object under the pointer, so a click on an existing object
-  puts a node down there; a press that never moved puts down no line and
-  leaves the tool armed.
+  Esc stops it; the bar lights the palette button whose palette holds it,
+  as it lights the pen (both buttons for a box, circle or triangle, which
+  are on both palettes); the pointer stays the crosshair and the selection
+  handles stay hidden; what was just drawn is selected, so delete and
+  undo take it back without disarming.
+- **A click on a node is the node's** while a node or a line is armed:
+  the flow chart is drawn as a loop — a box, a double-click for its
+  label, the next box — and an armed box took both clicks of the
+  double-click, stacking two boxes on the one clicked. A press that never
+  moved and lands on a node picks it (its whole group), and a
+  double-click opens its label, by the same rule as with nothing armed
+  (a node in a group opens none). Anywhere else a click puts a node down
+  at its own size; a drag that starts inside a node still draws; a mark
+  clicked onto a node goes down in it; no ghost is drawn for a click
+  that will pick. The next press ends a label being typed or a style
+  bar, so the next box follows the label straight away.
+- **Kept as it was**: an armed tool takes the press before any mode or
+  modifier; a press that never moved puts down no line and leaves the
+  tool armed.
 
 ### The pen's two buttons undo and redo the last drawing
 Sean, 2026-10-02: "make the wacom buttons undo and redo last drawing". The
