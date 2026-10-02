@@ -52,8 +52,8 @@ extension CanvasItem {
         }
     }
 
-    /// The box the item occupies before the transform. A stroke's ink is as
-    /// wide as the pen, so half a nib is added on every side.
+    /// The box the item occupies before the transform. A stroke's ink
+    /// reaches out from its samples, so its `reach` is added on every side.
     func baseBounds(in size: CGSize) -> CGRect {
         if case .shape(let shape) = self {
             // The box the shape was drawn into, not the outline's extent — a
@@ -66,7 +66,10 @@ extension CanvasItem {
         for point in points.dropFirst() { rect = rect.union(CGRect(origin: point, size: .zero)) }
         switch self {
         case .stroke(let stroke):
-            rect = rect.insetBy(dx: -stroke.width / 2, dy: -stroke.width / 2)
+            // `Stroke.reach`: half the widest the ink can go at the
+            // hardest press for a stroke with a tool (0.65 of a nib for
+            // the pen), and half the width for a legacy one, as before.
+            rect = rect.insetBy(dx: -stroke.reach, dy: -stroke.reach)
         case .connector(let connector):
             let reach = max(connector.lineWidth / 2, ConnectorItem.headLength(for: connector.lineWidth) / 2)
             rect = rect.insetBy(dx: -reach, dy: -reach)
@@ -145,7 +148,7 @@ extension CanvasItem {
         case .connector(let connector):
             return Self.near(point, polylines: [outline], reach: max(connector.lineWidth * transform.scale / 2, 6))
         case .stroke(let stroke):
-            let reach = max(stroke.width * transform.scale / 2, 6)
+            let reach = max(stroke.reach * transform.scale, 6)
             if outline.count == 1 { return CanvasGeometry.distance(point, outline[0]) <= reach }
             return Self.near(point, polylines: [outline], reach: reach)
         }

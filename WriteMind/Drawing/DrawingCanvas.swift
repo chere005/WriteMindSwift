@@ -378,6 +378,14 @@ struct DrawingCanvas: View {
     static func draw(_ stroke: Stroke, points: [CGPoint], in context: inout GraphicsContext) {
         let colour = Color(hex: stroke.colorHex) ?? .orange
         let (path, filled) = InkPaths.path(for: stroke, points: points)
+        // Ink is one filled outline, so the tool's opacity goes on the
+        // colour: the whole stroke is laid down once and never darkens
+        // where it crosses itself. A legacy stroke has no tool and is
+        // painted below exactly as it always was.
+        if let tool = stroke.inkTool {
+            context.fill(path, with: .color(colour.opacity(tool.opacity)))
+            return
+        }
         if filled {
             context.fill(path, with: .color(colour))
         } else if !points.isEmpty {
@@ -729,11 +737,21 @@ struct DrawingCanvas: View {
                 case .drawing:
                     DrawingCursors.pencil.set()
                     let point = Self.normalise(doc(value.location), in: size)
+                    // The nib's pressure for THIS event, read off the
+                    // event by `PenSampleReader`'s monitor before the
+                    // gesture saw it. A tablet's first event makes the
+                    // stroke ink with a pressure per point; a mouse or a
+                    // trackpad stroke stays the legacy line, drawn as it
+                    // always was (Sean, 2026-10-02: "make the text strokes
+                    // well implemented to feel natural for writing
+                    // letters.. do the same for drawing mode in the
+                    // notebook itself").
+                    let pen = PenSampleReader.shared.sample
                     if current == nil {
                         onBeginChange?()
-                        current = Stroke(colorHex: color.hexString, width: width, points: [point])
+                        current = Stroke.starting(at: point, colorHex: color.hexString, width: width, pen: pen)
                     } else {
-                        current?.points.append(point)
+                        current?.append(point, pen: pen)
                     }
                 case .moving:
                     apply(translate: CGVector(dx: value.translation.width, dy: value.translation.height),
@@ -1197,7 +1215,7 @@ struct CanvasHitShape: Shape {
                     var line = Path()
                     line.move(to: first)
                     for point in outline.dropFirst() { line.addLine(to: point) }
-                    let reach = max(stroke.width * item.transform.scale, 14)
+                    let reach = max(stroke.reach * 2 * item.transform.scale, 14)
                     path.addPath(line.strokedPath(StrokeStyle(lineWidth: reach, lineCap: .round, lineJoin: .round)))
                 }
             }

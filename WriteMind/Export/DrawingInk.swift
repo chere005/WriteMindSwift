@@ -38,6 +38,14 @@ enum DrawingInk {
         context.saveGState()
         context.concatenate(item.matrix(in: size))
         switch item {
+        case .stroke(let stroke) where stroke.inkTool != nil:
+            // Ink: the filled outline, at the tool's opacity — the same
+            // path the screen fills (`InkPaths`), nonzero like it.
+            let (path, _) = InkPaths.path(for: stroke, points: item.basePoints(in: size))
+            let opacity = CGFloat(stroke.inkTool?.opacity ?? 1)
+            context.setFillColor(ink(stroke.colorHex, on: paper).withAlphaComponent(opacity).cgColor)
+            context.addPath(path.cgPath)
+            context.fillPath()
         case .stroke(let stroke):
             let (path, filled) = InkPaths.path(for: stroke, points: item.basePoints(in: size))
             context.setFillColor(ink(stroke.colorHex, on: paper).cgColor)

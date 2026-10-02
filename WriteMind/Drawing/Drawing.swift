@@ -32,20 +32,40 @@ struct Stroke: Codable, Equatable, Identifiable {
     /// deleting, ungrouping"). Picking any member picks them all; the
     /// objects are otherwise untouched by it, so ungrouping moves nothing.
     var group: UUID?
+    /// How hard the pen was pressed at each point, 0…1 — PARALLEL TO
+    /// `points`, one for one, or nil for a stroke whose device said
+    /// nothing (a mouse, a trackpad, and every stroke drawn before
+    /// 2026-10-02). Anything that writes `points` writes this in the same
+    /// breath: `starting(at:…)` and `append(_:pen:)` are the only two that
+    /// do today, and a third — a split, a crop, a merge — keeps the two
+    /// the same length or the ink reads the wrong pressure at every point
+    /// after the first one it got wrong.
+    var pressures: [Double]?
+    /// What it was written with. nil is the LEGACY stroke — a smoothed
+    /// line of one width, drawn exactly as it was before there were tools,
+    /// so nothing Sean has already drawn changes shape. Set, the stroke is
+    /// `InkOutline`'s filled outline (see `InkPaths.path`).
+    var tool: InkTool?
 
     // Sidecars written before objects existed have no `transform`, and the
     // synthesized decoder would reject them — a default only applies to the
-    // memberwise init, never to decoding.
-    private enum CodingKeys: String, CodingKey { case id, colorHex, width, points, transform, group }
+    // memberwise init, never to decoding. Every key added since is
+    // decodeIfPresent for the same reason; the synthesized encoder writes
+    // a nil optional as NO key, so a legacy stroke's JSON is byte for byte
+    // what it was.
+    private enum CodingKeys: String, CodingKey { case id, colorHex, width, points, transform, group, pressures, tool }
 
     init(id: UUID = UUID(), colorHex: String, width: Double, points: [CGPoint],
-         transform: ItemTransform = ItemTransform(), group: UUID? = nil) {
+         transform: ItemTransform = ItemTransform(), group: UUID? = nil,
+         pressures: [Double]? = nil, tool: InkTool? = nil) {
         self.id = id
         self.colorHex = colorHex
         self.width = width
         self.points = points
         self.transform = transform
         self.group = group
+        self.pressures = pressures
+        self.tool = tool
     }
 
     init(from decoder: Decoder) throws {
@@ -56,7 +76,52 @@ struct Stroke: Codable, Equatable, Identifiable {
         points = try container.decode([CGPoint].self, forKey: .points)
         transform = try container.decodeIfPresent(ItemTransform.self, forKey: .transform) ?? ItemTransform()
         group = try container.decodeIfPresent(UUID.self, forKey: .group)
+        pressures = try? container.decodeIfPresent([Double].self, forKey: .pressures)
+        // A tool this build has never heard of is still ink: the pen,
+        // rather than a decode failure that would empty the whole note's
+        // drawing (`DrawingStore.load`).
+        if let raw = try? container.decodeIfPresent(String.self, forKey: .tool) {
+            tool = InkTool(rawValue: raw) ?? .pen
+        } else {
+            tool = nil
+        }
     }
+
+    /// A stroke the pen has just put down. The FIRST event decides what it
+    /// is for good: a tablet's nib makes ink with a pressure per point; a
+    /// mouse or a trackpad makes the legacy line it always made.
+    static func starting(at point: CGPoint, colorHex: String, width: Double, pen: PenSample) -> Stroke {
+        var stroke = Stroke(colorHex: colorHex, width: width, points: [point])
+        if case .pen(let pressure) = pen {
+            stroke.pressures = [pressure]
+            stroke.tool = .pen
+        }
+        return stroke
+    }
+
+    /// The next point, and — on a stroke that has pressures — the next
+    /// pressure with it. A sample that did not come from the nib mid-stroke
+    /// repeats the last pressure, so the two arrays never part company.
+    mutating func append(_ point: CGPoint, pen: PenSample) {
+        points.append(point)
+        guard var pressures else { return }
+        if case .pen(let pressure) = pen {
+            pressures.append(pressure)
+        } else {
+            pressures.append(pressures.last ?? InkOutline.defaultPressure)
+        }
+        self.pressures = pressures
+    }
+
+    /// The tool the stroke is drawn with: its own, the pen for a stroke
+    /// that has pressures and no tool, and nil — the legacy line — for one
+    /// with neither.
+    var inkTool: InkTool? { tool ?? (pressures == nil ? nil : .pen) }
+
+    /// Half the widest the ink can be, in points before the transform:
+    /// what the stroke's box and its hit test reach out by. A legacy
+    /// stroke's is half its width, as it always was.
+    var reach: Double { inkTool?.reach(width: width) ?? width / 2 }
 }
 
 /// A picture dropped on the page: added from the Add Image button, or pasted.

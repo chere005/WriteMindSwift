@@ -20,8 +20,21 @@ enum InkPaths {
     ///
     /// The curve is quadratics through the MIDPOINTS of the samples, which
     /// is what takes the corners off a raw mouse trail.
+    ///
+    /// A stroke with a TOOL (or pressures) is ink: `InkOutline`'s polygon
+    /// round the samples, widened by the pressure at each one, always
+    /// filled — see `ink(for:tool:points:)`. A stroke with neither is the
+    /// legacy line, and the code below that branch is the code that drew
+    /// every stroke before 2026-10-02, untouched: `InkPathsTests` pins its
+    /// output, so nothing already in Sean's notes can quietly restyle.
     static func path(for stroke: Stroke, points: [CGPoint]) -> (path: Path, filled: Bool) {
         guard let first = points.first else { return (Path(), false) }
+        if let tool = stroke.inkTool {
+            let path = inkCache.path(for: stroke, tool: tool, points: points) {
+                ink(for: stroke, tool: tool, points: points)
+            }
+            return (path, true)
+        }
         if points.count == 1 {
             let dot = CGRect(x: first.x - stroke.width / 2, y: first.y - stroke.width / 2,
                              width: stroke.width, height: stroke.width)
@@ -41,6 +54,24 @@ enum InkPaths {
         }
         return (path, false)
     }
+
+    /// Ink: the samples (view points, before the transform — the painter's
+    /// matrix scales and turns the outline with everything else) paired
+    /// with their pressures, outlined by the stroke's tool
+    /// (`InkTool.outline`, which is also where a tap becomes a round dot)
+    /// and smoothed. A pressure missing at the end of a short array is
+    /// "none reported" rather than a crash — the arrays are kept in
+    /// lockstep, and this is the belt to those braces.
+    static func ink(for stroke: Stroke, tool: InkTool, points: [CGPoint]) -> Path {
+        let pressures = stroke.pressures
+        let samples = points.enumerated().map { index, point in
+            InkOutline.Sample(point, pressure: pressures.flatMap { index < $0.count ? $0[index] : nil })
+        }
+        return InkOutline.path(tool.outline(samples, width: stroke.width, simulated: pressures == nil))
+    }
+
+    /// Every ink outline the painters have asked for, by stroke.
+    static let inkCache = InkCache()
 
     /// A connector: the line, with each end that carries a head pulled back
     /// along its own last segment so the head's TIP is the point, and the
@@ -69,5 +100,60 @@ enum InkPaths {
                                             lineWidth: connector.lineWidth))
         }
         return (line, heads)
+    }
+}
+
+/// Ink, outlined once and remembered.
+///
+/// MEASURED FIRST (2026-10-02): a page of 300 strokes of 120 samples takes
+/// 5 ms to outline in a Release build and 26–39 ms in Debug, and the layer
+/// redraws EVERY stroke on every pen event — about 120 a second, 8 ms
+/// apart, once coalescing is off — and on every hover. So finished ink is
+/// kept; a legacy line costs next to nothing to rebuild and is not.
+///
+/// One entry per stroke id, replaced when the samples are not the ones it
+/// was made from: the live stroke grows by a point an event and holds one
+/// slot, not hundreds. "The samples" is a fingerprint, not the points —
+/// how many, the first and the last (in VIEW points, so a resized pane or
+/// a page of a different width is a new outline), the width, the tool and
+/// how many pressures. That is enough because a stroke's points are never
+/// edited in place in this app, only appended to while it is drawn; a
+/// gesture that one day rewrites points under the same id (a crop, a
+/// smoothing pass) must give the stroke a new id or widen this.
+final class InkCache {
+    struct Fingerprint: Equatable {
+        var count: Int
+        var first: CGPoint
+        var last: CGPoint
+        var width: Double
+        var tool: InkTool
+        var pressures: Int?
+    }
+
+    /// Past this many strokes the cache is dropped and refilled as the
+    /// painters ask — a bound, not an eviction policy. The layer paints
+    /// every stroke of the note each time, so the bound has to sit above a
+    /// whole note of handwriting (a letter is a stroke or three), or a
+    /// long one would empty it on every frame; a handwriting outline is a
+    /// few kilobytes, so even full it is tens of megabytes, not hundreds.
+    static let limit = 8192
+
+    private var entries: [UUID: (fingerprint: Fingerprint, path: Path)] = [:]
+    /// The screen paints on the main thread; an export may not.
+    private let lock = NSLock()
+
+    var count: Int { lock.withLock { entries.count } }
+
+    func path(for stroke: Stroke, tool: InkTool, points: [CGPoint], make: () -> Path) -> Path {
+        guard let first = points.first, let last = points.last else { return make() }
+        let fingerprint = Fingerprint(count: points.count, first: first, last: last, width: stroke.width,
+                                      tool: tool, pressures: stroke.pressures?.count)
+        if let hit = lock.withLock({ entries[stroke.id] }), hit.fingerprint == fingerprint { return hit.path }
+        let path = make()
+        lock.withLock {
+            if entries.count >= Self.limit { entries.removeAll(keepingCapacity: true) }
+            entries[stroke.id] = (fingerprint, path)
+        }
+        return path
     }
 }

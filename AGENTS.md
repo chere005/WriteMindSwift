@@ -91,6 +91,98 @@ CoreMind's `bin/report-status.sh`.
   removed when the drawing is cleared) so the notes folder stays a folder of
   markdown. `DrawingStore` follows a rename and a trash; a note file with no
   sidecar is the normal case.
+- **INK IS PERFECT-FREEHAND, AND A STROKE WITH NO TOOL IS THE LINE IT
+  ALWAYS WAS.** Sean, 2026-10-02: "make the text strokes well implemented
+  to feel natural for writing letters.. do the same for drawing mode in
+  the notebook itself". `InkOutline` is a line-for-line Swift port of
+  perfect-freehand 1.2.3 (Steve Ruiz, MIT — the notice and the version are
+  in its header): samples with a pressure each go in, the OUTLINE of a
+  stroke whose width follows the pressure comes out, and `InkOutline.path`
+  runs it through its midpoints to be filled nonzero. It is a port, not a
+  reimagining — the cross-platform app will run the TypeScript original,
+  and one stroke has to come out one shape on both — so `InkOutlineTests`
+  pins it against numbers the original printed under node: upstream's own
+  snapshot point for point, its fixtures, and option sets that reach real
+  pressure, tapers, flat caps and hairpin corners. Its cap loops
+  ACCUMULATE `t += step` as the JavaScript does; a `stride` multiplies,
+  disagrees in the last bit, and changes how many points a cap gets.
+  `InkTool` is the table of pens — pen, fountain pen, pencil, marker,
+  brush — each an option set and an opacity, calibrated so that at the
+  MIDDLE pressure the line is `nib × width` whatever the easing (the size
+  is divided by `2 × easing(0.5)`): the slider still means what it says,
+  and the pen's nib is 1. No easing in the table is below the middle at
+  the middle, because perfect-freehand reads `size` as a LENGTH too — the
+  samples it skips at a line's start, the spacing of the outline's points
+  — and the fountain pen's first easing made its size two nibs: a
+  straight chord for the entry of every e, and facets on its loops. **The
+  pen has no taper and both its ends are round**, a ballpoint's: a taper
+  here always runs down to a point, and the first cut put one on both
+  ends of every letter; pressure alone thins a nib touching down or
+  lifting off (0.7 of the width).
+  **A TAP IS A DOT AND EVERY STROKE PAINTS** — `InkTool.outline` is the
+  one way in, for both painters. perfect-freehand keeps only the final
+  sample of a line's last three points (its end noise), so a stroke it
+  measures shorter than that is all end: tapered at both ends it came out
+  three points, which is NO path — a wobbly tap or a flick at a thin pen
+  was saved, selectable and invisible. Such a stroke, and one whose every
+  sample stays within half a nib of the first, is a tap: ONE sample at
+  the touch-down with the tap's hardest pressure, handed over twice,
+  which perfect-freehand draws as its own round dot (a lone sample on its
+  own it turns into a short diagonal dash). So a tap is the same dot
+  however many events it made, and does not wander or shrink while the
+  nib is held. Every length in these rules is the outline's own — the
+  last streamlined `runningLength` — never the raw polyline. The tapers
+  shrink with a short stroke so the two never take more than a third of
+  the stretch the outline keeps points along, an end whose taper would be
+  under a quarter of a nib has none, and a line tapered at both ends with
+  no full-width point between the ramps has neither — a taper is a ramp
+  from nothing, and two of them with nothing between are a sliver.
+  `InkToolTests` sweeps every tool over short strokes and measures the
+  ink actually laid down.
+  `Stroke` gained `pressures` and `tool`, both `decodeIfPresent`, and both
+  forgiving: a tool this build does not know reads as the pen, a pressures
+  array it cannot read as none, because `DrawingStore.load` empties a
+  drawing that fails to decode. **THE LOCKSTEP RULE: `pressures` is
+  PARALLEL to `points`, and whatever writes one writes the other in the
+  same breath.** Today that is `Stroke.starting(at:…)` and
+  `append(_:pen:)` and nothing else — every other edit (move, turn, group,
+  delete, a duplicated note) carries the whole value — so a split, a crop
+  or a merge added later keeps the two the same length. `InkPaths` reads a
+  missing pressure as "none reported" rather than crash; that is a belt,
+  not permission. **THE LEGACY GUARANTEE: a stroke with neither field —
+  everything drawn before 2026-10-02, and every mouse or trackpad stroke
+  still — goes down the old branch of `InkPaths.path` and the old
+  painters' code, untouched.** The CODE is untouched; the INPUT is not
+  quite: coalescing is off for the whole app (below), so a mouse or
+  trackpad stroke drawn from now on carries every drag sample where it
+  used to carry about one a frame — more points in its sidecar, and a
+  little less for the midpoint smoothing to round off. Strokes already
+  drawn keep the points they were saved with. `InkPathsTests` pins that
+  branch's elements, its dot, its box and its hit reach, numbers taken
+  from the code before ink existed; a change that moves one has restyled
+  drawings already in Sean's notes. `Stroke.reach` is what a stroke's box and hit
+  test measure — half the widest the ink can go, and for the legacy line
+  `width / 2`, the same arithmetic as before.
+  **The notebook's pen gets its pressure from `PenSampleReader`**, a
+  local NSEvent monitor on the left-mouse events and `.tabletPoint` that
+  notes the pressure of an event whose SUBTYPE is `.tabletPoint` — a
+  Wacom pen's strokes are ordinary left-mouse events with that subtype —
+  and returns every event unchanged; the drag gesture reads it while the
+  same event is being handled. The stroke's FIRST event decides what it
+  is: a nib makes `tool = .pen` with a pressure per point, a mouse or a
+  trackpad makes the legacy line (a Force Touch trackpad reports a
+  pressure of its own; the subtype says it is not a nib). Pressure is
+  read off nothing else: `.pressure` on an event that does not define it
+  is an Objective-C exception that kills the app (a key event, measured),
+  and a spy in `PenSampleTests` proves the reading never even asks a
+  hover. A mouse event's pressure field is 8-bit (0.42 goes in, 107/255
+  comes out). Coalescing is off from launch so all of the pen's ~120
+  samples a second arrive — for every pointer, the mouse's too: one
+  switch at launch (see the trap below) — and finished ink is
+  outlined once per stroke (`InkCache`, by id and a fingerprint of the
+  samples) — measured first: 300 strokes of 120 samples took 5 ms in
+  Release and 26–39 in Debug on EVERY redraw, and the layer redraws on
+  every pen event.
 - **A project is a list of folders in a JSON file** (`Project`,
   `.writemind-project`) — Sublime Text's shape. What is NOT in it is the
   session: which notes are open, which one is in front, and any text that had
@@ -885,7 +977,8 @@ WriteMind/
                           fade, bold is bold, headings are their size, maths
                           and links are coloured. Runs are pure and tested
   Drawing/Drawing.swift   the objects on the drawing layer: Stroke
-                          (normalised 0…1 points, hex colour, width),
+                          (normalised 0…1 points, hex colour, width, and
+                          for ink a pressure per point and the tool),
                           ImageItem (a file in .drawings/media, its centre,
                           its width as a fraction of the pane, its aspect),
                           ItemTransform (dx/dy as fractions, scale, rotation),
@@ -911,6 +1004,24 @@ WriteMind/
   Drawing/CursorLayer.swift
                           the pencil (and open/closed hand) cursor, as a real
                           AppKit cursor rect over the text view
+  Drawing/InkPaths.swift  the ONE geometry source for a stroke and a
+                          connector, on screen and on paper: the legacy
+                          line, or ink's filled outline (InkCache keeps it
+                          per stroke)
+  Drawing/InkOutline.swift
+                          perfect-freehand 1.2.3 ported line for line (MIT,
+                          Steve Ruiz): samples with pressure in, the outline
+                          of a stroke whose width follows them out, and the
+                          path through its midpoints. Pure; pinned against
+                          the original's own numbers
+  Drawing/InkTool.swift   pen, fountain pen, pencil, marker, brush — each an
+                          option set and an opacity, calibrated so a line at
+                          an ordinary press is the slider's width; `outline`
+                          is the one way from samples to ink, where a tap
+                          becomes a dot and no stroke comes out a sliver
+  Drawing/PenSample.swift the nib's pressure off every left-mouse event whose
+                          subtype is a tablet's, by a local monitor that
+                          hands each event back as it came
   Notes/MarkdownLinking.swift
                           `/link`: the trigger, the anchors (mark / heading
                           slug / <a id>), and the markdown a link is made of
@@ -1255,6 +1366,14 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   the same broken promise, sideways. The other thing the two panes do not
   share is where their own left margin is (`CellInsertions.plusLeading`,
   `MarkdownPreview.sideInset`).
+- **`NSApplication.shared` turns mouse coalescing back ON.** Setting
+  `NSEvent.isMouseCoalescingEnabled = false` in `WriteMindApp.init` did
+  nothing at all: that init runs before the application is made, and
+  making it resets the flag (measured 2026-10-02 — false, make the app,
+  true; `finishLaunching` leaves it alone). It is set on
+  `NSApplication.didFinishLaunchingNotification`, where the pen's reader
+  starts too, and `PenSampleTests` reads the flag in the test host —
+  which IS the launched app — so a move back into `init` fails there.
 - **A stored property called `body` in a `View` is a redeclaration**, and
   `swiftc -parse` will not tell you — it type-checks fine and fails in the
   build. Three of the maths views had `let body: WLExpr` before they were

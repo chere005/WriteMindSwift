@@ -8,6 +8,31 @@ struct WriteMindApp: App {
     @StateObject private var projects = ProjectStore()
     @State private var didRestoreSession = false
 
+    init() {
+        // EVERY PEN SAMPLE, NOT ONE A FRAME. AppKit coalesces mouse drags
+        // by default, folding the samples that arrive between two
+        // dispatches into one; a Wacom pen reports about 120 a second
+        // only with this off (measured 2026-10-02), and the ink's shape
+        // and pressure are drawn from exactly those samples. Once, at
+        // launch, for the whole app — the mouse and the trackpad too, so
+        // their legacy strokes now keep every drag sample as well (same
+        // code, denser points; AGENTS.md, the legacy guarantee) — and AT
+        // launch, not here: creating
+        // `NSApplication.shared` puts coalescing back ON (measured: set
+        // false, make the application, read true), and this init runs
+        // before the application exists. The pen's pressure reader starts
+        // at the same moment, for the same reason — a local monitor wants
+        // an application to be running.
+        guard Self.launchObserver == nil else { return }
+        Self.launchObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didFinishLaunchingNotification, object: nil, queue: .main) { _ in
+            NSEvent.isMouseCoalescingEnabled = false
+            PenSampleReader.shared.start()
+        }
+    }
+
+    private static var launchObserver: NSObjectProtocol?
+
     var body: some Scene {
         WindowGroup {
             ContentView()

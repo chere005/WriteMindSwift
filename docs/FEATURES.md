@@ -297,6 +297,12 @@ is how the code is put together.
   the size and the colour (a circular colour well plus six swatches). ⌘Z
   undoes a stroke while the pen is up — ⇧⌘Z puts it back — and Undo Drawing
   sits in the Edit menu at ⌥⌘Z whatever has the keyboard.
+  Write with a pen on a drawing tablet and the line is **ink**: it thickens
+  and thins with how hard the nib is pressed, its ends are round the way a
+  ballpoint's are, and a tap is a dot — however quick or shaky the tap,
+  and the harder it pressed, the bigger the dot. A mouse or the trackpad
+  still draws the even line it always did, and nothing already drawn
+  changes.
 - **Pictures on the page.** The image button adds one, ⌘V pastes one, and
   they behave like any other object on the layer. Files live in
   `.drawings/media/`; a note's own copies go with it when it moves and go

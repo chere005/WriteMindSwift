@@ -15,6 +15,94 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### A pen writes ink; a mouse still draws the line it always drew
+A stroke made with a stylus is INK: the outline of a line whose width
+follows how hard the nib is pressed, filled. Build it with perfect-freehand
+— the TypeScript original; this app runs a line-for-line port of 1.2.3,
+pinned against the original's own output, so the same package with the
+same options draws the same stroke the same shape. Feed it `[x, y,
+pressure]` per sample, in screen points before any scale or rotation of
+the stroke, with `simulatePressure: false` and `last: true` (the line runs
+to where the nib IS, so nothing jumps at pen-up), and fill the outline
+through its midpoints (the README's `getSvgPathFromStroke`) with the
+NONZERO rule — it crosses itself at a tight turn.
+
+Read the pressure from `PointerEvent.pressure` only when `pointerType` is
+`'pen'`, on pointerdown and on pointermove while it is pressed. A mouse
+reports 0.5 while a button is down and a touch reports something of its
+own, and neither is a nib; a hover carries nothing to read. Take every
+sample — `getCoalescedEvents()` on each pointermove — because a pen sends
+about 120 a second and the shape is drawn from all of them. The stroke's
+FIRST sample decides what it is: a pen makes ink, a mouse or a finger
+makes the old one-width smoothed line, unchanged. Every stroke already
+drawn has no pressure and must look exactly as it did; that is a promise,
+not a default.
+
+The pens (Sean, 2026-10-02: "different pen colors and strokes to write
+with"). The nib is in multiples of the stroke's width and the tapers in
+nibs; at the middle pressure every line is `nib × width` across, so pass
+`size = nib × width ÷ (2 × easing(0.5))` (just `nib × width` when
+thinning is 0) and the width slider keeps meaning what it says. Every
+easing here is at or above 0.5 at 0.5, so no size is more than its nib —
+perfect-freehand reads `size` as a length too (the samples it skips at a
+line's start, the spacing of the outline's points). The easings are the
+perfect-freehand demo's, by name.
+
+| tool     | nib  | thinning | smoothing | streamline | easing        | start taper | end taper | opacity |
+| -------- | ---- | -------- | --------- | ---------- | ------------- | ----------- | --------- | ------- |
+| pen      | 1    | 0.3      | 0.5       | 0.4        | linear        | none        | none      | 1       |
+| fountain | 1.1  | 0.5      | 0.6       | 0.45       | easeInOutQuad | 0.5 nib     | 2.5 nibs  | 1       |
+| pencil   | 0.85 | 0.15     | 0.4       | 0.25       | linear        | 0.5 nib     | 0.75 nib  | 0.75    |
+| marker   | 2    | 0        | 0.5       | 0.5        | linear        | none        | none      | 0.85    |
+| brush    | 2    | 0.8      | 0.65      | 0.55       | easeOutSine   | 1 nib       | 3 nibs    | 1       |
+
+The pen is a ballpoint, round at both ends: a taper in perfect-freehand
+always runs down to a point, and on handwriting that is a brush's tail on
+every letter.
+
+One stroke, step for step (`InkTool.outline` here). The short-stroke rules
+decide whether the dot over an i is drawn at all, so copy them exactly.
+`n` is the nib in points (`nib × width`); every length is in the samples'
+own screen points; `3` is perfect-freehand's END_NOISE_THRESHOLD.
+
+1. `pts = getStrokePoints(samples, options)` with the tool's options and
+   no tapers (tapers do not change it), and `length =
+   pts.at(-1).runningLength` — perfect-freehand's own total length, the
+   one its outline goes by. NOT the polyline through the raw samples:
+   streamlining pulls the line in, and samples skipped at its start still
+   count towards it, so the two differ on exactly the short strokes these
+   rules are about.
+2. A TAP IS A DOT. If every sample is within `n ÷ 2` of the first, or
+   `length < 3`, draw `getStroke([s, s], options)` where `s` is the FIRST
+   sample's point carrying the HARDEST pressure of the stroke (ignoring
+   negative and NaN; none if there is none). perfect-freehand keeps only
+   the final sample of a line's last 3 points, so a shorter stroke is all
+   end — tapered at both ends its outline is 3 points, which is no path at
+   all. Two identical samples are perfect-freehand's own round dot; one
+   sample alone it turns into a little diagonal dash. A tap is then the
+   same dot however many events it made.
+3. Tapers: `body = length − 3 − size`, `share = min(1, max(0, body) ÷ 3 ÷
+   ((startTaper + endTaper) × n))`, `start = startTaper × n × share`,
+   `end = endTaper × n × share`; an end whose taper is under `n ÷ 4`
+   gets none (`taper: false`). Caps are always `true`.
+4. If BOTH ends are tapered and no point of `pts` other than the first
+   and the last has `runningLength ≥ start` and `length − runningLength ≥
+   max(end, 3)`, taper neither: both ramps run down to nothing, and with
+   no full-width point between them the line is a sliver.
+5. `getStrokeOutlinePoints(pts, options)` with those tapers.
+
+Opacity goes on the colour of the one filled outline, so a stroke never
+darkens where it crosses itself.
+
+The stored stroke gained two optional fields: `pressures`, an array of
+0…1 PARALLEL to `points` (one per point, always the same length — anything
+that rewrites a stroke's points rewrites its pressures in step), and
+`tool` — `"pen"`, `"fountain"`, `"pencil"`, `"marker"` or `"brush"`. Both
+are absent on old strokes and on mouse strokes, and a stroke with neither
+is the old line. Read an unknown tool as `"pen"` and a pressures value you
+cannot read as absent: never fail a whole drawing over either.
+(Sean, 2026-10-02.)
+
 ### An evaluation cell is not a code cell
 Two different things that look alike: code you are writing ABOUT, and code
 the document RUNS. Put the difference in the file — `eval python` against
