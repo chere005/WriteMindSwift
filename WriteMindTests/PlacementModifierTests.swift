@@ -5,7 +5,7 @@ import XCTest
 /// The two keys held during a placement (Sean, 2026-09-21: "when placing a
 /// marker, if i hold cmd, stay in adding that marker mode.. if i hold
 /// shift, the direction elements become fixed to horizontal or vertical
-/// axes").
+/// axes"), and what stays armed once something is down.
 final class PlacementModifierTests: XCTestCase {
     private let size = CGSize(width: 400, height: 300)
 
@@ -69,14 +69,54 @@ final class PlacementModifierTests: XCTestCase {
         XCTAssertEqual(DrawingCanvas.dragEnd(to, from: from, modifiers: []), to)
     }
 
-    // MARK: - ⌘ keeps the tool
+    // MARK: - What stays armed
 
-    func testCommandKeepsTheToolAndNothingElseDoes() {
-        XCTAssertTrue(CanvasPlacement.staysArmed(.command))
-        XCTAssertTrue(CanvasPlacement.staysArmed([.command, .shift]),
-                      "a row of arrows, all of them flat")
-        XCTAssertFalse(CanvasPlacement.staysArmed([]))
-        XCTAssertFalse(CanvasPlacement.staysArmed(.shift))
-        XCTAssertFalse(CanvasPlacement.staysArmed(.option))
+    private let lines: [CanvasPlacement] = [.line(start: .none, end: .none),
+                                            .line(start: .none, end: .arrow),
+                                            .line(start: .arrow, end: .arrow)]
+
+    /// Sean, 2026-10-02: "after drawing a rectangle dont exit rectangle
+    /// mode..". A node or a line is DRAWN, corner to corner or press to
+    /// release, and the next drag draws the next one — no key held.
+    func testADrawnShapeOrLineStaysArmedWithNoKeyHeld() {
+        for kind in ShapeItem.Kind.allCases where kind.isNode {
+            XCTAssertTrue(CanvasPlacement.shape(kind).staysArmed([]), "\(kind.title) went back to the palette")
+            XCTAssertTrue(CanvasPlacement.shape(kind).staysArmed(.command), "⌘ changes nothing for \(kind.title)")
+        }
+        for line in lines {
+            XCTAssertTrue(line.staysArmed([]), "\(line.title) went back to the palette")
+            XCTAssertTrue(line.staysArmed(.shift), "a row of flat \(line.title)s, one after another")
+        }
+    }
+
+    /// A MARK IS STILL ONE CLICK, and ⌘ still keeps it (Sean, 2026-09-21:
+    /// "when placing a marker, if i hold cmd, stay in adding that marker
+    /// mode") — the words ask for ⌘ to keep it, so without ⌘ it goes.
+    func testAMarkIsOneClickAndCommandKeepsIt() {
+        for kind in ShapeItem.Kind.allCases where !kind.isNode {
+            let mark = CanvasPlacement.shape(kind)
+            XCTAssertFalse(mark.staysArmed([]), "\(kind.title) is a stamp beside a word, put down once")
+            XCTAssertTrue(mark.staysArmed(.command), "⌘ keeps \(kind.title) for a row of them")
+            XCTAssertTrue(mark.staysArmed([.command, .shift]))
+            XCTAssertFalse(mark.staysArmed(.shift))
+            XCTAssertFalse(mark.staysArmed(.option))
+        }
+    }
+
+    /// The pane takes every drag while a shape is armed, so the footer
+    /// says what has it and how to put it away; a mark goes back on its
+    /// own, and its line says where it goes.
+    func testTheFooterSaysWhatTakesTheDragsAndHowToPutItAway() {
+        for placement in ShapeItem.Kind.allCases.map(CanvasPlacement.shape) + lines {
+            let line = placement.footer
+            XCTAssertTrue(line.hasPrefix(placement.title), "\(line) names \(placement.title)")
+            if placement.staysArmed([]) {
+                XCTAssertTrue(line.contains("every drag"), "\(line) says the pane is the tool's")
+                XCTAssertTrue(line.contains("Esc"), "\(line) says how to put it away")
+            } else {
+                XCTAssertFalse(line.contains("every drag"), "\(line) promises a second mark")
+                XCTAssertTrue(line.contains("click where it goes"), line)
+            }
+        }
     }
 }

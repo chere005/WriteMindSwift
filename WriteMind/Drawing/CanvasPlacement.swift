@@ -2,10 +2,12 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-/// What the next gesture on the pane puts down. Picking a shape or a mark
-/// from the palette arms this; the drag that follows says where the thing
-/// starts and where it ends (Sean, 2026-09-19: "when selecting a mark when
-/// i click i start the mark and drag and release where the mark ends").
+/// What the next gesture on the pane puts down — and for a node or a line
+/// every one after it, until it is put away (`staysArmed`). Picking a
+/// shape or a mark from the palette arms this; the drag that follows says
+/// where the thing starts and where it ends (Sean, 2026-09-19: "when
+/// selecting a mark when i click i start the mark and drag and release
+/// where the mark ends").
 ///
 /// A MARK IS PUT WHERE IT IS CLICKED, and not before (Sean, 2026-09-21:
 /// "the checkmark shouldn't be placed until i click where it goes, like an
@@ -42,17 +44,52 @@ enum CanvasPlacement: Equatable {
                               locked: hasDirection && modifiers.contains(.shift))
     }
 
-    /// ⌘ HELD KEEPS THE TOOL, so a row of ticks is one trip to the palette
-    /// (Sean, 2026-09-21: "when placing a marker, if i hold cmd, stay in
-    /// adding that marker mode"). It is read at the moment the thing goes
-    /// down, not when it was picked, so the choice is made per mark.
+    /// WHAT IS DRAWN STAYS ARMED; WHAT IS STAMPED IS ONE CLICK. Sean,
+    /// 2026-10-02: "after drawing a rectangle dont exit rectangle mode..".
+    /// A node is dragged corner to corner and a line press to release —
+    /// drawn, as a rectangle tool draws anywhere — and a chart is several
+    /// of them, so the next drag draws the next one with no key held,
+    /// until the tool is put away: Esc, the same tile again, another tool,
+    /// a mode, the pen.
+    ///
+    /// A MARK IS STILL ONE CLICK, and ⌘ held as it goes down keeps it, so
+    /// a row of ticks is one trip to the palette (Sean, 2026-09-21: "when
+    /// placing a marker, if i hold cmd, stay in adding that marker mode").
+    /// Those words ask for ⌘ to KEEP a marker, which is a marker that goes
+    /// back without it — and a tick is a stamp beside one word, where a
+    /// box is one of a chart's several. It is read at the moment the
+    /// thing goes down, not when it was picked, so the choice is made per
+    /// mark. The rule follows the KIND, not the palette it was picked
+    /// from: the Marks palette's box, circle and triangle are nodes, and
+    /// stay.
     ///
     /// ⌘ is the selector everywhere else on this pane, and that is not a
     /// clash: an armed placement takes the press before any mode or
     /// modifier is asked (`DrawingCanvas.begin`), so while a tool is armed
     /// there is no marquee for it to collide with.
-    static func staysArmed(_ modifiers: NSEvent.ModifierFlags) -> Bool {
-        modifiers.contains(.command)
+    func staysArmed(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        switch self {
+        case .line: return true
+        case .shape(let kind): return kind.isNode || modifiers.contains(.command)
+        }
+    }
+
+    /// The SF Symbol that stands for it, on the palette and in the footer.
+    var symbol: String {
+        switch self {
+        case .shape(let kind): return kind.symbol
+        case .line(.none, .none): return "minus"
+        case .line(.arrow, .arrow): return "arrow.left.and.right"
+        case .line: return "arrow.right"
+        }
+    }
+
+    /// What the footer says while this is armed. A pane that takes every
+    /// drag needs somewhere on screen that says why — the pen is named
+    /// there for the same reason — and a tool that no longer goes back on
+    /// its own says how it is put away.
+    var footer: String {
+        staysArmed([]) ? "\(title): every drag draws one, Esc to stop" : "\(title): click where it goes"
     }
 
     /// Under this, the drag was a click.

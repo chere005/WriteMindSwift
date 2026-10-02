@@ -45,8 +45,8 @@ final class AppState: ObservableObject {
             }
         }
 
-        /// What a press on the pane does, once the one-gesture tools have
-        /// had their say.
+        /// What a press on the pane does, once the two tools that take the
+        /// pane — the arrow tool, an armed shape — have had their say.
         enum Press: Equatable {
             /// Pull a rectangle over the page and pick up what it touches.
             case marquee
@@ -228,9 +228,9 @@ final class AppState: ObservableObject {
     @Published var canvasMode: CanvasMode = .cursor {
         didSet {
             defaults.set(canvasMode.rawValue, forKey: Keys.canvasMode)
-            // The two one-gesture tools are not modes, and holding one
-            // while a mode is on would be two answers to "what does this
-            // drag do".
+            // The two tools that take the pane are not modes, and holding
+            // one while a mode is on would be two answers to "what does
+            // this drag do".
             guard canvasMode != .cursor else { return }
             if connectActive { connectActive = false }
             if placing != nil { placing = nil }
@@ -255,12 +255,22 @@ final class AppState: ObservableObject {
         return true
     }
     /// The arrow tool (Sean, 2026-09-18): drag from node to node. One tool
-    /// at a time — picking it up puts the pen down, and the other way round.
+    /// at a time — picking it up puts the pen down and an armed shape
+    /// away, and the other way round. An armed shape is asked for the
+    /// press first (`DrawingCanvas.begin`), so one left beside the arrow
+    /// tool — and a shape no longer goes back on its own — would take
+    /// every drag meant for the arrow.
     @Published var connectActive: Bool = false {
-        didSet { if connectActive, canvasMode != .cursor { canvasMode = .cursor } }
+        didSet {
+            guard connectActive else { return }
+            if canvasMode != .cursor { canvasMode = .cursor }
+            if placing != nil { placing = nil }
+        }
     }
     /// The shape or mark armed by the palette, waiting for the drag that
-    /// says where it goes (Sean, 2026-09-19). One tool at a time.
+    /// says where it goes (Sean, 2026-09-19). One tool at a time. A node
+    /// or a line stays here after it is drawn, for the next one; a mark
+    /// goes after one click unless ⌘ is held (`CanvasPlacement.staysArmed`).
     @Published var placing: CanvasPlacement? {
         didSet {
             guard placing != nil else { return }
@@ -268,6 +278,26 @@ final class AppState: ObservableObject {
             connectActive = false
         }
     }
+    /// THE PALETTE'S ONE WRITER. A shape stays armed after it is drawn
+    /// (Sean, 2026-10-02: "after drawing a rectangle dont exit rectangle
+    /// mode.."), so the tile that armed it is one of the ways to put it
+    /// away: the same tile again — lit while it is armed. Another tile is
+    /// another tool.
+    func arm(_ placement: CanvasPlacement) {
+        placing = placing == placement ? nil : placement
+    }
+
+    /// EVERY TOOL PUT AWAY — the pen, the arrow tool, an armed shape — for
+    /// something dropped on the page from the bar to be typed in or
+    /// picked up: a text box, a picture. Those buttons put the pen down
+    /// already; a shape left armed would take the click that finishes the
+    /// text box and put a rectangle down instead.
+    func putToolsAway() {
+        canvasMode = .cursor
+        connectActive = false
+        placing = nil
+    }
+
     /// Whether anything on the drawing layer is picked. The canvas keeps
     /// its own selection; this is the part the menu bar needs to know, so
     /// ⌘Z can go to the drawing rather than the text.
@@ -275,7 +305,7 @@ final class AppState: ObservableObject {
 
     /// Whether the drawing layer has the pane, so that no click reaches the
     /// notebook underneath: either of the layer's own two modes, or one of
-    /// the tools that takes the pane for a single gesture and hands it back.
+    /// the two tools that take the pane until they are put away.
     ///
     /// ONE answer. The seams, the pointer and the hit testing all used to
     /// spell out the same three booleans separately, and a fourth thing to

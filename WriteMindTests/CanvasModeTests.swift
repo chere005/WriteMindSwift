@@ -51,10 +51,10 @@ final class CanvasModeTests: XCTestCase {
         XCTAssertFalse(app.escapePen(), "a second Esc has nothing to put down")
     }
 
-    func testTheOneGestureToolsTakeThePaneWithoutBeingModes() {
+    func testTheTwoToolsTakeThePaneWithoutBeingModes() {
         let app = state()
         app.connectActive = true
-        XCTAssertTrue(app.canvasOwnsPane, "the arrow tool has the pane for its one drag")
+        XCTAssertTrue(app.canvasOwnsPane, "the arrow tool has the pane while it is on")
         XCTAssertEqual(app.canvasMode, .cursor, "and it is not a mode: the mode is still the cursor")
 
         app.connectActive = false
@@ -73,6 +73,61 @@ final class CanvasModeTests: XCTestCase {
         XCTAssertEqual(app.canvasMode, .cursor, "arming a shape puts the pen down, as it always did")
         app.canvasMode = .pen
         XCTAssertNil(app.placing, "and picking a mode puts the armed shape away")
+    }
+
+    /// A shape stays armed after it is drawn (Sean, 2026-10-02: "after
+    /// drawing a rectangle dont exit rectangle mode.."), so the palette is
+    /// one of the ways to put it away: the same tile again.
+    func testPickingTheArmedShapeAgainPutsItAway() {
+        let app = state()
+        app.arm(.shape(.rectangle))
+        XCTAssertEqual(app.placing, .shape(.rectangle))
+        app.arm(.shape(.rectangle))
+        XCTAssertNil(app.placing, "the same tile twice is the way out")
+        XCTAssertFalse(app.canvasOwnsPane, "and the notebook has the pane back")
+
+        app.arm(.shape(.rectangle))
+        app.arm(.shape(.oval))
+        XCTAssertEqual(app.placing, .shape(.oval), "another tile is another tool, not the way out")
+        app.arm(.line(start: .none, end: .arrow))
+        app.arm(.line(start: .arrow, end: .arrow))
+        XCTAssertEqual(app.placing, .line(start: .arrow, end: .arrow), "two heads is a different tool")
+    }
+
+    /// One tool at a time, both ways round: the arrow tool and an armed
+    /// shape each put the other away. Left armed, the shape took the drag
+    /// meant for the arrow, every time, now that it no longer goes back
+    /// on its own.
+    func testTheArrowToolAndAnArmedShapePutEachOtherAway() {
+        let app = state()
+        app.arm(.shape(.diamond))
+        app.connectActive = true
+        XCTAssertNil(app.placing, "the arrow tool picked: the diamond is put away")
+        XCTAssertTrue(app.connectActive)
+
+        app.arm(.shape(.diamond))
+        XCTAssertFalse(app.connectActive, "and the other way round, as it always was")
+        XCTAssertEqual(app.placing, .shape(.diamond))
+    }
+
+    /// A text box or a picture from the bar is dropped to be picked up and
+    /// typed in or dragged — a shape left armed took the click that should
+    /// have finished the text box and put a rectangle down instead.
+    func testATextBoxOrAPictureFromTheBarPutsEveryToolAway() {
+        let app = state()
+        app.arm(.shape(.rectangle))
+        app.putToolsAway()
+        XCTAssertNil(app.placing)
+        XCTAssertFalse(app.canvasOwnsPane)
+
+        app.connectActive = true
+        app.putToolsAway()
+        XCTAssertFalse(app.connectActive)
+
+        app.canvasMode = .pen
+        app.putToolsAway()
+        XCTAssertEqual(app.canvasMode, .cursor, "the pen is put down for it, as it always was")
+        XCTAssertFalse(app.canvasOwnsPane)
     }
 
     func testTheModeIsRememberedTheWayThePensSizeIs() {

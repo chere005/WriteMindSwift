@@ -258,7 +258,7 @@ struct TopBar: View {
                 // button should be in a menu bar entry under insert").
                 BarButton(systemImage: "character.textbox", label: "Text Box",
                           help: "A box of words that floats over the page; the note's text keeps clear of it") {
-                    appState.canvasMode = .cursor
+                    appState.putToolsAway()
                     store.addTextBox(colorHex: appState.penColorHex)
                 }
             }

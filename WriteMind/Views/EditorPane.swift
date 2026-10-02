@@ -102,7 +102,7 @@ struct EditorPane: View {
                                   onRedo: { store.redoDrawing() },
                                   pageOwnsUndo: { appState.pageOwnsUndo },
                                   placing: appState.placing,
-                                  onPlaced: { appState.placing = nil },
+                                  onDisarm: { appState.placing = nil },
                                   onEscapePen: { appState.escapePen() },
                                   onEscapeBox: { TabletScribe.shared.box.key($0) == nil },
                                   tabletPicks: NotebookScribe.shared.picks.eraseToAnyPublisher(),
@@ -162,6 +162,16 @@ struct EditorPane: View {
                     if appState.canvasMode != .cursor {
                         Label(appState.canvasMode.title, systemImage: appState.canvasMode.icon)
                             .foregroundStyle(Color.accentColor)
+                    }
+                    // And WHAT IS ARMED, for the same reason: a node or a
+                    // line stays armed after it is drawn (Sean,
+                    // 2026-10-02: "after drawing a rectangle dont exit
+                    // rectangle mode.."), and every drag on the pane is
+                    // then the shape's until it is put away.
+                    if let placing = appState.placing {
+                        Label(placing.footer, systemImage: placing.symbol)
+                            .foregroundStyle(Color.accentColor)
+                            .lineLimit(1)
                     }
                     if !store.drawing.isEmpty {
                         Text(store.drawing.items.count == 1 ? "1 object" : "\(store.drawing.items.count) objects")

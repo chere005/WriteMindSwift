@@ -13,8 +13,9 @@ struct ShapeMenu: View {
             Text("Flow Chart").font(.headline)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(64), spacing: 6), count: 3), spacing: 6) {
                 ForEach(nodes) { kind in
-                    PaletteButton(title: kind.title, symbol: kind.symbol) {
-                        appState.placing = .shape(kind)
+                    PaletteButton(title: kind.title, symbol: kind.symbol,
+                                  isOn: appState.placing == .shape(kind)) {
+                        appState.arm(.shape(kind))
                         isPresented = false
                     }
                 }
@@ -27,7 +28,7 @@ struct ShapeMenu: View {
             }
             .toggleStyle(.switch)
             .controlSize(.small)
-            Text("Pick a shape, then drag on the page from one corner to the other. Hold \u{2325} and drag from a node to draw an arrow without the tool; with the tool on, any drag draws one. A bar then picks the heads and the line, and a double-click gives a node its label.")
+            Text("Pick a shape, then drag on the page from one corner to the other. It stays picked, so the next drag draws the next one, until Esc, the pen, or the shape picked again. Hold \u{2325} and drag from a node to draw an arrow without the tool; with the tool on, any drag draws one. A bar then picks the heads and the line, and a double-click gives a node its label.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -49,22 +50,23 @@ struct MarkMenu: View {
             Text("Marks").font(.headline)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(64), spacing: 6), count: 3), spacing: 6) {
                 ForEach(marks) { kind in
-                    PaletteButton(title: kind.title, symbol: kind.symbol) {
+                    PaletteButton(title: kind.title, symbol: kind.symbol,
+                                  isOn: appState.placing == .shape(kind)) {
                         // PICKING A MARK ARMS IT; THE CLICK IS WHERE IT
                         // GOES (Sean, 2026-09-21: "the checkmark
                         // shouldn't be placed until i click where it
                         // goes, like an arrow"). It lands at one line of
                         // text's size, which is what a tick beside a
                         // word is, and a drag still sizes it by hand.
-                        appState.placing = .shape(kind)
+                        appState.arm(.shape(kind))
                         isPresented = false
                     }
                 }
-                line("Arrow", symbol: "arrow.right", start: .none, end: .arrow)
-                line("Both Ways", symbol: "arrow.left.and.right", start: .arrow, end: .arrow)
-                line("Line", symbol: "minus", start: .none, end: .none)
+                line("Arrow", start: .none, end: .arrow)
+                line("Both Ways", start: .arrow, end: .arrow)
+                line("Line", start: .none, end: .none)
             }
-            Text("Pick a mark and then click where it goes: it lands the size of a line of writing, and the handles move, size and turn it. Drag instead of clicking to size it as it goes down. A line or an arrow runs from the press to the release.")
+            Text("Pick a mark and then click where it goes: it lands the size of a line of writing, and the handles move, size and turn it. Drag instead of clicking to size it as it goes down, and hold \u{2318} to keep it for the next one. A line or an arrow runs from the press to the release. A box, a circle, a triangle, a line or an arrow stays picked for the next drag until Esc.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -73,10 +75,10 @@ struct MarkMenu: View {
         .frame(width: 264)
     }
 
-    private func line(_ title: String, symbol: String,
-                      start: ConnectorItem.Head, end: ConnectorItem.Head) -> some View {
-        PaletteButton(title: title, symbol: symbol) {
-            appState.placing = .line(start: start, end: end)
+    private func line(_ title: String, start: ConnectorItem.Head, end: ConnectorItem.Head) -> some View {
+        let placement = CanvasPlacement.line(start: start, end: end)
+        return PaletteButton(title: title, symbol: placement.symbol, isOn: appState.placing == placement) {
+            appState.arm(placement)
             isPresented = false
         }
     }
@@ -85,6 +87,10 @@ struct MarkMenu: View {
 private struct PaletteButton: View {
     let title: String
     let symbol: String
+    /// The tool armed now, lit the way the bar lights a tool that is on:
+    /// a shape stays armed after it is drawn, and picking the lit tile
+    /// again is one of the ways to put it away (`AppState.arm`).
+    var isOn = false
     let action: () -> Void
 
     var body: some View {
@@ -98,11 +104,13 @@ private struct PaletteButton: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
+            .foregroundStyle(isOn ? Color.accentColor : .primary)
             .frame(width: 64, height: 50)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            .background(isOn ? Color.accentColor.opacity(0.22) : Color.primary.opacity(0.06),
+                        in: RoundedRectangle(cornerRadius: 6))
             .contentShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
-        .help(title)
+        .help(isOn ? "\(title) is picked — click to put it away" : title)
     }
 }

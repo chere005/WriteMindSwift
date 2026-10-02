@@ -953,6 +953,36 @@ CoreMind's `bin/report-status.sh`.
   moved puts down NOTHING and leaves the tool armed, where it used to
   put down a short horizontal line centred on the click — a different
   line from the one asked for, in a different place.
+- **A SHAPE STAYS ARMED; A MARK IS ONE CLICK.** Sean, 2026-10-02: "after
+  drawing a rectangle dont exit rectangle mode..". Until then every
+  placement went back to the palette once something was down, and only ⌘
+  held as it went down kept the tool. `CanvasPlacement.staysArmed` now
+  answers by the KIND: a node (the flow chart's six, wherever it was
+  picked — the Marks palette's box, circle and triangle are nodes) and a
+  line or an arrow are DRAWN, corner to corner or press to release, a
+  chart is several of them, and the next drag draws the next one with no
+  key held. A mark — tick, cross, query, star — is still one click and ⌘
+  still keeps it: Sean's words for it ("if i hold cmd, stay in adding
+  that marker mode") ask for ⌘ to KEEP a marker, which is a marker that
+  goes back without it, and a tick is a stamp beside one word. An armed
+  tool is put away by Esc (the layer's chain, as before); the same tile
+  picked again (`AppState.arm`, the palettes' one writer, and the armed
+  tile is lit); another tile; the arrow tool, which now puts an armed
+  shape away as arming a shape always put the arrow tool away (`begin`
+  asks the placement first, so a shape left beside it would take every
+  drag meant for the arrow); a mode, the pen, ⌘P; and the Text Box and
+  Add Image buttons (`AppState.putToolsAway` — they put the pen down
+  already, and a shape left armed would take the click that finishes the
+  text box). While it is armed the footer names it after the mode, in the
+  same colour (`CanvasPlacement.footer`: "Rectangle: every drag draws
+  one, Esc to stop"), the pointer stays the crosshair and the handles
+  stay hidden; what was just drawn is the selection, so ⌫ and ⌘Z take it
+  back without disarming. EVERY RULE OF THE PRESS IS KEPT: the placement
+  is asked before any mode, modifier or object under the pointer, so a
+  plain click ON an object puts a node down there at its own size, a mark
+  too, and a line nothing — the pane is the tool's until it is put away.
+  A capture from the camera or the tablet puts the pen down as it did and
+  leaves an armed shape armed.
 - **A group is a shared id, and every rule about it is in `CanvasGroups`.**
   Sean, 2026-09-20: "toggle grouping with the button on the screen or
   ctrl+g". `group: UUID?` sits on `Stroke`, `ImageItem` and `ShapeItem`
@@ -971,14 +1001,16 @@ CoreMind's `bin/report-status.sh`.
   smaller ones first) — which is why `grouped` also re-labels members that
   were not themselves picked, or half a group would be left behind.
   The arrow tool and an armed placement are NOT modes: they take the pane
-  for one gesture and hand it back, so picking either puts the mode back to
-  `cursor` and picking a mode puts them away. TWO READERS, and everything
-  else asks one of them rather than spelling the flags out again —
-  `canvasOwnsPane` (do the clicks reach the notebook: the seams on both
-  panes, the layer's hit shape) and `paneCursor` (what the pointer is over
-  the pane: the pencil, the crosshair, or nil for "the notebook's own
-  four"). The list used to be written out in three places, and a fourth
-  thing holding the pane meant finding all three.
+  until they are put away — the arrow tool until it is switched off, a
+  node or a line until Esc or another tool, a mark for one click (the
+  rule above) — so picking either puts the mode back to `cursor`, picking
+  a mode puts them away, and each puts the other away. TWO READERS, and
+  everything else asks one of them rather than spelling the flags out
+  again — `canvasOwnsPane` (do the clicks reach the notebook: the seams
+  on both panes, the layer's hit shape) and `paneCursor` (what the
+  pointer is over the pane: the pencil, the crosshair, or nil for "the
+  notebook's own four"). The list used to be written out in three
+  places, and a fourth thing holding the pane meant finding all three.
   The marquee is one rule wherever the drag came from — ⌘ under the pen,
   ⌘ over the words — and every one of them ends in
   `Drawing.ids(touching:)`, which skips a hidden picture exactly as

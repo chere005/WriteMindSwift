@@ -60,10 +60,12 @@ struct DrawingCanvas: View {
     /// ⌘Z is the page's, and goes on to the Edit menu that gives it there.
     var pageOwnsUndo: () -> Bool = { false }
     /// A shape or a mark armed by the palette: the next drag puts it down,
-    /// from where the drag starts to where it ends (Sean, 2026-09-19).
+    /// from where the drag starts to where it ends (Sean, 2026-09-19) — and
+    /// a node or a line stays armed for the drag after
+    /// (`CanvasPlacement.staysArmed`).
     var placing: CanvasPlacement?
-    /// The object has been placed (or the placing was called off).
-    var onPlaced: (() -> Void)?
+    /// The tool is handed back: a mark put down with no ⌘ held, or Esc.
+    var onDisarm: (() -> Void)?
     /// Esc with the pen up: the pen goes down. True when it was taken.
     var onEscapePen: (() -> Bool)?
     /// Esc while the tablet's page has a box up: it is put away. True when
@@ -166,12 +168,14 @@ struct DrawingCanvas: View {
                     }
 
                 // NOT WHILE A TOOL IS ARMED. The handles are real views
-                // over the canvas, so the one round the mark just placed
-                // would swallow the next click — which with ⌘ held is the
-                // next mark, landing beside it (Sean, 2026-09-21: "if i
-                // hold cmd, stay in adding that marker mode"). The pane
-                // belongs to the tool until the tool is handed back, and
-                // Escape is how it is handed back.
+                // over the canvas, so the one round the shape just put
+                // down would swallow the next press — which, with a node
+                // or a line staying armed or ⌘ held over a mark, is the
+                // next one, landing beside it (Sean, 2026-09-21: "if i
+                // hold cmd, stay in adding that marker mode"; 2026-10-02:
+                // "after drawing a rectangle dont exit rectangle mode..").
+                // The pane belongs to the tool until the tool is handed
+                // back, and Escape is how it is handed back.
                 if !penActive, placing == nil, let box = drawing.bounds(of: handleIDs, in: geo.size) {
                     handles(box: box, in: geo.size)
                 }
@@ -1105,7 +1109,7 @@ struct DrawingCanvas: View {
         }
         if styling != nil, event.keyCode == 53 { styling = nil; return true }
         // esc puts the armed shape away again.
-        if placing != nil, event.keyCode == 53 { onPlaced?(); return true }
+        if placing != nil, event.keyCode == 53 { onDisarm?(); return true }
         if cropping != nil, flags.isSubset(of: [.function, .numericPad]) {
             switch event.keyCode {
             case 36, 76: confirmCrop(); return true   // ↩ and enter
@@ -1180,10 +1184,14 @@ struct DrawingCanvas: View {
     /// sent the pointer back to the palette for a gesture that produced
     /// nothing — the comment there had said so since it was written while
     /// the `defer` disarmed on every path, this one included.
-    /// ⌘ HELD leaves it armed even when something DID go down, so a row of
-    /// ticks is one trip to the palette (Sean, 2026-09-21: "when placing a
-    /// marker, if i hold cmd, stay in adding that marker mode"). Escape is
-    /// the way out of either, as it always was.
+    /// SOMETHING PUT DOWN leaves it armed too when it is a node or a line,
+    /// whatever is held (Sean, 2026-10-02: "after drawing a rectangle dont
+    /// exit rectangle mode.."), and when it is a mark put down with ⌘ held,
+    /// so a row of ticks is one trip to the palette (Sean, 2026-09-21:
+    /// "when placing a marker, if i hold cmd, stay in adding that marker
+    /// mode") — `CanvasPlacement.staysArmed`. What went down is the
+    /// selection, so ⌫ and ⌘Z take it back without disarming. Escape is
+    /// the way out of all of it, as it always was.
     private func place(from: CGPoint, to: CGPoint, in size: CGSize,
                        modifiers: NSEvent.ModifierFlags) {
         placePreview = nil
@@ -1196,7 +1204,7 @@ struct DrawingCanvas: View {
         selection = [item.id]
         // A text box is put down to be typed in.
         if case .shape(let shape) = item, shape.kind == .text { beginLabel(item.id) }
-        if !CanvasPlacement.staysArmed(modifiers) { onPlaced?() }
+        if !placing.staysArmed(modifiers) { onDisarm?() }
     }
 
     /// Where a connector's far end is, ⇧ taken into account. The arrow tool

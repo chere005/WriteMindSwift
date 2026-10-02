@@ -137,6 +137,17 @@ final class SymbolTests: XCTestCase {
         }
     }
 
+    /// What is armed is named in the footer by its icon, and the palette's
+    /// lines take theirs from the same table.
+    func testEveryPlacementHasAnIconThatExists() {
+        let placements = ShapeItem.Kind.allCases.map(CanvasPlacement.shape)
+            + [.line(start: .none, end: .none), .line(start: .none, end: .arrow), .line(start: .arrow, end: .arrow)]
+        for placement in placements {
+            XCTAssertNotNil(NSImage(systemSymbolName: placement.symbol, accessibilityDescription: nil),
+                            "\(placement.title) asks for the missing symbol \(placement.symbol)")
+        }
+    }
+
     func testEveryToolbarSectionHasAnIconThatExists() {
         for group in ToolGroup.allCases {
             XCTAssertNotNil(NSImage(systemSymbolName: group.icon, accessibilityDescription: nil),

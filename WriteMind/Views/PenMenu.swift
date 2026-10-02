@@ -56,7 +56,7 @@ struct PenMenu: View {
                     .disabled(store.drawing.isEmpty)
                 Spacer()
                 Button {
-                    appState.canvasMode = .cursor
+                    appState.putToolsAway()
                     store.chooseImage()
                 } label: {
                     Label("Add Image", systemImage: "photo.badge.plus")

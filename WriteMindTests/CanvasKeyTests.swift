@@ -28,7 +28,7 @@ private struct KnobbedCanvas: View {
     var body: some View {
         DrawingCanvas(drawing: .constant(Drawing()), mode: knobs.mode, color: .black, width: 2,
                       placing: knobs.placing,
-                      onPlaced: { knobs.placingsCalledOff += 1; knobs.placing = nil },
+                      onDisarm: { knobs.placingsCalledOff += 1; knobs.placing = nil },
                       onEscapePen: {
                           guard knobs.mode == .pen else { return false }
                           knobs.pensPutDown += 1

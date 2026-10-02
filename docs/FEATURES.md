@@ -203,7 +203,9 @@ is how the code is put together.
 - **Flow charts.** The shapes button arms a rectangle, rounded rectangle,
   oval, diamond, triangle or parallelogram; drag on the page from one corner
   to the other and that is where it goes, or click once for one at its own
-  size. Double-click a node to give it a label. Hold ⌥ and drag from a node
+  size. The shape stays picked — the footer says which — so the next drag
+  draws the next one, until Esc, the pen, another tool or the same shape
+  picked again puts it away. Double-click a node to give it a label. Hold ⌥ and drag from a node
   to draw an arrow — or turn the arrow tool on and drag from anywhere. An
   arrow between two nodes is routed like draw.io's: right angles, the fewest
   corners that join them, round anything in the way, and into its own lane
@@ -233,7 +235,10 @@ is how the code is put together.
   Pick one and then click where it goes: it lands the size of a line of
   writing, a green tick, a red cross and a yellow query, and the handles
   move, size and turn it from there. Drag instead of clicking to size it as
-  it goes down; a line or an arrow runs from the press to the release.
+  it goes down; a line or an arrow runs from the press to the release. A
+  tick, a cross, a query or a star goes back after one (hold ⌘ as it goes
+  down to keep it for a row of them); a box, a circle, a triangle, a line
+  or an arrow stays picked like a flow-chart shape.
 - **A folder can leave the project without leaving the disk.** Right-click
   a folder in the sidebar: *Remove Folder from Project* hides it (Folder ▸
   Hidden Folders brings it back); *Move to Trash* is the one that moves it.
