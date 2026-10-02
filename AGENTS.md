@@ -379,7 +379,14 @@ CoreMind's `bin/report-status.sh`.
   no cursor event reaches it at all; and the layer sets the pencil once
   more on the next run-loop turn, after whatever the dispatch did. The
   pencil itself is black with a white halo at 28pt — the first, a thin white
-  glyph, was invisible on the page.
+  glyph, was invisible on the page. SWALLOWED, NOT ANSWERED: routed, a
+  cursorUpdate reaches the layer's SwiftUI host and never
+  `CursorRectView.cursorUpdate`, and the window behind the host answers
+  with the arrow. And the layer is mounted only while it has a cursor at
+  all — see the eighth cause under the traps. The notebook views the pen
+  does not take the tracking areas from — the gutter, and under the ⌘
+  crosshair or a hand all three — ask `CursorRectView.claim` on every move
+  and give the layer's answer, so a move is never answered twice.
 - **THE PENCIL HAS TO BE HANDED BACK WHEN THE POINTER LEAVES THE APP.**
   `NSCursor.set()` is global and sticks until something else sets one, and
   nothing outside this app ever will — so the pencil followed the pointer
@@ -1007,7 +1014,9 @@ WriteMind/
                           whole pane a marquee
   Drawing/CursorLayer.swift
                           the pencil (and open/closed hand) cursor, as a real
-                          AppKit cursor rect over the text view
+                          AppKit cursor rect over the text view — mounted
+                          only while the layer has a cursor of its own;
+                          `region` and `claim` (whose pointer it is)
   Drawing/InkPaths.swift  the ONE geometry source for a stroke and a
                           connector, on screen and on paper: the legacy
                           line, or ink's filled outline (InkCache keeps it
@@ -1227,14 +1236,18 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   `NSCursor.push()` flickered straight back to a text cursor — which is why
   the pen had no pencil. `CursorLayer` is an AppKit view above it with a real
   cursor rect (and a tracking area as the belt to those braces), and
-  `hitTest` returning nil so it never takes a click.
+  `hitTest` returning nil so it never takes a click — and mounted only while
+  it has a cursor of its own, because a hosted view over the pane is what
+  every cursorUpdate there is routed to (the eighth cause below).
 - **Being ABOVE the text view does not win the cursor either.** The seam
   layer had a cursor rect, a `cursorUpdate` and a `mouseMoved` of its own
   and the pointer over an armed bar was still the upright I-beam (Sean,
   2026-09-20: "the mouse cursor should reliably be horizontal between the
-  cells"): the text view's OWN tracking areas hand it those same events
-  whoever is on top, and two cursor rects over one point is AppKit's
-  choice to make — it chose the text view's. The pencil settled this by
+  cells"): the text view's OWN tracking areas hand it the same moves
+  whoever is on top, a cursorUpdate goes to whichever view the window's
+  hit test finds at the pointer — the text view, on a seam's sticky edge
+  (the eighth cause, below) — and two cursor rects over one point is
+  AppKit's choice to make — it chose the text view's. The pencil settled this by
   taking the text view's tracking areas away; a seam cannot, because the
   text either side of it still wants its I-beam. So the text view is
   told: `PasteAwareTextView` asks `CellInsertions.pointerSeams` — the
@@ -1312,6 +1325,100 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   ours — for `mouseMoved` and for `mouseEntered` both. Nothing is lost:
   over a seam there is no text for NSTextView's handler to do anything
   with.
+  AN EIGHTH, and the one under all of them: A CURSORUPDATE GOES WHERE THE
+  WINDOW'S HIT TEST SAYS, AND WHILE ONE IS CURRENT SWIFTUI ANSWERS THAT
+  HIT TEST WITH THE TOPMOST NSVIEW IT HOSTS. AppKit does not hand a
+  cursorUpdate to the view whose tracking area made it:
+  `_routeCursorUpdateEvent` hit-tests the window's frame view at
+  `mouseLocationOutsideOfEventStream` and sends `cursorUpdate:` to
+  whatever answers. And with a cursorUpdate as the current event the
+  hosting view answers with the topmost NSView it hosts at that point
+  WHATEVER that view's own `hitTest` says — `.allowsHitTesting(false)`
+  does not stop it and neither does `hitTest → nil` (`.hidden()` and a
+  zero frame do; `isHidden`, `.opacity(0)` and `.disabled(true)` do
+  not) — and the event goes to that view's HOST, not to the view, and up
+  to the window, which puts the ARROW up. `CursorLayer` was mounted
+  always, with no cursor in cursor mode, so it was that view for the
+  whole pane: moves set the horizontal I-beam through the tracking-area
+  owners, and every cursorUpdate — each rect edge crossed, each rebuild
+  of the rects — set the arrow, so where the pointer ended up depended
+  on which came last, which looked like x mattering (Sean, 2026-10-02:
+  "the horizontal cursor stuff should work in markdown view mode").
+  Measured that day on macOS 26.6.2 with `NSCursor.currentSystem`,
+  AppKit's disassembly and hosted probes; and it is why 2026-09-22
+  looked fixed — that check logged which of OUR handlers answered, and
+  on this path none of them ran. What came out of it:
+  - **Nothing hosted sits over the notebook unless it has a cursor of
+    its own.** `DrawingCanvas` mounts `CursorLayer` only while the layer
+    has one — the pencil, a crosshair, a hand on an object. A layer that
+    IS mounted must swallow cursorUpdates in its monitor, as the pen's
+    always has, because answered by routing they reach its host and the
+    arrow. PUT UP under a still pointer it sets its cursor itself on
+    the next turn, and only while the app is active, the window key and
+    frontmost under the pointer — AppKit's own cursorUpdate for the new
+    rects goes to the layer's host and comes out as the arrow (a probe
+    with that set taken out showed the arrow); the text view's
+    `updateNSView` no longer sets the pencil as well. TAKEN DOWN it does
+    nothing: AppKit rebuilds the window's cursor rects as the view
+    leaves and sends the owner of the rect now under the pointer a
+    cursorUpdate, and that owner answers — the arrow it used to set
+    there was this bug. Measured 2026-10-02 in a scratch copy driven
+    from the View menu with the pointer held still on the tail seam
+    (`NSCursor.currentSystem` polled: bar, pencil, bar; under
+    `-NSDebugCursorRects` the cursorUpdates after "Stop Drawing" went to
+    `CellInsertions`) and in a probe where nothing else changed. A
+    cursorUpdate POSTED to the window is not routed at all — it carries
+    no tracking area and reached no view; one was tried here and taken
+    out.
+  - **While a layer IS up, the pointer under it is the layer's.**
+    `CursorRectView.claim(at:in:)` names the cursor of a layer over a
+    window point, and the text view's, the seam layer's and the gutter's
+    moves and entries ask it first and give the same answer — and light
+    no seam and no bracket, because the press there is the canvas's.
+    Their tracking areas still hand them every move, and a hand, a bar
+    or an I-beam set between the monitor's two sets of the layer's
+    cursor was two answers to one event (the seventh cause again) under
+    the ⌘ crosshair, a hand on an object, and the pencil over the
+    gutter, whose tracking area the pen never took (`LayerClaimTests`).
+  - **A HOSTED VIEW'S `visibleRect` IS NOT CUT TO ITS BOUNDS.** Measured
+    on 26.6.2: the note's layer had a visible rect from the bottom of
+    the window to the top — over the formatting bar, the tab bar and the
+    footer — and an infinite one in `viewWillMove(toWindow: nil)`, where
+    its conversion from the window is also off by the rest of the pane.
+    `CursorRectView.region` is `bounds ∩ visibleRect` and is what the
+    monitor, the tracking area, the mount and `claim` read; as
+    `visibleRect` it put the pencil up over the formatting bar
+    (`CursorLayerRegionTests`).
+  - **A cursorUpdate is answered at the POINTER, not at the event**
+    (`NSView.routedPoint(of:)`, in CellInsertions.swift): the event's
+    location can be a move behind the point AppKit routed by, and a
+    handler reading it answers for a place the pointer has left. The
+    text view, the seam layer and the gutter all read the pointer; moves
+    still read their event.
+  - **Every view a cursorUpdate can reach answers it, from the region's
+    one reader**, because falling through to NSView's default is the
+    window's arrow. The seam layer is hit only where `seam(at:)` takes
+    the point and `pointerSeam` answers wherever that does. The gutter's
+    `hitTest` takes the WHOLE column while a cursorUpdate is current
+    (a click, still only on a bracket): a TextKit 1 NSTextView's
+    `hitTest` is nil in its own inset margins, so beside a bracket the
+    hit test found the scroll view's CLIP VIEW, which answered with the
+    document cursor — the upright I-beam — against the gutter's arrow on
+    every move (seen on screen 2026-10-02, I-beam then arrow;
+    `BracketColumnRoutingTests` hosts the real editor and asks). The
+    text view's own `cursorUpdate` asks `NotebookGutter.cursor(at:)` too
+    (`cursorForUpdate`), for the event it is handed in the column if it
+    ever is — it used to return without a word there.
+  `CursorRoutingTests` hosts the canvas over a stand-in in a window that
+  is never shown and asks the window's own hit test with a cursorUpdate
+  current: the notebook in cursor mode, the layer's host under the pen.
+  It also puts a point under the real pointer by moving that window, to
+  check the handlers read the pointer and not the event. THE RENDERED
+  PAGE IS NO DIFFERENT FOR IT: over a SwiftUI block a routed
+  cursorUpdate now reaches the page's own scroll container instead of
+  the layer's host, and either way the answer is the window's arrow
+  (probed both ways, 2026-10-02) — the page's cursors are set on hover,
+  and a cursorUpdate there is still nobody's to answer.
   On the rendered page there was a fifth with the same face: the seam
   handed the cursor back by looking at what was on screen
   (`current == .iBeamCursorForVerticalLayout`), and the seam the pointer
@@ -1328,8 +1435,10 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   And a hover the CODE clears — `openSeam`, `insertBlock`, `selectCells`
   — hands the cursor back itself (`dropHover`), because the `.ended`
   that arrives later answers for nobody and the horizontal I-beam left
-  with the pointer. Which view's `cursorUpdate` wins at runtime is not
-  unit-testable; the geometry under all of it is, and is.
+  with the pointer. Which view a cursorUpdate REACHES is testable after
+  all — the window's own hit test, asked with one current (the eighth
+  cause) — and so is the geometry under all of it. What is still not is
+  the cursor on the screen.
 - **ONE OWNER AND ONE ANSWER FOR EVERY REGION, AND THE TWO PANES GIVE THE
   SAME ONE.** Sean, 2026-09-22: "the mouse cursor behavior should be the
   same in wysiwyg and markdown mode". Three were wrong, all the same
@@ -1343,15 +1452,18 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   under it, so the hand showed while the pointer moved and the I-beam
   whenever it stopped or the rects were rebuilt. Both are clipped to
   `bounds.width - NotebookGutter.width` now, `inGutter` makes
-  `cursorUpdate`/`mouseMoved`/`mouseEntered` return without calling
-  super there, and `NotebookGutter` carries `.cursorUpdate` in its
+  `mouseMoved`/`mouseEntered` return without calling super there and
+  `cursorUpdate` ask the gutter, the gutter's `hitTest` takes the whole
+  column for a routed cursorUpdate (the eighth cause), and
+  `NotebookGutter` carries `.cursorUpdate` in its
   tracking area with ONE reader (`cursor(at:)`) for hand-over-a-bracket
   and arrow-beside-one. Measured through `DebugLog` with the pointer
-  driven across the column: the text view goes silent and the gutter
-  answers once. **And a control inside a cell keeps the cell's I-beam
-  unless it says otherwise** — a checklist's box and the evaluator badge
-  are buttons, so `.pointingHand()` (which puts the cell's own cursor
-  back on the way out, never the arrow, or it flashes between the two).
+  driven across the column: on the moves the text view goes silent and
+  the gutter answers once. **And a control inside a cell keeps the
+  cell's I-beam unless it says otherwise** — a checklist's box and the
+  evaluator badge are buttons, so `.pointingHand()` (which puts the
+  cell's own cursor back on the way out, never the arrow, or it flashes
+  between the two).
 - **The + on the bar is a button, so it takes the pointing hand** — the
   same cursor the notebook brackets in the gutter use, so the app says
   "this does something" the one way (Sean, 2026-09-20: "it should be a
@@ -1424,7 +1536,9 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   armed seam out (2026-09-20: the bar stayed drawn with no caret
   anywhere). A drag loses nothing by the narrower rule: the press lands
   on a bracket, and after a mouse down every drag and the mouse up come
-  to that view whatever is under the pointer.
+  to that view whatever is under the pointer. The POINTER is another
+  matter: while a cursorUpdate is the current event the whole column is
+  the gutter's (the eighth cause, under the cursor traps).
 - **The background app tools CAN drive a drag, and cannot hold a
   modifier.** `app_drag` says "delivered via raw input… unverified" and
   then works: a path of points arrives as a real `mouseDown` and a dozen

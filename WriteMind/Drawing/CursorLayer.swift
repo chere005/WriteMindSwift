@@ -9,9 +9,17 @@ import SwiftUI
 /// cursor (Sean, 2026-09-18: "in drawing mode, the cursor should become a
 /// pencil"). A view with a real cursor rect, above the text view, wins the
 /// same argument every time; the tracking area is the belt to that braces.
+///
+/// AND IT IS THERE ONLY WHILE IT HAS A CURSOR TO SHOW (`DrawingCanvas.body`).
+/// Being a hosted NSView over the pane is exactly what makes it win: AppKit
+/// routes every cursorUpdate in the pane to it, whatever its `hitTest` says.
+/// It used to stay mounted with no cursor in cursor mode, and so answered
+/// all of the notebook's cursorUpdates with the window's arrow (AGENTS.md:
+/// the eighth cause).
 struct CursorLayer: NSViewRepresentable {
-    /// Nil means "leave the cursor alone" — the text view keeps its I-beam.
-    var cursor: NSCursor?
+    /// What the pointer is over the pane while the layer is up. Never nil:
+    /// a layer with nothing of its own to show is not mounted at all.
+    var cursor: NSCursor
 
     func makeNSView(context: Context) -> CursorRectView {
         let view = CursorRectView()
@@ -24,12 +32,21 @@ struct CursorLayer: NSViewRepresentable {
     }
 
     final class CursorRectView: NSView {
+        /// Changed in place while the layer stays up — the pencil to the
+        /// crosshair, the open hand to the closed one. Going away
+        /// altogether is not a change of cursor but the layer coming down,
+        /// and AppKit hands the pointer back then by itself: taking a view
+        /// with a cursor rect out from under a still pointer rebuilds the
+        /// window's rects, and the owner of the rect under the pointer now
+        /// is sent a cursorUpdate (measured 2026-10-02, a scratch copy of
+        /// the app and a probe with nothing else changing). An arrow put
+        /// up here, as it used to be, is an arrow over the notebook, which
+        /// is the bug that took this layer out of cursor mode.
         var cursor: NSCursor? {
             didSet {
                 guard cursor !== oldValue else { return }
                 window?.invalidateCursorRects(for: self)
                 if let cursor, isMouseInside { cursor.set() }
-                else if cursor == nil, isMouseInside { NSCursor.arrow.set() }
             }
         }
         private var isMouseInside = false
@@ -37,6 +54,14 @@ struct CursorLayer: NSViewRepresentable {
         /// Sees the pointer once it is over another application.
         private var outside: Any?
         private var observers: [NSObjectProtocol] = []
+
+        /// What this layer has installed: its local monitor, its global
+        /// one and its notification observers. All three while it is in a
+        /// window and none once it is out of one — a monitor that outlives
+        /// its layer keeps setting a cursor for a pane that has gone.
+        var watchers: (local: Bool, global: Bool, observers: Int) {
+            (monitor != nil, outside != nil, observers.count)
+        }
 
         /// What a pointer at `point` should be shown, given the cursor this
         /// layer wants and whether the pointer was over it a moment ago.
@@ -81,43 +106,126 @@ struct CursorLayer: NSViewRepresentable {
         /// cursor keeps coming up").
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if window == nil {
+            guard let window else {
+                Self.live.remove(self)
                 if let monitor { NSEvent.removeMonitor(monitor) }
                 monitor = nil
                 stopWatchingForLeaving()
                 return
             }
+            Self.live.add(self)
             // Without this the window is only told about mouse moves while
             // the pointer is inside a tracking area — so the move that
             // LEAVES this layer for the camera pane never arrived, and the
             // pencil stayed on over there (Sean, 2026-09-20: "cursor only
             // becomes a pen in the notes pane in drawing mode!!!!!").
-            window?.acceptsMouseMovedEvents = true
+            // Left on when the layer goes: the camera pane's own layer is
+            // up beside this one for most of a session and asks the same,
+            // and two layers putting back what each found would leave the
+            // window with whatever the last one to go happened to find.
+            window.acceptsMouseMovedEvents = true
             watchForLeaving()
+            // PUT UP UNDER A POINTER THAT HAS NOT MOVED — the pen picked
+            // up from the keyboard, ⌘ pressed, the pointer arriving on an
+            // object — the pane is this layer's from now, and nothing of
+            // ours says so until the pointer moves. AppKit does send a
+            // cursorUpdate as the rects are rebuilt, but it is routed to
+            // this layer's HOST, not through the monitor, and the window
+            // answers it with the ARROW: measured 2026-10-02, a layer put
+            // up under a still pointer with this set taken out showed the
+            // arrow; with it, its own cursor (in the scratch app, the
+            // pencil from the View menu with the pointer held still). On
+            // the next turn, once SwiftUI has given it a frame.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let cursor = self.cursor, let window = self.window,
+                      Self.appHasPointer(in: window),
+                      self.region.contains(self.convert(window.mouseLocationOutsideOfEventStream, from: nil))
+                else { return }
+                self.isMouseInside = true
+                cursor.set()
+            }
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(
                 matching: [.cursorUpdate, .mouseMoved, .leftMouseDragged, .mouseEntered, .mouseExited]) { [weak self] event in
-                guard let self, let cursor = self.cursor, let window = self.window, event.window === window,
-                      !self.isHiddenOrHasHiddenAncestor
-                else { return event }
-                let point = self.convert(event.locationInWindow, from: nil)
-                let inside = self.visibleRect.contains(point)
-                guard let wanted = Self.cursor(cursor, at: point, in: self.visibleRect,
-                                               wasInside: self.isMouseInside)
-                else { self.isMouseInside = inside; return event }
-                self.isMouseInside = inside
-                guard inside else { wanted.set(); return event }
-                cursor.set()
-                // A monitor runs BEFORE the event is dispatched, so anything
-                // the dispatch sets wins over this. Setting it again on the
-                // next turn of the run loop runs after all of that.
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let cursor = self.cursor, let window = self.window else { return }
-                    let now = self.convert(window.mouseLocationOutsideOfEventStream, from: nil)
-                    if self.visibleRect.contains(now) { cursor.set() }
-                }
-                return event.type == .cursorUpdate ? nil : event
+                self?.filter(event) ?? event
             }
+        }
+
+        /// What the monitor does with one event, before it is dispatched:
+        /// the event to dispatch, or nil to swallow it. Named so a test can
+        /// hand it an event without a window that is shown and key.
+        func filter(_ event: NSEvent) -> NSEvent? {
+            guard let cursor, let window, event.window === window, !isHiddenOrHasHiddenAncestor
+            else { return event }
+            let point = convert(event.locationInWindow, from: nil)
+            let region = self.region
+            let inside = region.contains(point)
+            guard let wanted = Self.cursor(cursor, at: point, in: region, wasInside: isMouseInside)
+            else { isMouseInside = inside; return event }
+            isMouseInside = inside
+            guard inside else { wanted.set(); return event }
+            cursor.set()
+            // A monitor runs BEFORE the event is dispatched, so anything
+            // the dispatch sets wins over this. Setting it again on the
+            // next turn of the run loop runs after all of that.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let cursor = self.cursor, let window = self.window else { return }
+                let now = self.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+                if self.region.contains(now) { cursor.set() }
+            }
+            return event.type == .cursorUpdate ? nil : event
+        }
+
+        /// The part of the window this layer covers, in its own
+        /// coordinates: its bounds, cut by whatever clips them.
+        ///
+        /// NOT `visibleRect` ALONE. For a view SwiftUI hosts it is not cut
+        /// to the view's own bounds: measured on macOS 26.6.2, the note's
+        /// layer had a visible rect from the bottom of the window to the
+        /// top — over the top bar, the tab bar and the footer — and an
+        /// infinite one while it was being taken out of its window. Read
+        /// as "the pointer is over the note" it put the pencil up over the
+        /// formatting bar (`CursorLayerRegionTests`). The split pane does
+        /// clip it from the side, which is the half that is worth keeping.
+        var region: NSRect { bounds.intersection(visibleRect) }
+
+        /// Every layer that is in a window now, for `claim(at:in:)`.
+        private static let live = NSHashTable<CursorRectView>.weakObjects()
+
+        /// The cursor a layer is showing over `point` (window coordinates)
+        /// of `window`, and nil where no layer with a cursor is over it.
+        ///
+        /// WHILE ONE IS, THE POINTER IS THE LAYER'S. Its monitor sets its
+        /// cursor before each move is dispatched and again on the next
+        /// turn — but the notebook under it is handed the same moves by
+        /// its own tracking areas, and the gutter's hand, the seam's bar
+        /// and the words' I-beam set in between were two answers to one
+        /// event, the flicker of the seventh cause, under the ⌘
+        /// crosshair, a hand on an object, and the pencil over the gutter.
+        /// So the notebook's move handlers ask this first and give the
+        /// same answer, and light nothing for a press the canvas takes
+        /// (`LayerClaimTests`).
+        static func claim(at point: NSPoint, in window: NSWindow?) -> NSCursor? {
+            guard let window else { return nil }
+            for layer in live.allObjects where layer.window === window && !layer.isHiddenOrHasHiddenAncestor {
+                if let cursor = layer.cursor, layer.region.contains(layer.convert(point, from: nil)) {
+                    return cursor
+                }
+            }
+            return nil
+        }
+
+        /// Whether this app has the pointer: the app active, `window` key
+        /// and the frontmost window under the pointer. `NSCursor.set()` is
+        /// global, and the window answers `mouseLocationOutsideOfEventStream`
+        /// wherever the pointer is — over another app's window in front of
+        /// this one too — so a cursor set on that alone is put up over
+        /// somebody else's (AGENTS: "THE PENCIL HAS TO BE HANDED BACK WHEN
+        /// THE POINTER LEAVES THE APP").
+        private static func appHasPointer(in window: NSWindow) -> Bool {
+            NSApp.isActive && window.isKeyWindow
+                && NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+                    == window.windowNumber
         }
 
         deinit {
@@ -170,12 +278,16 @@ struct CursorLayer: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override var acceptsFirstResponder: Bool { false }
 
+        /// Over `region`, and not `.inVisibleRect`: the visible rect of a
+        /// hosted view runs over the bars above and below the note, so the
+        /// pointer coming in over the tab bar was "entered" and got the
+        /// pencil there.
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             trackingAreas.forEach(removeTrackingArea)
             addTrackingArea(NSTrackingArea(
-                rect: .zero,
-                options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved, .cursorUpdate],
+                rect: region,
+                options: [.activeInKeyWindow, .mouseEnteredAndExited, .mouseMoved, .cursorUpdate],
                 owner: self))
         }
 

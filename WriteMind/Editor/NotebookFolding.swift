@@ -254,6 +254,18 @@ final class NotebookGutter: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        // A DRAWING LAYER UP OVER THE COLUMN HAS THE POINTER, and a press
+        // there is the canvas's: the pen's pencil, the ⌘ crosshair, a
+        // hand on an object. Its monitor sets its cursor before this
+        // move is dispatched and again on the next turn, so a hand or an
+        // arrow put up here in between is a second answer to one event —
+        // the flicker of the seventh cause — and a lit bracket is a
+        // promise of a click this column will not get. So the layer's
+        // answer, and nothing lit.
+        if let claimed = CursorLayer.CursorRectView.claim(at: event.locationInWindow, in: window) {
+            unhover()
+            return claimed.set()
+        }
         let point = convert(event.locationInWindow, from: nil)
         let over = bracket(at: point)
         if over?.key != hovered {
@@ -264,21 +276,32 @@ final class NotebookGutter: NSView {
         cursor(at: point).set()
     }
 
+    /// Every cursorUpdate in the column comes here — `hitTest` takes the
+    /// whole of it while one is current — and is answered by the column's
+    /// one reader. At the POINTER and not at the event: see
+    /// `routedPoint(of:)`.
     override func cursorUpdate(with event: NSEvent) {
-        cursor(at: convert(event.locationInWindow, from: nil)).set()
+        cursor(at: routedPoint(of: event)).set()
     }
 
     override func mouseEntered(with event: NSEvent) {
+        if let claimed = CursorLayer.CursorRectView.claim(at: event.locationInWindow, in: window) {
+            return claimed.set()
+        }
         cursor(at: convert(event.locationInWindow, from: nil)).set()
     }
 
     /// The hand over a bracket, the arrow beside one — one reader, so the
-    /// three ways this view is asked cannot answer differently.
-    private func cursor(at point: NSPoint) -> NSCursor {
+    /// ways this column is asked cannot answer differently: this view's
+    /// own moves, entries and cursorUpdates, and the text view's, should
+    /// it ever be handed a cursorUpdate in the column.
+    func cursor(at point: NSPoint) -> NSCursor {
         bracket(at: point) == nil ? .arrow : .pointingHand
     }
 
-    override func mouseExited(with event: NSEvent) {
+    override func mouseExited(with event: NSEvent) { unhover() }
+
+    private func unhover() {
         guard hovered != nil else { return }
         hovered = nil
         needsDisplay = true
@@ -377,11 +400,23 @@ final class NotebookGutter: NSView {
     /// bracket — that is what starting a drag from one means — and once
     /// this view has the mouse down, every drag and the mouse up come here
     /// whatever is under the pointer.
+    ///
+    /// BUT THE WHOLE COLUMN WHILE A CURSORUPDATE IS BEING ROUTED. AppKit
+    /// sends a cursorUpdate to whatever this hit test finds at the pointer
+    /// (AGENTS.md: the eighth cause), and beside a bracket that was not the
+    /// text view: a TextKit 1 NSTextView answers nil for its own inset
+    /// margins, so the scroll view's CLIP VIEW was found, and it answered
+    /// with the document cursor — the upright I-beam — while this view's
+    /// moves said the arrow: two answers in one column (measured
+    /// 2026-10-02 on screen, I-beam then arrow, and in
+    /// `BracketColumnRoutingTests`). It is only ever the pointer that is
+    /// taken this way; a click still comes here only on a bracket.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden else { return nil }
         let local = convert(point, from: superview)
-        guard bounds.contains(local), bracket(at: local) != nil else { return nil }
-        return self
+        guard bounds.contains(local) else { return nil }
+        if NSApp.currentEvent?.type == .cursorUpdate { return self }
+        return bracket(at: local) == nil ? nil : self
     }
 
     /// The cells' brackets, down the page. A section's is not one of them:

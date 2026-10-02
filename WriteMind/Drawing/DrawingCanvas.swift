@@ -118,8 +118,24 @@ struct DrawingCanvas: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                CursorLayer(cursor: cursor)
-                    .allowsHitTesting(false)
+                // ONLY WHILE THE LAYER HAS A CURSOR OF ITS OWN — the pen's
+                // pencil, the crosshair, a hand on an object. AppKit hands
+                // a cursorUpdate to whatever the window's hit test finds
+                // under the pointer, and while one is the current event
+                // SwiftUI answers that hit test with the topmost NSView it
+                // hosts, whatever that view's `hitTest` says and whatever
+                // `allowsHitTesting` says. Mounted always, with no cursor
+                // in cursor mode, this layer was that view for the whole
+                // pane: every cursorUpdate went to its host, and the
+                // window behind the host put the arrow up over the seams
+                // and the words (Sean, 2026-10-02: "the horizontal cursor
+                // stuff should work in markdown view mode"). With no tool
+                // up the pane is the notebook's, so nothing of ours is
+                // over it. `CursorRoutingTests` pins both halves.
+                if let cursor {
+                    CursorLayer(cursor: cursor)
+                        .allowsHitTesting(false)
+                }
 
                 Canvas { context, size in render(&context, size: size) }
                     .contentShape(CanvasHitShape(items: drawing.visibleItems,
@@ -1131,6 +1147,8 @@ struct DrawingCanvas: View {
         }
     }
 
+    /// The layer's own cursor, and nil for "the notebook's": with nil the
+    /// `CursorLayer` is not mounted at all (see `body`).
     private var cursor: NSCursor? {
         if placing != nil { return .crosshair }
         if penActive { return DrawingCursors.pencil }

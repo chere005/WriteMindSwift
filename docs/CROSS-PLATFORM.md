@@ -15,6 +15,26 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### With no tool up, nothing sits over the notebook
+In cursor mode the pointer over the note is the notebook's, in both panes:
+the I-beam over the words, the I-beam on its side over the space between two
+cells, the hand on the + and on a bracket, the arrow beside a bracket. The
+drawing layer goes over the page only while it has a pointer of its own — the
+pen's pencil, the ⌘ crosshair, a hand on an object, an armed tool — and an
+invisible layer left over the page with nothing to show is not harmless: here
+it took every pointer update for the whole pane and answered with the arrow,
+so the horizontal pointer between cells kept turning into one (Sean,
+2026-10-02: "the horizontal cursor stuff should work in markdown view mode").
+When the layer's pointer goes with the pointer held still — Esc puts the pen
+down, ⌘ is let go, the pointer slides off an object — the notebook's pointer
+for that spot comes back at once, not on the next move; and a layer that
+arrives under a still pointer shows its own at once. While it is up, its
+pointer is the only one over the part of the page it covers — the gutter,
+the seams and the words show the same, and light no bracket and no seam,
+because a press there is the drawing's — and it covers the note only, never
+the bars above and below it. Every region answers for where the pointer IS
+now, never for where the last event said it was.
+
 ### A pen writes ink; a mouse still draws the line it always drew
 A stroke made with a stylus is INK: the outline of a line whose width
 follows how hard the nib is pressed, filled. Build it with perfect-freehand

@@ -199,13 +199,16 @@ struct MarkdownTextView: NSViewRepresentable {
             // when the editor was built.
             tv.onPasteImage = { onPasteImage?($0) ?? false }
             tv.onClick = onClick
+            // Only the override. Showing it under a pointer that has not
+            // moved is the drawing layer's, which is put up with it and
+            // sets it on its next turn (`CursorLayer`): this used to set
+            // it as well, by `bounds` — which for the scroll view's
+            // document view takes in the formatting bar as soon as the
+            // note is scrolled — and with no thought for whether this app
+            // had the pointer at all.
             if tv.cursorOverride !== cursor {
                 tv.cursorOverride = cursor
                 tv.window?.invalidateCursorRects(for: tv)
-                if let window = tv.window, let cursor,
-                   tv.bounds.contains(tv.convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
-                    cursor.set()
-                }
             }
         }
 
@@ -1090,11 +1093,21 @@ class PasteAwareTextView: NSTextView {
     }
 
     /// The bracket column, which this view draws no text in and answers
-    /// no cursor for — `NotebookGutter` is the only thing that should,
-    /// and it says hand over a bracket and arrow beside one.
+    /// no cursor for of its own — `NotebookGutter` is the only thing that
+    /// does, and it says hand over a bracket and arrow beside one.
+    ///
+    /// ONLY WHERE THERE IS A GUTTER. An open block on the rendered page is
+    /// a `BlockTextView`, which is one of these with no gutter and its
+    /// words right out to its edge; read as a column, its last 22 points
+    /// were the arrow over words, and a block narrower than that was
+    /// nothing else (`NoGutterCursorTests`).
     private func inGutter(_ point: NSPoint) -> Bool {
-        point.x >= max(0, bounds.width - NotebookGutter.width)
+        gutterLayer != nil && point.x >= max(0, bounds.width - NotebookGutter.width)
     }
+
+    /// The gutter, asked the way the seam layer is: it is this view's own
+    /// subview, so there is nothing to keep in step.
+    private var gutterLayer: NotebookGutter? { subviews.compactMap { $0 as? NotebookGutter }.first }
 
     /// Shown over the text instead of the I-beam while set (the pen's pencil).
     var cursorOverride: NSCursor? {
@@ -1106,11 +1119,15 @@ class PasteAwareTextView: NSTextView {
     }
 
     /// While the pen is up the text view does not track the mouse at all:
-    /// NSTextView's own tracking areas are what hand it the cursorUpdate and
-    /// mouseMoved events it answers with the I-beam, and overriding those
-    /// handlers still let an I-beam through now and then (Sean, 2026-09-18:
-    /// "the text selection cursor keeps popping up randomly"). No tracking
-    /// area, no event, no I-beam. They come back with the pen down.
+    /// NSTextView's own tracking areas are what hand it the moves it
+    /// answers with the I-beam, and overriding those handlers still let an
+    /// I-beam through now and then (Sean, 2026-09-18: "the text selection
+    /// cursor keeps popping up randomly"). No tracking area, no move, no
+    /// I-beam. They come back with the pen down. (A cursorUpdate is not
+    /// the tracking area's owner's: AppKit sends it to whatever the
+    /// window's hit test finds at the pointer — AGENTS.md, the eighth
+    /// cause — which under the pen is the drawing layer's host, and its
+    /// monitor swallows it.)
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if cursorOverride != nil {
@@ -1136,7 +1153,8 @@ class PasteAwareTextView: NSTextView {
         // soon as the note is scrolled.
         guard let window else { return }
         let pointer = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-        guard visibleRect.contains(pointer) else { return }
+        guard visibleRect.contains(pointer),
+              layerCursor(at: window.mouseLocationOutsideOfEventStream) == nil else { return }
         seamCursor(at: pointer)?.set()
     }
 
@@ -1192,32 +1210,54 @@ class PasteAwareTextView: NSTextView {
         }
     }
 
-    /// The same answer for the events that come by tracking area rather
-    /// than by cursor rect.
+    /// What a cursorUpdate puts up at a point of this view, and nil for
+    /// the words — NSTextView's own I-beam. One answer per region, each
+    /// from that region's own reader: the pen's override, the seam
+    /// layer's over a seam, the GUTTER'S over the bracket column.
     ///
-    /// This view's OWN tracking areas hand it cursorUpdate and mouseMoved
-    /// wherever the pointer is in it — over the seam layer above it as
-    /// much as over the words — and answering them with the I-beam put
-    /// the upright cursor back a moment after the layer had set the
-    /// bar's. The pencil beat this by taking the tracking areas away
-    /// (AGENTS.md: "The pencil cursor wins by swallowing cursorUpdate
-    /// events"), which a seam cannot do because the text either side of
-    /// it still wants its I-beam. So the text view knows about the
-    /// seams instead, and does not put the I-beam back over one — it
-    /// asks the layer what the pointer should be and says the same
-    /// thing.
+    /// The seams: this view's tracking areas hand it the moves wherever
+    /// the pointer is in it — over the seam layer as much as over the
+    /// words — and answering them with the I-beam put the upright cursor
+    /// back a moment after the layer had set the bar's. The pencil beat
+    /// that by taking the tracking areas away (AGENTS.md: "The pencil
+    /// cursor wins by swallowing cursorUpdate events"), which a seam
+    /// cannot do because the text either side of it still wants its
+    /// I-beam. So the text view asks the layer and says the same thing.
+    ///
+    /// The gutter: a cursorUpdate does not go to the view whose tracking
+    /// area made it. AppKit hit-tests the window at the pointer and sends
+    /// it to whatever answers (AGENTS.md: the eighth cause) — in the
+    /// column that is the gutter itself, whose `hitTest` takes the whole
+    /// column while a cursorUpdate is current, since this view's own
+    /// `hitTest` is nil in its inset margin. Should one come HERE in the
+    /// column all the same, the gutter's reader answers it: returning
+    /// without a word, as this did, leaves nobody answering at all.
+    func cursorForUpdate(at point: NSPoint) -> NSCursor? {
+        if let cursorOverride { return cursorOverride }
+        if inGutter(point), let gutter = gutterLayer { return gutter.cursor(at: convert(point, to: gutter)) }
+        return seamCursor(at: point)
+    }
+
+    /// At the POINTER and not at the event — see `routedPoint(of:)`.
     override func cursorUpdate(with event: NSEvent) {
-        if let cursorOverride { return cursorOverride.set() }
-        let point = convert(event.locationInWindow, from: nil)
-        if inGutter(point) { return }
-        guard let cursor = seamCursor(at: point) else {
+        guard let cursor = cursorForUpdate(at: routedPoint(of: event)) else {
             return super.cursorUpdate(with: event)
         }
         cursor.set()
     }
 
+    /// The cursor a drawing layer up over this point of the window is
+    /// showing — the ⌘ crosshair, a hand on an object, the pencil over a
+    /// block of the rendered page — and nil where none is. While one is,
+    /// the pointer and the press are the canvas's, so this view's moves
+    /// give the layer's answer rather than a second one of their own
+    /// (the gutter's `mouseMoved` says why that is a flicker).
+    private func layerCursor(at windowPoint: NSPoint) -> NSCursor? {
+        CursorLayer.CursorRectView.claim(at: windowPoint, in: window)
+    }
+
     override func mouseMoved(with event: NSEvent) {
-        if let cursorOverride { return cursorOverride.set() }
+        if let cursor = cursorOverride ?? layerCursor(at: event.locationInWindow) { return cursor.set() }
         // ASK FIRST, and do not call super when the answer is ours.
         // NSTextView's own mouseMoved sets the I-beam, so calling it
         // before setting the bar's cursor set TWO cursors per event —
@@ -1240,7 +1280,7 @@ class PasteAwareTextView: NSTextView {
     /// under a pointer that never moved — so the bar was left with an
     /// upright cursor on it until it was nudged.
     override func mouseEntered(with event: NSEvent) {
-        if let cursorOverride { return cursorOverride.set() }
+        if let cursor = cursorOverride ?? layerCursor(at: event.locationInWindow) { return cursor.set() }
         let point = convert(event.locationInWindow, from: nil)
         if inGutter(point) { return }
         if let cursor = seamCursor(at: point) {

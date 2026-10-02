@@ -234,9 +234,11 @@ final class CellInsertions: NSView {
     ///
     /// The text view underneath asks for these rather than keeping a
     /// copy: it has to know where the seams are (its own tracking areas
-    /// hand it every mouseMoved and cursorUpdate whoever is on top, and
-    /// it was putting the I-beam back over the bar), and a second copy
-    /// of the geometry is two answers to one question.
+    /// hand it the moves whoever is on top, and a cursorUpdate goes to
+    /// whichever view the window's hit test finds — the text view on a
+    /// seam's sticky edge — and it was putting the I-beam back over the
+    /// bar), and a second copy of the geometry is two answers to one
+    /// question.
     var pointerSeams: [CellSeams.Seam] { isHidden ? [] : seams }
 
     /// The + as the POINTER reads it: where a + is actually drawn, and
@@ -259,9 +261,12 @@ final class CellInsertions: NSView {
     /// business.
     ///
     /// ONE answer, read by this layer's `cursorUpdate`, by its cursor
-    /// rects and by the text view underneath — a cursorUpdate reaches
-    /// both views and whichever runs last wins, so two views deciding
-    /// separately is a disagreement one event wide, which is a flicker.
+    /// rects and by the text view underneath — a move reaches both views
+    /// and whichever runs last wins, and a cursorUpdate reaches whichever
+    /// of the two the window's hit test finds (this layer only inside a
+    /// seam, the text view on the sticky edge round one), so two views
+    /// deciding separately is a disagreement one event wide, which is a
+    /// flicker.
     func cursor(at point: CGPoint) -> NSCursor? {
         guard !isHidden, bounds.contains(point),
               point.x < bounds.width - NotebookGutter.width else {
@@ -326,6 +331,13 @@ final class CellInsertions: NSView {
     func hover(at point: CGPoint) { hoveredOffset = seam(at: point)?.offset }
 
     override func mouseMoved(with event: NSEvent) {
+        // A drawing layer up over the seam has the pointer and the press
+        // — the ⌘ crosshair, a hand on an object — so its answer, and no
+        // seam lit for a click the canvas takes (the gutter says why).
+        if let claimed = CursorLayer.CursorRectView.claim(at: event.locationInWindow, in: window) {
+            hoveredOffset = nil
+            return claimed.set()
+        }
         let point = convert(event.locationInWindow, from: nil)
         hover(at: point)
         // On its side over the seam, because what goes in here goes in
@@ -364,8 +376,13 @@ final class CellInsertions: NSView {
         if let plus = pointerPlus { addCursorRect(plus, cursor: .pointingHand) }
     }
 
+    /// At the POINTER and not at the event — see `routedPoint(of:)`. This
+    /// layer is handed the event only where its `hitTest` takes the point
+    /// (`seam(at:)`), and wherever that does, `cursor(at:)` has an answer
+    /// (`SeamCursorCoverageTests`), so super — whose answer is the
+    /// window's arrow — is never reached from a seam.
     override func cursorUpdate(with event: NSEvent) {
-        guard let cursor = cursor(at: convert(event.locationInWindow, from: nil)) else {
+        guard let cursor = cursor(at: routedPoint(of: event)) else {
             return super.cursorUpdate(with: event)
         }
         cursor.set()
@@ -434,6 +451,26 @@ final class CellInsertions: NSView {
     /// the layer is hidden and the pencil owns the pane.
     override func hitTest(_ point: NSPoint) -> NSView? {
         seam(at: convert(point, from: superview)) == nil ? nil : self
+    }
+}
+
+extension NSView {
+    /// Where a cursorUpdate handed to this view is, in this view's
+    /// coordinates: where the pointer is NOW, which is what AppKit chose
+    /// the view by.
+    ///
+    /// AppKit does not send a cursorUpdate to the view whose tracking
+    /// area made it: `_routeCursorUpdateEvent` hit-tests the window at
+    /// `mouseLocationOutsideOfEventStream` and sends it to whatever
+    /// answers (AGENTS.md: the eighth cause). The event's own location
+    /// can be a move behind that — a pointer crossing a seam's edge fast
+    /// is routed to the seam layer with an event that still says the
+    /// cell above it — so a handler that reads the event answers for a
+    /// place the pointer has left. Read for cursorUpdate and nothing else:
+    /// a mouse move arrives at its owner with its own location, and that
+    /// is the right one for it.
+    func routedPoint(of event: NSEvent) -> NSPoint {
+        convert(window?.mouseLocationOutsideOfEventStream ?? event.locationInWindow, from: nil)
     }
 }
 
