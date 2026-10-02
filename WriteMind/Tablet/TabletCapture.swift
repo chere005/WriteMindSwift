@@ -111,11 +111,15 @@ struct WacomPenPacket {
     ///
     /// Out of range is the pen leaving. In range without a position is the
     /// pen coming near: nothing to put a marker on yet, and (0, 0) is not
-    /// where it is. With a position it is a point, and the tip, the switch
-    /// and the pressure count only once the tablet says they are ready. The
-    /// lower switch is THE side switch — the one the driver sent as the
-    /// right button; the upper one did nothing by that route and does
-    /// nothing by this.
+    /// where it is. With a position it is a point, and the tip, the
+    /// switches and the pressure count only once the tablet says they are
+    /// ready — until then the reading says the nib is up and that it CANNOT
+    /// SAY what the switches are doing (nil), which is not "let go": read as
+    /// that, an unready report at the edge of the tablet's reach could make
+    /// a click of a switch still held. A precaution — how the LP-190K's
+    /// reports end there is unmeasured. EACH SWITCH IS ITS OWN
+    /// (`PenSwitch`): 0x02 the lower one, nearer the nib — the Linux
+    /// driver's BTN_STYLUS — and 0x04 the upper.
     func reading(at timestamp: TimeInterval) -> TabletReading {
         guard inRange else {
             return TabletReading(kind: .proximity(entering: false), timestamp: timestamp, native: true)
@@ -125,13 +129,20 @@ struct WacomPenPacket {
         }
         let down = isReady && tip
         var buttons: UInt = 0
+        var switches: Set<PenSwitch>?
         if isReady {
+            switches = []
             if tip { buttons |= 0x1 }
-            if lowerSwitch { buttons |= 0x2 }
-            if upperSwitch { buttons |= 0x4 }
+            if lowerSwitch {
+                buttons |= 0x2
+                switches?.insert(.lower)
+            }
+            if upperSwitch {
+                buttons |= 0x4
+                switches?.insert(.upper)
+            }
         }
-        return TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: down,
-                                          sideSwitch: isReady && lowerSwitch,
+        return TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: down, switches: switches,
                                           pressure: down ? pressure : 0, buttons: buttons),
                              timestamp: timestamp, native: true)
     }

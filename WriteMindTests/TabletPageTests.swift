@@ -449,9 +449,9 @@ final class TabletWritingTests: XCTestCase {
         var writing = TabletWriting()
         var outcomes: [TabletWriting.Outcome] = []
         let readings = [
-            TabletReading(kind: .point(counts: CGPoint(x: 10, y: 10), tip: true, sideSwitch: false,
+            TabletReading(kind: .point(counts: CGPoint(x: 10, y: 10), tip: true, switches: [],
                                        pressure: 0.4, buttons: 1), timestamp: 1, native: false),
-            TabletReading(kind: .point(counts: CGPoint(x: 20, y: 10), tip: true, sideSwitch: false,
+            TabletReading(kind: .point(counts: CGPoint(x: 20, y: 10), tip: true, switches: [],
                                        pressure: 0.5, buttons: 1), timestamp: 2, native: false),
             TabletReading(kind: .proximity(entering: false), timestamp: 3, native: false),
         ]
@@ -471,11 +471,22 @@ final class TabletWritingTests: XCTestCase {
 /// from the page, and the box.
 @MainActor
 final class TabletScribeTests: XCTestCase {
-    private func point(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false, pressure: Double = 0.5,
-                       at time: TimeInterval) -> TabletReading {
-        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, sideSwitch: side, pressure: pressure,
-                                   buttons: (tip ? 1 : 0) | (side ? 2 : 0)),
-                      timestamp: time, native: false)
+    /// `side` is the lower switch, `upper` the other.
+    private func point(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false, upper: Bool = false,
+                       pressure: Double = 0.5, at time: TimeInterval) -> TabletReading {
+        var switches: Set<PenSwitch> = []
+        if side { switches.insert(.lower) }
+        if upper { switches.insert(.upper) }
+        return TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, switches: switches,
+                                          pressure: pressure, buttons: (tip ? 1 : 0) | (side ? 2 : 0) | (upper ? 4 : 0)),
+                             timestamp: time, native: false)
+    }
+
+    /// A switch pressed and let go in the air, the nib never touching.
+    private func click(_ input: TabletInput, upper: Bool = false, at time: TimeInterval) {
+        input.feed(point(5000, 5000, tip: false, at: time))
+        input.feed(point(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.1))
+        input.feed(point(5200, 5100, tip: false, at: time + 0.2))
     }
 
     private func rig() -> (TabletInput, TabletPage, TabletScribe) {
@@ -505,23 +516,132 @@ final class TabletScribeTests: XCTestCase {
         XCTAssertEqual(stroke.tool, .pen)
     }
 
+    /// The side switch held as the nib goes down draws the box, from where
+    /// the nib went down to where it came up; a tap with it held is the
+    /// box's own click.
     func testTheSideSwitchDrawsTheBoxAndTheNibPutsItAway() {
         let (input, page, scribe) = rig()
-        input.feed(point(0, 0, tip: false, side: true, at: 1))
-        input.feed(point(7600, 4750, tip: false, side: true, at: 2))
+        input.feed(point(3000, 3000, tip: false, side: true, at: 1))
+        XCTAssertNil(scribe.box.rect, "the switch alone, in the air, began a box")
+        input.feed(point(0, 0, tip: true, side: true, at: 1.5))
+        input.feed(point(7600, 4750, tip: true, side: true, at: 2))
         input.feed(point(7600, 4750, tip: false, side: false, at: 3))
         assertRect(scribe.box.rect, CGRect(x: 0.5, y: 0, width: 0.5, height: 0.5))
         XCTAssertEqual(page.strokes, [], "a box is not ink")
         input.feed(point(1000, 1000, tip: true, at: 4))
         XCTAssertNil(scribe.box.rect, "writing puts the box away")
         input.feed(point(1000, 1000, tip: false, at: 5))
+        XCTAssertEqual(page.strokes.count, 1)
         input.feed(point(5000, 5000, tip: false, side: true, at: 6))
+        input.feed(point(5000, 5000, tip: true, side: true, at: 6.5))
         input.feed(point(5000, 5000, tip: false, side: false, at: 7))
         XCTAssertNil(scribe.box.rect)
         scribe.box.rect = CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.2)
         input.feed(point(5000, 5000, tip: false, side: true, at: 8))
+        input.feed(point(5000, 5000, tip: true, side: true, at: 8.5))
         input.feed(point(5000, 5000, tip: false, side: false, at: 9))
-        XCTAssertNil(scribe.box.rect, "a side-switch click puts it away")
+        XCTAssertNil(scribe.box.rect, "a tap with the side switch held puts it away")
+        XCTAssertEqual(page.strokes.count, 1, "and neither tap wrote, or took anything back")
+    }
+
+    // MARK: - The pen's buttons
+
+    /// THE PEN'S BUTTONS UNDO AND REDO THE LAST DRAWING (Sean, 2026-10-02:
+    /// "make the wacom buttons undo and redo last drawing"). On the page, a
+    /// click of the lower switch in the air is the page's own Undo and of
+    /// the upper its Redo — what the corner's two buttons do, ⌘Z being the
+    /// page's afterwards as it is after them.
+    func testThePensButtonsUndoAndRedoThePage() {
+        let (input, page, scribe) = rig()
+        var written = 0
+        scribe.onWrite = { written += 1 }
+        let first = pageStroke([CGPoint(x: 0.2, y: 0.2)]), second = pageStroke([CGPoint(x: 0.6, y: 0.6)])
+        page.commit(first)
+        page.commit(second)
+
+        click(input, at: 1)
+        XCTAssertEqual(page.strokes, [first], "the lower switch did not take the last stroke back")
+        XCTAssertEqual(written, 1, "⌘Z is the page's after it, as after the corner's Undo")
+        click(input, at: 2)
+        XCTAssertEqual(page.strokes, [], "each click is one step")
+        click(input, upper: true, at: 3)
+        XCTAssertEqual(page.strokes, [first], "the upper switch did not put it back")
+        click(input, upper: true, at: 4)
+        XCTAssertEqual(page.strokes, [first, second])
+        XCTAssertEqual(written, 4)
+        XCTAssertNil(scribe.stroke, "a click is not ink")
+        XCTAssertNil(scribe.box.rect, "nor a box")
+    }
+
+    /// NOTHING TO TAKE BACK, NOTHING HAPPENS: no step of its own, and ⌘Z
+    /// is not made the page's by a click that changed nothing.
+    func testAClickWithNothingToUndoOrRedoDoesNothing() {
+        let (input, page, scribe) = rig()
+        var written = 0
+        scribe.onWrite = { written += 1 }
+        click(input, at: 1)
+        click(input, upper: true, at: 2)
+        XCTAssertEqual(page.strokes, [])
+        XCTAssertFalse(page.canUndo, "a click on a blank page left a step behind it")
+        XCTAssertFalse(page.canRedo)
+        let stroke = pageStroke([CGPoint(x: 0.2, y: 0.2)])
+        page.commit(stroke)
+        click(input, upper: true, at: 3)
+        XCTAssertEqual(page.strokes, [stroke], "nothing to put back")
+        XCTAssertEqual(page.history.count, 1)
+        XCTAssertEqual(written, 0, "a click that changed nothing claimed ⌘Z for the page")
+    }
+
+    /// A click leaves a box that is up where it is — it is a command, and
+    /// no longer the box's own click, which is a tap with the switch held.
+    func testAClickInTheAirLeavesTheBoxUp() {
+        let (input, page, scribe) = rig()
+        page.commit(pageStroke([CGPoint(x: 0.2, y: 0.2)]))
+        let box = CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.2)
+        scribe.box.rect = box
+        click(input, at: 1)
+        XCTAssertEqual(page.strokes, [])
+        assertRect(scribe.box.rect, box)
+    }
+
+    /// A SWITCH PRESSED WHILE A STROKE OR A BOX IS UNDER WAY DOES NOTHING:
+    /// the stroke lands whole and nothing is taken back — not when the
+    /// switch is let go under the nib, and not when it is let go after the
+    /// lift.
+    func testASwitchUnderAStrokeOrABoxTakesNothingBack() {
+        let (input, page, scribe) = rig()
+        page.commit(pageStroke([CGPoint(x: 0.2, y: 0.2)]))
+        input.feed(point(3800, 2375, tip: true, at: 1))
+        input.feed(point(4000, 2375, tip: true, upper: true, at: 2))
+        input.feed(point(4200, 2375, tip: true, at: 3))
+        input.feed(point(4400, 2375, tip: true, side: true, at: 4))
+        input.feed(point(4400, 2375, tip: false, side: true, at: 5))
+        input.feed(point(4400, 2375, tip: false, at: 6))
+        XCTAssertEqual(page.strokes.count, 2, "a switch pressed under the ink took a stroke back")
+        XCTAssertEqual(page.strokes.last?.points.count, 4, "or broke the stroke")
+        XCTAssertFalse(page.canRedo)
+
+        // The box: the switch pressed in the air, held as the nib goes
+        // down, and let go after the nib is up.
+        input.feed(point(1000, 1000, tip: false, side: true, at: 7))
+        input.feed(point(1000, 1000, tip: true, side: true, at: 8))
+        input.feed(point(6000, 6000, tip: true, side: true, at: 9))
+        input.feed(point(6000, 6000, tip: false, side: true, at: 10))
+        input.feed(point(6000, 6000, tip: false, at: 11))
+        XCTAssertNotNil(scribe.box.rect)
+        XCTAssertEqual(page.strokes.count, 2, "letting go after the box took a stroke back")
+        XCTAssertFalse(page.canRedo)
+    }
+
+    /// The tips of the page's own Undo and Redo name the pen's buttons —
+    /// and Redo's says it needs the pen captured: by the driver's events
+    /// the upper switch has been seen only with the nib down, never in a
+    /// hover, which is where its click is.
+    func testThePagesUndoAndRedoTipsNameThePensButtons() {
+        XCTAssertTrue(TabletPane.undoTip.contains("pen's lower button"), TabletPane.undoTip)
+        XCTAssertTrue(TabletPane.undoTip.contains("⌘Z"), "and still the key")
+        XCTAssertTrue(TabletPane.redoTip.contains("pen's upper button"), TabletPane.redoTip)
+        XCTAssertTrue(TabletPane.redoTip.contains("captured"), TabletPane.redoTip)
     }
 
     func testEscPutsTheBoxAwayAndIsTakenOnlyThen() throws {

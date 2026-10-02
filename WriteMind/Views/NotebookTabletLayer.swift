@@ -1,15 +1,18 @@
 import SwiftUI
 
 /// THE TABLET OVER THE NOTES, in Notebook mode: the stroke the pen is
-/// writing and the marquee its side switch is dragging, and — while the pen
-/// is near — a faint outline of where the tablet lands on the notes and the
-/// marker where the nib is. Over the drawing layer, in the same frame.
+/// writing and the marquee it drags with a side switch held, and — while
+/// the pen is near — a faint outline of where the tablet lands on the notes
+/// and the marker where the nib is. Over the drawing layer, in the same
+/// frame.
 ///
 /// It is also the notes pane's word to the tablet: a note is on screen
 /// (`TabletInput.notebookAppeared`, which is what holding the tablet and
 /// the funnel's swallowing follow in Notebook mode), where it is and how far
 /// it has scrolled (`NotebookScribe.place`), what the notebook's pen writes
-/// with, and where a finished stroke goes (`NoteStore.inkFromTablet`).
+/// with, and the way into the note (`NotebookScribe.writes(into:telling:)`:
+/// where a finished stroke goes, and what a click of the pen's switches
+/// takes back and puts back).
 ///
 /// NOTHING HERE IS AN NSVIEW and none of it takes a click: SwiftUI shapes
 /// and a `Canvas`, with hit testing off — a hosted view over the notes is
@@ -60,15 +63,7 @@ struct NotebookTabletLayer: View {
         // coming takes the scribe whatever the old one's going did, and the
         // going lets go only with the last (`NotebookScribe.layerWent`).
         .onAppear {
-            let store = self.store, state = appState
-            scribe.onStroke = { [weak store, weak state] stroke in
-                guard let store else { return }
-                let floor = store.drawingSteps
-                guard store.inkFromTablet(stroke) else { return }
-                // ⌘Z is the stroke's now, not the typing's — down to where
-                // the drawing stood under it.
-                state?.tabletInkedNote(above: floor)
-            }
+            scribe.writes(into: store, telling: appState)
             if let measured { scribe.place = measured }
             input.notebookAppeared()
         }
@@ -79,8 +74,8 @@ struct NotebookTabletLayer: View {
     }
 }
 
-/// The stroke the nib is writing and the marquee the side switch is
-/// dragging, at the pen's rate — drawn by the layer's own painters
+/// The stroke the nib is writing and the marquee it drags with a side
+/// switch held, at the pen's rate — drawn by the layer's own painters
 /// (`DrawingCanvas.paintLive`, `paintMarquee`) in the document's
 /// coordinates, a scroll's worth up, exactly as the layer draws its own
 /// pen's stroke.

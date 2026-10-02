@@ -90,7 +90,7 @@ final class TabletMappingTests: XCTestCase {
         var pen = TabletPen()
         var extent = try XCTUnwrap(TabletExtent.known(productID: 0x037A))
         XCTAssertGreaterThan(extent.width, extent.height, "the raw sensor is landscape")
-        let seen = TabletReading(kind: .point(counts: CGPoint(x: 13217, y: 4750), tip: false, sideSwitch: false,
+        let seen = TabletReading(kind: .point(counts: CGPoint(x: 13217, y: 4750), tip: false, switches: [],
                                               pressure: 0, buttons: 0), timestamp: 1, native: true)
         let out = pen.consume(seen, extent: &extent, quarterTurns: 1)
         XCTAssertEqual(extent, TabletExtent(width: 15200, height: 9500, countsPerMillimetre: 100),
@@ -103,7 +103,7 @@ final class TabletMappingTests: XCTestCase {
     func testAPointPastTheEdgeIsOnThePageAndMovesTheEdge() {
         var pen = TabletPen()
         var extent = small
-        let past = TabletReading(kind: .point(counts: CGPoint(x: 16000, y: 9800), tip: false, sideSwitch: false,
+        let past = TabletReading(kind: .point(counts: CGPoint(x: 16000, y: 9800), tip: false, switches: [],
                                               pressure: 0, buttons: 0), timestamp: 1, native: false)
         let out = pen.consume(past, extent: &extent, quarterTurns: 1)
         XCTAssertEqual(extent, TabletExtent(width: 16000, height: 9800))
@@ -178,13 +178,13 @@ final class TabletReadingTests: XCTestCase {
     }
 
     private func pointOf(_ event: NSEvent, file: StaticString = #filePath, line: UInt = #line)
-        -> (counts: CGPoint, tip: Bool, side: Bool, pressure: Double, native: Bool)? {
+        -> (counts: CGPoint, tip: Bool, side: Bool, switches: Set<PenSwitch>?, pressure: Double, native: Bool)? {
         guard let reading = TabletReading.reading(event),
-              case .point(let counts, let tip, let side, let pressure, _) = reading.kind else {
+              case .point(let counts, let tip, let switches, let pressure, _) = reading.kind else {
             XCTFail("not a point", file: file, line: line)
             return nil
         }
-        return (counts, tip, side, pressure, reading.native)
+        return (counts, tip, switches?.isEmpty == false, switches, pressure, reading.native)
     }
 
     /// As measured: a stroke is left-mouse events with the tablet subtype.
@@ -223,6 +223,34 @@ final class TabletReadingTests: XCTestCase {
         XCTAssertEqual(side.pressure, 0, "the switch's pressure means nothing")
         XCTAssertTrue(try XCTUnwrap(pointOf(try mouseEvent(.rightMouseDragged, subtype: point, buttons: 2))).side)
         XCTAssertFalse(try XCTUnwrap(pointOf(try mouseEvent(.rightMouseUp, subtype: point, buttons: 0))).side)
+    }
+
+    /// BY THE DRIVER'S EVENTS THE LOWER SWITCH IS THE RIGHT BUTTON AND THE
+    /// UPPER IS THE MASK'S 0x4 (`penUpperSide`). Both measured on Sean's
+    /// tablet, 2026-10-02: the right button came with mask 0x2 (and its up
+    /// still with 0x2 — the event's type is the word on its own button),
+    /// and the nib's own down and up with 0x5 and 0x4. An event always says
+    /// what the switches are doing — never "cannot say".
+    func testTheDriversRightButtonIsTheLowerSwitchAndItsMaskSaysTheUpper() throws {
+        XCTAssertEqual(try XCTUnwrap(pointOf(try mouseEvent(.rightMouseDown, subtype: point, buttons: 2))).switches,
+                       [.lower])
+        XCTAssertEqual(try XCTUnwrap(pointOf(try mouseEvent(.rightMouseDragged, subtype: point, buttons: 0))).switches,
+                       [.lower], "the right button is the lower switch, whatever the mask says of it")
+        XCTAssertEqual(try XCTUnwrap(pointOf(try mouseEvent(.rightMouseUp, subtype: point, buttons: 2))).switches, [],
+                       "the right button's up, as measured: let go, though its mask still has it")
+        XCTAssertEqual(try XCTUnwrap(pointOf(try mouseEvent(.mouseMoved, subtype: point, buttons: 0))).switches, [])
+        XCTAssertEqual(try XCTUnwrap(pointOf(try mouseEvent(.mouseMoved, subtype: point, buttons: 4))).switches,
+                       [.upper], "the mask's upper switch was thrown away")
+        let down = try XCTUnwrap(pointOf(try mouseEvent(.leftMouseDown, subtype: point, buttons: 5, pressure: 0.5)))
+        XCTAssertTrue(down.tip)
+        XCTAssertEqual(down.switches, [.upper], "the nib down with the upper switch held, as measured (0x5)")
+        let up = try XCTUnwrap(pointOf(try mouseEvent(.leftMouseUp, subtype: point, buttons: 4)))
+        XCTAssertFalse(up.tip)
+        XCTAssertEqual(up.switches, [.upper], "and up with it still held (0x4)")
+        XCTAssertEqual(try XCTUnwrap(pointOf(try mouseEvent(.rightMouseDragged, subtype: point, buttons: 6))).switches,
+                       [.lower, .upper])
+        XCTAssertEqual(try XCTUnwrap(pointOf(try tabletEvent(x: 1, y: 1, buttons: 2, pressure: 0))).switches, [.lower])
+        XCTAssertEqual(try XCTUnwrap(pointOf(try tabletEvent(x: 1, y: 1, buttons: 4, pressure: 0))).switches, [.upper])
     }
 
     /// Events of the tablet's own type, should the driver ever send the pen
@@ -336,10 +364,17 @@ final class TabletPenTests: XCTestCase {
         clock = 0
     }
 
+    /// `side` is the lower switch, `upper` the other; `ready` false is a
+    /// reading that cannot say what the switches are doing.
     private func at(_ x: Double = 7600, _ y: Double = 4750, tip: Bool = false, side: Bool = false,
-                    pressure: Double = 0, time: TimeInterval? = nil) -> [TabletSample] {
+                    upper: Bool = false, ready: Bool = true, pressure: Double = 0,
+                    time: TimeInterval? = nil) -> [TabletSample] {
         clock += 0.008
-        let reading = TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, sideSwitch: side,
+        var switches: Set<PenSwitch> = []
+        if side { switches.insert(.lower) }
+        if upper { switches.insert(.upper) }
+        let reading = TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip,
+                                                 switches: ready ? switches : nil,
                                                  pressure: pressure, buttons: 0),
                                     timestamp: time ?? clock, native: false)
         return pen.consume(reading, extent: &extent, quarterTurns: 1)
@@ -382,41 +417,189 @@ final class TabletPenTests: XCTestCase {
         XCTAssertEqual(phases(at()), [.up], "a hover arriving while down is the up")
     }
 
-    /// THE SIDE SWITCH IS A SELECTION, FROM ITS DOWN TO ITS UP — whatever
-    /// the nib does in between.
-    func testTheSideSwitchMakesASelection() {
-        let down = at(side: true)
+    /// A SWITCH HELD AS THE NIB GOES DOWN IS A SELECTION, FROM THE NIB'S
+    /// DOWN UNTIL NIB AND SWITCH ARE BOTH UP — either switch, and let go
+    /// mid-drag it is still the box. The switch alone, in the air, starts nothing: pressed and
+    /// let go there it is a click (below), which it could not be while it
+    /// also began a box.
+    func testASwitchHeldAsTheNibGoesDownMakesASelection() {
+        XCTAssertEqual(phases(at()), [.hover])
+        XCTAssertEqual(phases(at(side: true)), [.hover], "the switch alone, in the air, began a box")
+        XCTAssertFalse(pen.engaged)
+        let down = at(tip: true, side: true, pressure: 0.5)
         XCTAssertEqual(phases(down), [.down])
         XCTAssertTrue(down[0].sideSwitch)
-        XCTAssertEqual(down[0].pressure, 0)
-        XCTAssertTrue(at(tip: true, side: true, pressure: 0.5)[0].sideSwitch)
-        XCTAssertTrue(at(tip: true, pressure: 0.5)[0].sideSwitch, "the switch let go mid-drag is still the box")
-        let up = at()
+        XCTAssertTrue(at(7700, 4750, tip: true, side: true, pressure: 0.5)[0].sideSwitch)
+        XCTAssertTrue(at(7800, 4750, tip: true, pressure: 0.5)[0].sideSwitch,
+                      "the switch let go mid-drag is still the box")
+        let up = at(7800, 4750)
         XCTAssertEqual(phases(up), [.up])
         XCTAssertTrue(up[0].sideSwitch)
+        XCTAssertEqual(phases(at()), [.hover], "and letting go after a box is no click")
         XCTAssertFalse(at()[0].sideSwitch, "a hover is no selection")
+
+        // The upper switch held makes the same box.
+        XCTAssertEqual(phases(at(upper: true)), [.hover])
+        let upper = at(tip: true, upper: true, pressure: 0.5)
+        XCTAssertEqual(phases(upper), [.down])
+        XCTAssertTrue(upper[0].sideSwitch, "the upper switch held as the nib went down wrote ink")
+        XCTAssertEqual(phases(at()), [.up])
 
         // Ink that has begun stays ink if the switch is pressed under it.
         XCTAssertFalse(at(tip: true, pressure: 0.5)[0].sideSwitch)
         XCTAssertFalse(at(tip: true, side: true, pressure: 0.5)[0].sideSwitch)
     }
 
+    /// THE BOX GOES ON WHILE THE NIB OR THE SWITCH IS DOWN, as it always
+    /// has — only its beginning is the nib's now. The nib lifted with the
+    /// switch still held carries it on in the air; it ends when both are
+    /// up; and letting the switch go then is the box's end, not a click,
+    /// because the nib touched while it was held.
+    func testTheBoxGoesOnWhileTheSwitchIsHeldAndLettingGoIsNoClick() {
+        _ = at()
+        _ = at(side: true)
+        XCTAssertEqual(phases(at(tip: true, side: true, pressure: 0.5)), [.down])
+        XCTAssertEqual(phases(at(7700, 4750, tip: true, side: true, pressure: 0.5)), [.drag])
+        let lift = at(7700, 4750, side: true)
+        XCTAssertEqual(phases(lift), [.drag], "the nib came up with the switch held, and the box ended")
+        XCTAssertTrue(lift[0].sideSwitch)
+        XCTAssertEqual(lift[0].pressure, 0, "in the air")
+        XCTAssertEqual(phases(at(9000, 8000, side: true)), [.drag], "still held: the box follows the pen")
+        let end = at(9000, 8000)
+        XCTAssertEqual(phases(end), [.up], "letting go after a box was a click")
+        XCTAssertTrue(end[0].sideSwitch)
+        XCTAssertEqual(phases(at(9000, 8000)), [.hover])
+        XCTAssertNil(pen.armed)
+    }
+
     /// INK ENDS WHERE THE NIB LIFTS. The switch pressed under a stroke of
     /// ink and still held as the nib comes up is no reason to go on drawing
-    /// in the air — and it starts no box either until it has been let go
-    /// and pressed again.
+    /// in the air — and it makes no box of the next stroke either until it
+    /// has been let go and pressed again, and no click when it is let go.
     func testInkEndsAtTheLiftWhateverTheSwitchIsDoing() {
         XCTAssertEqual(phases(at(tip: true, pressure: 0.5)), [.down])
         XCTAssertEqual(phases(at(7700, 4750, tip: true, side: true, pressure: 0.5)), [.drag])
         let lift = at(7800, 4750, side: true)
         XCTAssertEqual(phases(lift), [.up], "the nib came up and the ink went on")
         XCTAssertFalse(lift[0].sideSwitch)
-        XCTAssertEqual(phases(at(9000, 8000, side: true)), [.hover], "the switch held over from the ink drew a box")
+        XCTAssertEqual(phases(at(9000, 8000, side: true)), [.hover])
         XCTAssertFalse(pen.engaged)
-        XCTAssertEqual(phases(at(9000, 8000)), [.hover], "let go")
-        let box = at(9000, 8000, side: true)
+        let more = at(9000, 8000, tip: true, side: true, pressure: 0.5)
+        XCTAssertEqual(phases(more), [.down])
+        XCTAssertFalse(more[0].sideSwitch, "the switch held over from the ink made a box of the next stroke")
+        XCTAssertEqual(phases(at(9000, 8000, side: true)), [.up])
+        XCTAssertEqual(phases(at(9000, 8000)), [.hover], "let go — and no click: the nib touched while it was held")
+        XCTAssertEqual(phases(at(9000, 8000, side: true)), [.hover])
+        let box = at(9000, 8000, tip: true, side: true, pressure: 0.5)
         XCTAssertEqual(phases(box), [.down], "pressed again: a box")
         XCTAssertTrue(box[0].sideSwitch)
+    }
+
+    // MARK: - A click of a side switch
+
+    /// A SIDE SWITCH CLICKED IN THE AIR IS A COMMAND (Sean, 2026-10-02:
+    /// "make the wacom buttons undo and redo last drawing"): pressed and
+    /// let go with the nib up the whole time. It says which switch, it
+    /// fires as the switch is LET GO — so that holding it and putting the
+    /// nib down can still be the box — and once, however long it was held
+    /// and however far the pen moved meanwhile.
+    func testASwitchClickedInTheAirIsACommandOncePerClick() {
+        XCTAssertEqual(phases(at()), [.hover])
+        XCTAssertEqual(phases(at(side: true)), [.hover], "pressed: nothing yet")
+        XCTAssertEqual(pen.armed, .lower)
+        XCTAssertEqual(phases(at(7700, 4750, side: true)), [.hover], "held: it does not repeat")
+        XCTAssertEqual(phases(at(9000, 8000, side: true)), [.hover])
+        let click = at(9000, 8000)
+        XCTAssertEqual(phases(click), [.click(.lower)], "the lower switch, let go in the air")
+        XCTAssertFalse(click[0].sideSwitch, "a command, not a selection")
+        XCTAssertEqual(click[0].pressure, 0)
+        XCTAssertTrue(click[0].inProximity, "the marker stays where the pen is")
+        XCTAssertFalse(pen.engaged)
+        XCTAssertNil(pen.armed)
+        XCTAssertEqual(phases(at(9000, 8000)), [.hover], "once a click")
+
+        XCTAssertEqual(phases(at(upper: true)), [.hover])
+        XCTAssertEqual(phases(at()), [.click(.upper)], "the upper switch")
+        XCTAssertEqual(phases(at(side: true)), [.hover])
+        XCTAssertEqual(phases(at()), [.click(.lower)], "and each click is one more")
+    }
+
+    /// The same sample by two routes counts once, so a click does too.
+    func testAReleaseSeenTwiceIsOneClick() {
+        _ = at(time: 10)
+        _ = at(side: true, time: 10.008)
+        XCTAssertEqual(phases(at(time: 10.016)), [.click(.lower)])
+        XCTAssertEqual(at(time: 10.016), [], "the copy clicked again")
+    }
+
+    /// NOT WHILE THE NIB IS DOWN: a switch pressed and let go under a
+    /// stroke of ink, or under a box, is no command — the stroke goes on as
+    /// it was — and one pressed under ink and let go after the lift is
+    /// none either.
+    func testASwitchPressedWhileTheNibIsDownIsNoClick() {
+        var seen: [TabletSample.Phase] = []
+        seen += phases(at(tip: true, pressure: 0.5))
+        seen += phases(at(7700, 4750, tip: true, side: true, pressure: 0.5))
+        seen += phases(at(7800, 4750, tip: true, pressure: 0.5))
+        seen += phases(at(7900, 4750, tip: true, upper: true, pressure: 0.5))
+        seen += phases(at(8000, 4750, tip: true, pressure: 0.5))
+        seen += phases(at(8000, 4750))
+        XCTAssertEqual(seen, [.down, .drag, .drag, .drag, .drag, .up], "a switch under the ink did something")
+
+        // Under a box: the upper one clicked while the lower holds the box.
+        _ = at(side: true)
+        seen = phases(at(tip: true, side: true, pressure: 0.5))
+        seen += phases(at(7700, 4750, tip: true, side: true, upper: true, pressure: 0.5))
+        seen += phases(at(7800, 4750, tip: true, side: true, pressure: 0.5))
+        seen += phases(at(7800, 4750, side: true))
+        seen += phases(at(7800, 4750))
+        XCTAssertEqual(seen, [.down, .drag, .drag, .drag, .up], "a switch under the box did something")
+
+        // Pressed under ink, let go after the lift.
+        _ = at(tip: true, pressure: 0.5)
+        _ = at(tip: true, upper: true, pressure: 0.5)
+        XCTAssertEqual(phases(at(upper: true)), [.up])
+        XCTAssertEqual(phases(at()), [.hover], "the nib touched while it was held")
+    }
+
+    /// THE PRESS HAS TO BE SEEN, IN REACH. A switch already held as the pen
+    /// comes near was not pressed here; one held as the pen goes away was
+    /// not let go here; and a reading that cannot say what the switches are
+    /// doing — a report of the tablet's own that is not ready — is neither
+    /// a press nor a letting go. None of them is a click.
+    func testAClickIsPressedAndLetGoInReach() {
+        XCTAssertEqual(near(true), [])
+        XCTAssertEqual(phases(at(side: true)), [.hover], "came near already held")
+        XCTAssertEqual(phases(at()), [.hover], "a switch that was never seen pressed clicked")
+
+        XCTAssertEqual(phases(at(side: true)), [.hover])
+        XCTAssertEqual(phases(near(false)), [.hover], "the pen left with the switch held")
+        XCTAssertNil(pen.armed)
+        XCTAssertEqual(near(true), [])
+        XCTAssertEqual(phases(at()), [.hover], "and came back with it let go: no click")
+
+        XCTAssertEqual(phases(at(side: true)), [.hover])
+        XCTAssertEqual(phases(at(ready: false)), [.hover], "a reading that cannot say was taken for a letting go")
+        XCTAssertEqual(phases(at(side: true)), [.hover], "still held when the tablet could say again")
+        XCTAssertEqual(phases(at()), [.hover], "its press was not seen through")
+
+        XCTAssertEqual(phases(at(side: true)), [.hover])
+        XCTAssertEqual(phases(at()), [.click(.lower)], "and a click seen whole still is one")
+    }
+
+    /// TWO SWITCHES AT ONCE ARE NO COMMAND: there is no saying which was
+    /// meant, so nothing fires until both are let go and one is pressed
+    /// again.
+    func testTwoSwitchesTogetherAreNoCommand() {
+        _ = at()
+        XCTAssertEqual(phases(at(side: true)), [.hover])
+        XCTAssertEqual(phases(at(side: true, upper: true)), [.hover])
+        XCTAssertEqual(phases(at(upper: true)), [.hover], "one of a pair let go was a click")
+        XCTAssertEqual(phases(at()), [.hover], "and so was the other")
+        XCTAssertEqual(phases(at(side: true, upper: true)), [.hover])
+        XCTAssertEqual(phases(at()), [.hover], "both pressed at once, both let go at once")
+        XCTAssertEqual(phases(at(upper: true)), [.hover])
+        XCTAssertEqual(phases(at()), [.click(.upper)])
     }
 
     func testThePenLeavingHidesTheMarker() {
@@ -622,7 +805,7 @@ final class TabletInputTests: XCTestCase {
 
     private func rawPoint(x: Double = 3800, y: Double = 2375, tip: Bool = false, pressure: Double = 0,
                           at time: TimeInterval) -> TabletReading {
-        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, sideSwitch: false, pressure: pressure,
+        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, switches: [], pressure: pressure,
                                    buttons: tip ? 1 : 0), timestamp: time, native: true)
     }
 
@@ -633,6 +816,147 @@ final class TabletInputTests: XCTestCase {
         var got: [TabletSample] = []
         let watching = input.samples.sink { got.append($0) }
         return (input, { got }, watching)
+    }
+
+    // MARK: - A click of a side switch, by both routes
+
+    /// One of the tablet's own reports at the middle of the small One by
+    /// Wacom (7600, 4750), `flags` its second byte; the tip down presses.
+    private func report(_ flags: UInt8, at time: TimeInterval) throws -> TabletReading {
+        let pressure: [UInt8] = flags & 0x01 != 0 ? [0x00, 0x04] : [0, 0]
+        return try XCTUnwrap(WacomPenPacket([2, flags, 0xB0, 0x1D, 0x8E, 0x12] + pressure + [0, 0])).reading(at: time)
+    }
+
+    /// One of the driver's events at the same place: a mouse event with the
+    /// tablet subtype, `buttons` its mask.
+    private func driverEvent(_ type: CGEventType, buttons: Int64, at nanos: UInt64) throws -> NSEvent {
+        let right: Set<CGEventType> = [.rightMouseDown, .rightMouseDragged, .rightMouseUp]
+        let cg = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: type,
+                                       mouseCursorPosition: CGPoint(x: 10, y: 10),
+                                       mouseButton: right.contains(type) ? .right : .left))
+        cg.setIntegerValueField(.mouseEventSubtype, value: 1)
+        cg.setIntegerValueField(.tabletEventPointX, value: 7600)
+        cg.setIntegerValueField(.tabletEventPointY, value: 4750)
+        cg.setIntegerValueField(.tabletEventPointButtons, value: buttons)
+        cg.setDoubleValueField(.mouseEventPressure, value: buttons & 1 != 0 ? 0.5 : 0)
+        cg.timestamp = nanos
+        return try XCTUnwrap(NSEvent(cgEvent: cg))
+    }
+
+    /// OFF THE TABLET'S OWN REPORTS — the pen captured — each switch
+    /// clicked in the air comes down the one stream as its own click, an
+    /// event of its own kind: the lower (0x02) and the upper (0x04) (Sean,
+    /// 2026-10-02: "make the wacom buttons undo and redo last drawing").
+    func testEachSwitchClickedInTheAirIsItsOwnClickOffTheRawReports() throws {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        for (step, flags) in ([0xE0, 0xE2, 0xE2, 0xE0, 0xE4, 0xE0, 0xE0] as [UInt8]).enumerated() {
+            input.raw(try report(flags, at: 20 + Double(step) * 0.008))
+        }
+        XCTAssertEqual(got().map(\.phase), [.hover, .hover, .hover, .click(.lower), .hover, .click(.upper), .hover])
+        XCTAssertEqual(got().filter { $0.phase != .hover }.map(\.page), [CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.5, y: 0.5)],
+                       "where the pen was")
+        XCTAssertEqual(input.pen?.phase, .hover, "and the marker is still the pen's")
+    }
+
+    /// THE LOG SAYS WHICH SWITCH A CLICK WAS, once each: that 0x02 is the
+    /// button nearer the nib is the Linux driver's word, never checked
+    /// against Sean's own pen — a session's log is how it gets checked.
+    func testTheFirstClickOfEachSwitchIsWrittenDown() throws {
+        let (input, _, watching) = capturing()
+        defer { watching.cancel() }
+        var lines: [String] = []
+        input.log = { lines.append($0) }
+        for (step, flags) in ([0xE0, 0xE2, 0xE0, 0xE2, 0xE0, 0xE4, 0xE0, 0xE4, 0xE0] as [UInt8]).enumerated() {
+            input.raw(try report(flags, at: 20 + Double(step) * 0.008))
+        }
+        let clicks = lines.filter { $0.contains("click") }
+        XCTAssertEqual(clicks.count, 2, "one line a switch, not one a click: \(lines)")
+        XCTAssertTrue(clicks.first?.contains("lower") == true, "\(clicks)")
+        XCTAssertTrue(clicks.last?.contains("upper") == true, "\(clicks)")
+    }
+
+    /// Off the same reports, a switch HELD AS THE NIB GOES DOWN is still
+    /// the box — either switch — going on while the nib or the switch is
+    /// down, and letting it go afterwards is no click.
+    func testASwitchHeldAsTheNibGoesDownIsStillTheBoxOffTheRawReports() throws {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        for (step, flags) in ([0xE0, 0xE4, 0xE5, 0xE5, 0xE4, 0xE0, 0xE2, 0xE3, 0xE1, 0xE0] as [UInt8]).enumerated() {
+            input.raw(try report(flags, at: 20 + Double(step) * 0.008))
+        }
+        XCTAssertEqual(got().map(\.phase), [.hover, .hover, .down, .drag, .drag, .up, .hover, .down, .drag, .up])
+        XCTAssertEqual(got().map(\.sideSwitch), [false, false, true, true, true, true, false, true, true, true])
+    }
+
+    /// A REPORT THAT IS NOT READY SAYS NOTHING OF THE SWITCHES — as the
+    /// pen is taken away, say (unmeasured on the LP-190K; a precaution): a
+    /// switch held as the pen goes has not been let go, and is no click —
+    /// nor is one held when the tablet itself is let go.
+    func testASwitchHeldAsThePenLeavesIsNoClick() throws {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        for (step, flags) in ([0xE0, 0xE2, 0xC0, 0x80, 0x00] as [UInt8]).enumerated() {
+            input.raw(try report(flags, at: 20 + Double(step) * 0.008))
+        }
+        XCTAssertEqual(got().map(\.phase), [.hover, .hover, .hover, .hover], "taking the pen away clicked")
+        XCTAssertEqual(got().last?.inProximity, false)
+
+        input.raw(try report(0xE0, at: 21))
+        input.raw(try report(0xE4, at: 21.008))
+        input.rawEnded(at: 21.016)
+        XCTAssertEqual(got().dropFirst(4).map(\.phase), [.hover, .hover, .hover], "the tablet let go clicked")
+    }
+
+    /// BY THE DRIVER'S EVENTS — the fallback, the pen not captured — the
+    /// lower switch is the right button: clicked in the air it is the lower
+    /// switch's click, and every event of it is still swallowed, so nothing
+    /// under the pointer gets a right click.
+    func testTheDriversRightButtonClickedInTheAirIsTheLowerSwitchsClick() throws {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        XCTAssertNil(input.handle(try driverEvent(.mouseMoved, buttons: 0, at: 1_000_000), from: .local))
+        XCTAssertNil(input.handle(try driverEvent(.rightMouseDown, buttons: 2, at: 2_000_000), from: .local))
+        XCTAssertNil(input.handle(try driverEvent(.rightMouseDragged, buttons: 2, at: 3_000_000), from: .local))
+        XCTAssertNil(input.handle(try driverEvent(.rightMouseUp, buttons: 0, at: 4_000_000), from: .local))
+        XCTAssertNil(input.handle(try driverEvent(.mouseMoved, buttons: 0, at: 5_000_000), from: .local))
+        XCTAssertEqual(got().map(\.phase), [.hover, .hover, .hover, .click(.lower), .hover])
+    }
+
+    /// And by the driver's events the right button held as the nib goes
+    /// down is still the box: the nib's own events say the switch is held
+    /// by their mask, and the box goes on until the button is let go.
+    func testTheDriversRightButtonHeldAsTheNibGoesDownIsStillTheBox() throws {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        let events: [(CGEventType, Int64)] = [(.mouseMoved, 0), (.rightMouseDown, 2), (.leftMouseDown, 3),
+                                              (.leftMouseDragged, 3), (.leftMouseUp, 2), (.rightMouseUp, 0)]
+        for (step, event) in events.enumerated() {
+            XCTAssertNil(input.handle(try driverEvent(event.0, buttons: event.1, at: UInt64(step + 1) * 1_000_000),
+                                      from: .local))
+        }
+        XCTAssertEqual(got().map(\.phase), [.hover, .hover, .down, .drag, .drag, .up])
+        XCTAssertEqual(got().map(\.sideSwitch), [false, false, true, true, true, true])
+    }
+
+    /// THE UPPER SWITCH BY THE DRIVER'S EVENTS is the mask's 0x4, and held
+    /// as the nib goes down it is the box by this route as by the raw
+    /// reports — the masks as measured, a down with 0x5 and an up with 0x4.
+    /// Should a hover's mask carry it too (not yet seen), its click is the
+    /// upper's.
+    func testTheDriversUpperSwitchIsTheMasksAndHeldAsTheNibGoesDownIsTheBox() throws {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        let events: [(CGEventType, Int64)] = [(.mouseMoved, 0), (.leftMouseDown, 5), (.leftMouseDragged, 5),
+                                              (.leftMouseUp, 4), (.mouseMoved, 0),
+                                              (.mouseMoved, 4), (.mouseMoved, 4), (.mouseMoved, 0)]
+        for (step, event) in events.enumerated() {
+            XCTAssertNil(input.handle(try driverEvent(event.0, buttons: event.1, at: UInt64(step + 1) * 1_000_000),
+                                      from: .local))
+        }
+        XCTAssertEqual(got().map(\.phase), [.hover, .down, .drag, .drag, .up, .hover, .hover, .click(.upper)])
+        XCTAssertEqual(got().map(\.sideSwitch), [false, true, true, true, true, false, false, false],
+                       "the upper switch held as the nib went down wrote ink")
     }
 
     /// ONE FUNNEL: a reading off the tablet itself goes through the same

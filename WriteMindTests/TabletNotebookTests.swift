@@ -169,15 +169,31 @@ final class NotebookWritingTests: XCTestCase {
     }
 }
 
+/// One reading of the pen: `side` is the lower switch, `upper` the other.
+private func penPoint(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false, upper: Bool = false,
+                      pressure: Double = 0.5, at time: TimeInterval) -> TabletReading {
+    var switches: Set<PenSwitch> = []
+    if side { switches.insert(.lower) }
+    if upper { switches.insert(.upper) }
+    return TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, switches: switches, pressure: pressure,
+                                      buttons: (tip ? 1 : 0) | (side ? 2 : 0) | (upper ? 4 : 0)),
+                         timestamp: time, native: false)
+}
+
+/// A switch pressed and let go in the air, the nib never touching.
+private func penClick(_ input: TabletInput, upper: Bool = false, at time: TimeInterval) {
+    input.feed(penPoint(5000, 5000, tip: false, at: time))
+    input.feed(penPoint(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.1))
+    input.feed(penPoint(5200, 5100, tip: false, at: time + 0.2))
+}
+
 /// The shell: the funnel's stream into the note — through `TabletScribe`,
 /// the samples' one consumer, which chooses the target.
 @MainActor
 final class NotebookScribeTests: XCTestCase {
     private func point(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false, pressure: Double = 0.5,
                        at time: TimeInterval) -> TabletReading {
-        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, sideSwitch: side, pressure: pressure,
-                                   buttons: (tip ? 1 : 0) | (side ? 2 : 0)),
-                      timestamp: time, native: false)
+        penPoint(x, y, tip: tip, side: side, pressure: pressure, at: time)
     }
 
     private func rig(_ target: TabletTarget = .notebook) -> (TabletInput, TabletPage, TabletScribe, NotebookScribe) {
@@ -231,9 +247,75 @@ final class NotebookScribeTests: XCTestCase {
         }
     }
 
-    /// The side switch over the notes is the layer's marquee: shown while it
-    /// is dragged, handed to the layer to pick with when it is let go, and
-    /// no ink and no box on the page.
+    // MARK: - The pen's buttons
+
+    /// ONE PLACE DECIDES WHOSE UNDO A CLICK IS, BY WHERE THE PEN WRITES
+    /// (Sean, 2026-10-02: "make the wacom buttons undo and redo last
+    /// drawing"). In Notebook mode the lower switch is the note's drawing
+    /// undo and the upper its redo, and the page — set aside — keeps every
+    /// stroke; back in Page mode they are the page's, and the note's are
+    /// left alone.
+    func testThePensButtonsAreTheNotesInNotebookModeAndThePagesInPageMode() {
+        let (input, page, scribe, notebook) = rig()
+        withExtendedLifetime(scribe) {
+            var undone = 0, redone = 0
+            notebook.onUndo = { undone += 1 }
+            notebook.onRedo = { redone += 1 }
+            let onPage = pageStroke([CGPoint(x: 0.2, y: 0.2)])
+            page.commit(onPage)
+
+            penClick(input, at: 1)
+            XCTAssertEqual(undone, 1, "the lower switch is the note's undo")
+            XCTAssertEqual(redone, 0)
+            penClick(input, upper: true, at: 2)
+            XCTAssertEqual(redone, 1, "the upper switch is the note's redo")
+            XCTAssertEqual(undone, 1)
+            XCTAssertEqual(page.strokes, [onPage], "the page is set aside: its undo is out of play")
+            XCTAssertFalse(page.canRedo)
+
+            input.aim(at: .page)
+            penClick(input, at: 3)
+            XCTAssertEqual(page.strokes, [], "in Page mode the lower switch is the page's undo")
+            penClick(input, upper: true, at: 4)
+            XCTAssertEqual(page.strokes, [onPage])
+            XCTAssertEqual(undone, 1, "and the note's is left alone")
+            XCTAssertEqual(redone, 1)
+        }
+    }
+
+    /// With no notes on screen a click takes nothing back, as the nib
+    /// writes nothing: an undo nobody can watch happen is a stroke lost.
+    func testWithNoNotesOnScreenAClickTakesNothingBack() {
+        let (input, _, scribe, notebook) = rig()
+        withExtendedLifetime(scribe) {
+            var commands = 0
+            notebook.onUndo = { commands += 1 }
+            notebook.onRedo = { commands += 1 }
+            notebook.place = nil
+            penClick(input, at: 1)
+            penClick(input, upper: true, at: 2)
+            notebook.place = NotebookPlace(pane: CGSize(width: 10, height: 10), scroll: 0, aspect: 0.625)
+            penClick(input, at: 3)
+            XCTAssertEqual(commands, 0)
+        }
+    }
+
+    /// The last layer going takes the way to the note's undo with it, as it
+    /// takes the way in for a stroke.
+    func testTheLastLayerGoingTakesTheNotesUndoWithIt() {
+        let notebook = NotebookScribe()
+        notebook.onUndo = {}
+        notebook.onRedo = {}
+        notebook.layerWent(othersShowing: true)
+        XCTAssertNotNil(notebook.onUndo, "another layer is still up")
+        notebook.layerWent(othersShowing: false)
+        XCTAssertNil(notebook.onUndo)
+        XCTAssertNil(notebook.onRedo)
+    }
+
+    /// The side switch held as the nib goes down over the notes is the
+    /// layer's marquee: shown while it is dragged, handed to the layer to
+    /// pick with when it is let go, and no ink and no box on the page.
     func testTheSideSwitchPicksInTheNoteAndWritesNothing() throws {
         let (input, page, scribe, notebook) = rig()
         var picks: [CGRect] = []
@@ -241,8 +323,10 @@ final class NotebookScribeTests: XCTestCase {
         defer { watching.cancel() }
         var landed = 0
         notebook.onStroke = { _ in landed += 1 }
-        input.feed(point(0, 0, tip: false, side: true, at: 1))
-        input.feed(point(7600, 4750, tip: false, side: true, at: 2))
+        input.feed(point(3000, 3000, tip: false, side: true, at: 0.5))
+        XCTAssertNil(notebook.marquee, "the switch alone, in the air, began a marquee")
+        input.feed(point(0, 0, tip: true, side: true, at: 1))
+        input.feed(point(7600, 4750, tip: true, side: true, at: 2))
         XCTAssertNotNil(notebook.marquee, "the marquee shows while it is dragged")
         input.feed(point(7600, 4750, tip: false, side: false, at: 3))
         XCTAssertNil(notebook.marquee)
@@ -329,10 +413,11 @@ final class NotebookScribeTests: XCTestCase {
             input.feed(point(4000, 2375, tip: false, at: 6))
             XCTAssertEqual(landed, 1, "a stroke begun in one note landed in the next")
 
-            input.feed(point(0, 0, tip: false, side: true, at: 7))
+            input.feed(point(0, 0, tip: true, side: true, at: 7))
+            XCTAssertNotNil(notebook.marquee)
             notebook.place = NotebookPlace(pane: pane, scroll: 0, aspect: 0.625, note: "Letters.md")
             XCTAssertNil(notebook.marquee)
-            input.feed(point(7600, 4750, tip: false, side: true, at: 8))
+            input.feed(point(7600, 4750, tip: true, side: true, at: 8))
             input.feed(point(7600, 4750, tip: false, side: false, at: 9))
             XCTAssertEqual(picks, 0, "a marquee begun in one note picked in the next")
         }
@@ -396,6 +481,51 @@ final class NotebookInkUndoTests: XCTestCase {
         XCTAssertFalse(nothing.inkFromTablet(stroke))
         XCTAssertTrue(nothing.drawing.isEmpty)
         XCTAssertFalse(nothing.canUndoDrawing)
+    }
+
+    /// THE PEN'S BUTTONS ARE THE NOTE'S OWN DRAWING UNDO AND REDO — the
+    /// two ⌥⌘Z and ⇧⌥⌘Z call, through the way into the note the notes pane
+    /// hands over (`NotebookScribe.writes`): the nib writes a stroke, the
+    /// lower switch takes it back, the upper puts it back, and with nothing
+    /// to take back or put back a click changes nothing — no step of its
+    /// own on the drawing's undo.
+    func testThePensButtonsTakeTheNotesDrawingBackAndPutItBack() {
+        let state = AppState(defaults: UserDefaults(suiteName: "WriteMindTests-\(UUID().uuidString)")!)
+        let input = TabletInput()
+        input.extent = TabletExtent(width: 15200, height: 9500)
+        input.aim(at: .notebook)
+        let notebook = NotebookScribe()
+        notebook.place = NotebookPlace(pane: CGSize(width: 800, height: 600), scroll: 0, aspect: 0.625)
+        let scribe = TabletScribe(page: TabletPage(url: nil), input: input, notebook: notebook)
+        notebook.writes(into: store, telling: state)
+        withExtendedLifetime(scribe) {
+            let blank = store.drawing
+            penClick(input, at: 1)
+            penClick(input, upper: true, at: 2)
+            XCTAssertEqual(store.drawing, blank)
+            XCTAssertFalse(store.canUndoDrawing, "a click with nothing to take back left a step behind it")
+            XCTAssertFalse(store.canRedoDrawing)
+            XCTAssertEqual(store.drawingSteps, 0)
+
+            input.feed(penPoint(3800, 2375, tip: true, at: 3))
+            input.feed(penPoint(7600, 4750, tip: true, at: 4))
+            input.feed(penPoint(7600, 4750, tip: false, at: 5))
+            XCTAssertEqual(store.drawing.strokes.count, 1)
+            let written = store.drawing
+
+            penClick(input, at: 6)
+            XCTAssertEqual(store.drawing, blank, "the lower switch did not take the stroke back")
+            XCTAssertTrue(store.canRedoDrawing)
+            penClick(input, at: 7)
+            XCTAssertEqual(store.drawing, blank, "nothing more to take back")
+            XCTAssertTrue(store.canRedoDrawing, "and what can be put back is still there")
+            penClick(input, upper: true, at: 8)
+            XCTAssertEqual(store.drawing, written, "the upper switch did not put it back")
+            XCTAssertEqual(store.drawingSteps, 1, "the same count ⌥⌘Z keeps")
+            penClick(input, upper: true, at: 9)
+            XCTAssertEqual(store.drawing, written)
+            XCTAssertFalse(store.canRedoDrawing)
+        }
     }
 
     /// The pen is in one hand and ⌘Z under the other, and the keyboard is

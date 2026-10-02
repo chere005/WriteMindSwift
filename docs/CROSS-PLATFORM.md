@@ -15,6 +15,59 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### The pen's two buttons undo and redo the last drawing
+Sean, 2026-10-02: "make the wacom buttons undo and redo last drawing". The
+One by Wacom's pen has two switches on the barrel; each is its own bit of
+the raw report (the entry on taking the tablet: 0x02 the lower one, nearer
+the nib, 0x04 the upper). What the port has to copy:
+
+- **A click is a command.** A side switch pressed and let go with the nib
+  UP the whole time, the pen in reach, is a click: the LOWER switch
+  undoes the last drawing, the UPPER redoes it. It fires as the switch is
+  let go, once per click however long it was held or however far the pen
+  moved meanwhile, and never repeats.
+- **Whose undo, by where the pen writes.** In Page mode it is the page's
+  own undo and redo — exactly what the page's two corner buttons do, and
+  ⌘Z/Ctrl+Z is the page's afterwards as it is after them. In Notebook
+  mode it is the note's drawing undo and redo — the very same functions
+  the drawing-undo keys call, never a second history — and only while
+  notes are on screen. With nothing to take back or put back the click
+  does nothing: no sound, no empty step, no claim on the key.
+- **The box is begun by the nib now.** A switch HELD AS THE NIB GOES
+  DOWN — either switch — makes the stroke the box (the page's selection
+  box, the notebook's marquee); once begun it goes on, as it always did,
+  while the nib or the switch is down — the switch let go mid-drag is
+  still the box, and so is the nib lifted with the switch held — and it
+  ends when both are up; and a tap with the switch held is the box's own
+  click (puts a box away on the page; a ⌘-click on the note). The switch
+  alone in the air begins nothing any more — it used to begin the box
+  there, which a click could not have been told from. Letting the switch
+  go after a box is the box's end, never a click.
+- **What is not a click**, and arms nothing: the nib touching while the
+  switch is held; a switch pressed under a stroke or a box, whether let go
+  under it or after the lift; a switch already held as the pen comes into
+  reach, or held as it leaves; both switches at once (nothing says which
+  was meant — wait for both to be let go); and a raw report that is not
+  "ready". Treat an unready report's switches as UNKNOWN: neither pressed
+  nor released — read as "let go", one at the edge of the tablet's reach
+  could make a click of a switch still held (a precaution; how this
+  pen's reports end there was never measured).
+- **One switch by pointer events.** Pointer events carry one barrel button
+  (`buttons & 2`, the OS's "right button"), and nothing in them says which
+  of the two it was: take it for the lower one — undo — and say in the
+  docs that redo needs the raw reports (WebHID), where both bits are. The
+  hover-time press is a pointer event with `pressure === 0` and
+  `buttons & 2`; the click is the matching release with the nib never
+  having touched in between. (The Mac's driver events do carry the upper
+  one, as 0x4 in their mask, seen with the nib down; the Mac reads it.)
+- **The log** writes the first click of each switch in a session: which
+  physical button is 0x02 is the Linux driver's word (BTN_STYLUS is the
+  lower one) and was never measured on this pen — if undo and redo come
+  out swapped, that line says which bit was pressed, and the fix is to
+  swap the two in the one place that maps them.
+- **The tips** on the page's own Undo and Redo buttons name the pen's
+  buttons, and Redo's says it needs the pen captured.
+
 ### The tablet's picture shows its light
 Sean, 2026-10-02: "make the tablet orientation icon show the led on the
 tablet for the icon to give orientation". The little tablet in the page's
@@ -124,8 +177,11 @@ quiet and the pointer stays put. What the port has to copy:
   little-endian at 6–7, 0…2047, scaled to 0…1. Byte 8 is the distance
   from the surface. Out of range is the pen leaving; in range without
   proximity is the pen coming near with no position yet (never a point
-  at 0, 0); the tip and the switches count only when ready. The lower
-  switch is the selection switch; the upper one does nothing. WebHID
+  at 0, 0); the tip and the switches count only when ready, and an
+  unready report says NOTHING about the switches — neither pressed nor
+  let go (the entry at the top). Each switch is its own: held as the nib
+  goes down, either makes the stroke a selection; clicked in the air, the
+  lower undoes and the upper redoes. WebHID
   hands the report without its id byte (`event.reportId === 2`, nine
   data bytes) — shift the offsets by one. Anything that is not exactly
   this report is logged in hex and ignored, never guessed at.
@@ -261,10 +317,12 @@ has to copy:
   must not leave the pen with nowhere to write.
 - **While the pen is near**, a faint dashed outline of the area and the
   page's hover ring show over the notes, taking no clicks.
-- **The barrel button is the drawing's marquee**: dragged, it draws the
-  same rectangle a ⌘-drag draws; let go, it picks everything it touches,
-  whole groups, Shift to add — the ⌘-drag's one rule — so Delete and the
-  handles act on it. A barrel click is a ⌘-click.
+- **A barrel button held as the nib goes down is the drawing's marquee**:
+  dragged, it draws the same rectangle a ⌘-drag draws; with the nib and
+  the button both up, it picks everything it touches, whole groups, Shift to add —
+  the ⌘-drag's one rule — so Delete and the handles act on it. A tap with
+  the button held is a ⌘-click; the button clicked in the air is the
+  note's drawing undo or redo (the entry at the top).
 - **What is on screen decides**: in Notebook mode it is a note being on
   screen (the page may be put away) that takes the pen off the pointer
   and swallows its events; with no note open the pen is an ordinary pen.
@@ -390,7 +448,7 @@ selected and inserted"). What the port has to copy:
   pressure, and a last point at none pinches every end) — so a tap is one
   point, drawn as a dot. Ink ends where the nib lifts, whatever the
   barrel button is doing, and a barrel button still held from a stroke of
-  ink starts no box until it is let go.
+  ink makes no box of the next stroke until it is let go.
 - **Kept, not in the notes.** One page, in the app's own data
   (Application Support here; the user-data folder in Electron), never in
   the notes folder. Saved half a second after the pen rests. A file that
@@ -411,9 +469,12 @@ selected and inserted"). What the port has to copy:
   too: clockwise, (u, v) → (1 − v, u). That keeps each stroke where it is
   on the tablet — it is exactly the mapping one turn on. The file records
   the turn its strokes are in, and a page opens turned to fit.
-- **The box is the camera's box**, its three buttons and all. The barrel
-  button held and dragged draws it, so does a mouse or trackpad drag; a
-  click, the nib going down, or Esc (only while there is a box, and
+- **The box is the camera's box**, its three buttons and all. The nib
+  dragged with a barrel button held draws it (either button; the button
+  alone in the air draws nothing — a click of it there is undo or redo,
+  the entry at the top), so does a mouse or trackpad drag; a tap with the
+  button held, the nib going down to write, or Esc (only while there is a
+  box, and
   never an Esc meant for a popover, a dialog or a field) puts it away —
   one Esc, asked in one order: a label being typed, a style bar, an armed
   shape, a crop, the box, and last the pen mode. **Image** is the box as it stands, paper and all, as a PNG.
@@ -432,7 +493,9 @@ selected and inserted"). What the port has to copy:
   the keyboard focus is still in the note.
 - **Electron.** The page is a `<canvas>` taking `pointerdown` /
   `pointermove` / `pointerup` with `pointerType === 'pen'`: `pressure` is
-  the nib, `buttons & 2` the barrel button (a selection, not ink),
+  the nib, `buttons & 2` the barrel button (held as the nib goes down, a
+  selection, not ink; pressed and released at `pressure === 0` with no
+  contact between, undo),
   `getCoalescedEvents()` gives every sample between two frames (the Mac
   app turns coalescing off for the same reason), and `setPointerCapture`
   plus `preventDefault()` keep the stroke on the page. Pointer events

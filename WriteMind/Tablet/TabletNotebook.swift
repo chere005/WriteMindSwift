@@ -12,8 +12,10 @@ import Combine
 // to keep its proportions — and the nib writes the note's own strokes, in
 // the note's own coordinates, with the NOTEBOOK pen's tool, colour and
 // width: the stroke the layer's own pen would have made at that spot, with
-// a pressure a point. The side switch is the layer's marquee. The page is
-// left as it is.
+// a pressure a point. A side switch held as the nib goes down is the
+// layer's marquee; clicked in the air, the lower one is the note's drawing
+// undo and the upper its redo (`TabletScribe.command`). The page is left as
+// it is.
 //
 // The same shape as the page's (`TabletWriting`, `TabletScribe`): the rule
 // is a value walked sample by sample in the tests (`NotebookWriting`), the
@@ -119,8 +121,8 @@ struct NotebookPlace: Equatable {
     }
 }
 
-/// The rule, sample by sample: the nib down is ink in the note, the side
-/// switch held down is the layer's marquee.
+/// The rule, sample by sample: the nib down is ink in the note, the nib
+/// down with a side switch held is the layer's marquee.
 struct NotebookWriting {
     enum Outcome: Equatable {
         case none
@@ -130,8 +132,8 @@ struct NotebookWriting {
         case grew
         /// The nib came up: this stroke goes into the note.
         case finished(Stroke)
-        /// The side switch is being dragged: the marquee so far, in the
-        /// document's points, as a ⌘-drag's is.
+        /// The marquee — begun by the nib with a side switch held — being
+        /// dragged: so far, in the document's points, as a ⌘-drag's is.
         case selecting(CGRect)
         /// It came up: the layer picks what this touches.
         case selected(CGRect)
@@ -142,12 +144,13 @@ struct NotebookWriting {
 
     mutating func consume(_ sample: TabletSample, at place: NotebookPlace, ink: TabletInk) -> Outcome {
         switch sample.phase {
-        case .hover:
+        case .hover, .click:
             return .none
         case .down:
             if sample.sideSwitch {
-                // A side-switch click is a ⌘-click: the marquee of nothing
-                // picks what is under it, or lets go of what was picked.
+                // A tap with the side switch held is a ⌘-click: the marquee
+                // of nothing picks what is under it, or lets go of what was
+                // picked.
                 stroke = nil
                 let start = place.inDocument(sample.page)
                 marqueeStart = start
@@ -202,7 +205,8 @@ final class NotebookScribe: ObservableObject {
     /// one layer that draws it and nothing else (`NotebookLiveInk`), so a
     /// note full of drawing is not redrawn under every sample.
     @Published private(set) var stroke: Stroke?
-    /// The side switch's marquee while it is dragged, in document points.
+    /// The marquee while it is dragged — begun by the nib with a side
+    /// switch held — in document points.
     @Published private(set) var marquee: CGRect?
     /// A marquee let go, in document points: the drawing layer picks what
     /// it touches, as at the end of a ⌘-drag (`DrawingCanvas.marqueePicked`).
@@ -234,8 +238,42 @@ final class NotebookScribe: ObservableObject {
     /// A finished stroke, into the open note (`NoteStore.inkFromTablet`,
     /// which turns it away with no note open).
     var onStroke: ((Stroke) -> Void)?
+    /// The note's own drawing undo and redo, for a click of the pen's
+    /// switches (`takeBack`, `putBack`).
+    var onUndo: (() -> Void)?
+    var onRedo: (() -> Void)?
 
     private var writing = NotebookWriting()
+
+    /// THE WAY INTO THE NOTE, handed over by a notes pane's layer as it
+    /// comes up (`NotebookTabletLayer`): where a finished stroke lands, and
+    /// what a click of the pen's switches takes back and puts back —
+    /// `NoteStore.undoDrawing` and `redoDrawing` THEMSELVES, the two ⌥⌘Z and
+    /// ⇧⌥⌘Z call, never a second undo beside them (Sean, 2026-10-02: "make
+    /// the wacom buttons undo and redo last drawing"). Here and not in the
+    /// view so the tests go through the same way in.
+    func writes(into store: NoteStore, telling state: AppState) {
+        onStroke = { [weak store, weak state] stroke in
+            guard let store else { return }
+            let floor = store.drawingSteps
+            guard store.inkFromTablet(stroke) else { return }
+            // ⌘Z is the stroke's now, not the typing's — down to where
+            // the drawing stood under it.
+            state?.tabletInkedNote(above: floor)
+        }
+        onUndo = { [weak store] in store?.undoDrawing() }
+        onRedo = { [weak store] in store?.redoDrawing() }
+    }
+
+    /// The pen's lower switch clicked in Notebook mode: the note's drawing,
+    /// one step back — and its upper: one step forward again. ONLY WITH
+    /// NOTES ON SCREEN, as for the nib: an undo nobody can watch happen is
+    /// a stroke lost. With nothing to take back or put back the store does
+    /// nothing at all — no beep, and no step of its own.
+    func takeBack() { if hasNotes { onUndo?() } }
+    func putBack() { if hasNotes { onRedo?() } }
+
+    private var hasNotes: Bool { place.map { !$0.isEmpty } ?? false }
 
     func consume(_ sample: TabletSample) {
         // No notes on screen: nothing to write on, and nothing half-written
@@ -271,6 +309,8 @@ final class NotebookScribe: ObservableObject {
         guard !othersShowing else { return }
         place = nil
         onStroke = nil
+        onUndo = nil
+        onRedo = nil
     }
 
     /// Whatever was under way is dropped — the target changed, the notes

@@ -126,8 +126,9 @@ private struct TabletLiveLayer: View {
 
 /// The selection box: the camera's own `SectionBox` — its look, its three
 /// buttons, its gestures — over the page, in the page's fractions. A drag
-/// with the mouse or the trackpad draws it here; the pen's side switch
-/// draws it through `TabletScribe`; either way it is the same box.
+/// with the mouse or the trackpad draws it here; the pen's nib, with a side
+/// switch held, draws it through `TabletScribe`; either way it is the same
+/// box.
 private struct TabletBoxLayer: View {
     @ObservedObject var box: TabletBox
     let size: CGSize

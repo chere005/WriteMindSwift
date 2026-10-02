@@ -72,9 +72,10 @@ final class WacomPenPacketTests: XCTestCase {
 
     // MARK: - Into the funnel's words
 
-    private func point(_ reading: TabletReading) -> (counts: CGPoint, tip: Bool, side: Bool, pressure: Double, buttons: UInt)? {
-        guard case .point(let counts, let tip, let side, let pressure, let buttons) = reading.kind else { return nil }
-        return (counts, tip, side, pressure, buttons)
+    private func point(_ reading: TabletReading)
+        -> (counts: CGPoint, tip: Bool, switches: Set<PenSwitch>?, pressure: Double, buttons: UInt)? {
+        guard case .point(let counts, let tip, let switches, let pressure, let buttons) = reading.kind else { return nil }
+        return (counts, tip, switches, pressure, buttons)
     }
 
     func testAHoverIsAPointWithNothingPressed() throws {
@@ -82,7 +83,7 @@ final class WacomPenPacketTests: XCTestCase {
         let hover = try XCTUnwrap(point(reading))
         XCTAssertEqual(hover.counts, CGPoint(x: 0x1234, y: 0x0BCD), "raw landscape counts, as an event's are")
         XCTAssertFalse(hover.tip)
-        XCTAssertFalse(hover.side)
+        XCTAssertEqual(hover.switches, [], "ready, and neither switch pressed")
         XCTAssertEqual(hover.pressure, 0)
         XCTAssertEqual(reading.timestamp, 3.5)
         XCTAssertTrue(reading.native)
@@ -95,25 +96,31 @@ final class WacomPenPacketTests: XCTestCase {
         XCTAssertEqual(nib.buttons, 0x1)
     }
 
-    /// The lower switch is THE side switch — a selection, as the driver's
-    /// right button was. The upper one did nothing by that route and does
-    /// nothing by this.
-    func testTheLowerSwitchIsTheSideSwitch() throws {
+    /// EACH SWITCH IS ITS OWN BIT, and the reading says which (Sean,
+    /// 2026-10-02: "make the wacom buttons undo and redo last drawing" — a
+    /// click of the lower one undoes, of the upper one redoes): 0x02 the
+    /// lower, nearer the nib, 0x04 the upper. The upper one used to be read
+    /// as nothing at all.
+    func testEachSwitchIsItsOwnBit() throws {
         let lower = try XCTUnwrap(point(try XCTUnwrap(WacomPenPacket([2, 0xE2, 0, 1, 0, 1, 0, 0, 0, 0])).reading(at: 1)))
-        XCTAssertTrue(lower.side)
+        XCTAssertEqual(lower.switches, [.lower])
         XCTAssertFalse(lower.tip)
         XCTAssertEqual(lower.pressure, 0)
         let upper = try XCTUnwrap(point(try XCTUnwrap(WacomPenPacket([2, 0xE4, 0, 1, 0, 1, 0, 0, 0, 0])).reading(at: 1)))
-        XCTAssertFalse(upper.side)
+        XCTAssertEqual(upper.switches, [.upper], "the upper switch was read as nothing")
         XCTAssertEqual(upper.buttons, 0x4, "in the log, all the same")
+        let both = try XCTUnwrap(point(try XCTUnwrap(WacomPenPacket([2, 0xE6, 0, 1, 0, 1, 0, 0, 0, 0])).reading(at: 1)))
+        XCTAssertEqual(both.switches, [.lower, .upper])
     }
 
     /// The tip, the switches and the pressure count only once the tablet
-    /// says they are ready.
+    /// says they are ready — and until it does, the reading CANNOT SAY what
+    /// the switches are doing: not "let go", which at the edge of the
+    /// tablet's reach would make a click of a switch that is still held.
     func testNothingIsPressedUntilTheTabletIsReady() throws {
         let early = try XCTUnwrap(point(try XCTUnwrap(WacomPenPacket([2, 0xC3, 0, 1, 0, 1, 0xFF, 0x07, 0, 0])).reading(at: 1)))
         XCTAssertFalse(early.tip)
-        XCTAssertFalse(early.side)
+        XCTAssertNil(early.switches, "a report that is not ready said the switches were let go")
         XCTAssertEqual(early.pressure, 0)
         XCTAssertEqual(early.buttons, 0)
     }

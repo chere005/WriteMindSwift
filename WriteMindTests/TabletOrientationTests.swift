@@ -481,7 +481,7 @@ final class TabletScribeTurnTests: XCTestCase {
 
     private func point(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false, pressure: Double = 0.5,
                        at time: TimeInterval) -> TabletReading {
-        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, sideSwitch: side, pressure: pressure,
+        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, switches: side ? [.lower] : [], pressure: pressure,
                                    buttons: (tip ? 1 : 0) | (side ? 2 : 0)),
                       timestamp: time, native: false)
     }
@@ -533,13 +533,13 @@ final class TabletScribeTurnTests: XCTestCase {
         XCTAssertEqual(stroke.pressures?.count, stroke.points.count, "the lockstep rule")
     }
 
-    /// And a box being drawn with the side switch.
+    /// And a box being drawn with the side switch held and the nib down.
     func testABoxUnderWayTurnsAndTheRestJoinsOn() {
         let (input, _, scribe) = rig()
-        input.feed(point(1000, 1000, tip: false, side: true, at: 1))
-        input.feed(point(4000, 3000, tip: false, side: true, at: 2))
+        input.feed(point(1000, 1000, tip: true, side: true, at: 1))
+        input.feed(point(4000, 3000, tip: true, side: true, at: 2))
         turn(input, scribe, to: 2)
-        input.feed(point(6000, 5000, tip: false, side: true, at: 3))
+        input.feed(point(6000, 5000, tip: true, side: true, at: 3))
         input.feed(point(6000, 5000, tip: false, side: false, at: 4))
         let start = TabletMapping.page(CGPoint(x: 1000, y: 1000), extent: extent, quarterTurns: 2)
         let end = TabletMapping.page(CGPoint(x: 6000, y: 5000), extent: extent, quarterTurns: 2)
@@ -562,7 +562,7 @@ final class TabletScribeTurnTests: XCTestCase {
 @MainActor
 final class NotebookTurnTests: XCTestCase {
     private func point(_ x: CGFloat, _ y: CGFloat, tip: Bool, at time: TimeInterval) -> TabletReading {
-        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, sideSwitch: false, pressure: 0.5,
+        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, switches: [], pressure: 0.5,
                                    buttons: tip ? 1 : 0),
                       timestamp: time, native: false)
     }

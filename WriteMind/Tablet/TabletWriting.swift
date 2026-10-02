@@ -1,12 +1,13 @@
 import AppKit
 import Combine
 
-// FROM THE PEN'S SAMPLES TO THE PAGE: the nib down is ink, the side switch
-// held down is a box. The rule is `TabletWriting`, a value tested sample by
-// sample; `TabletScribe` is its shell — it takes the funnel's stream
-// (`TabletInput.samples`, page fractions after the turn), keeps the stroke
-// being written where its own layer can redraw it at the pen's rate, and
-// hands a finished stroke to the page.
+// FROM THE PEN'S SAMPLES TO THE PAGE: the nib down is ink, the nib down
+// with a side switch held is a box, and a side switch clicked in the air is
+// undo or redo (`TabletScribe.command`). The rule is `TabletWriting`, a
+// value tested sample by sample; `TabletScribe` is its shell — it takes the
+// funnel's stream (`TabletInput.samples`, page fractions after the turn),
+// keeps the stroke being written where its own layer can redraw it at the
+// pen's rate, and hands a finished stroke to the page.
 //
 // It is the ONE consumer of the samples, and the target is chosen HERE:
 // "Write on: Page | Notebook" — the page's own writing below, or straight
@@ -42,17 +43,21 @@ struct TabletWriting {
         case grew
         /// The nib came up: this stroke is finished.
         case finished(Stroke)
-        /// The side switch is being dragged: the box so far, page fractions.
+        /// The box — begun by the nib with a side switch held — being
+        /// dragged: so far, page fractions.
         case boxing(CGRect)
         /// It came up: the box it drew.
         case boxed(CGRect)
-        /// It came up where it went down: a click, which puts a box away.
+        /// It came up where it went down: a tap with the switch held, the
+        /// box's own click, which puts a box away. (A switch clicked IN THE
+        /// AIR is another thing, a command, and never comes here —
+        /// `TabletScribe.command`.)
         case clicked
     }
 
-    /// How far the side switch must move, in page fractions, before it is a
-    /// box and not a click — a hair more than a millimetre on the small One
-    /// by Wacom, about the four points a mouse is allowed.
+    /// How far the nib must move with the switch held, in page fractions,
+    /// before it is a box and not a click — a hair more than a millimetre
+    /// on the small One by Wacom, about the four points a mouse is allowed.
     static let clickSlop: CGFloat = 0.01
 
     private(set) var stroke: Stroke?
@@ -61,7 +66,7 @@ struct TabletWriting {
 
     mutating func consume(_ sample: TabletSample, ink: TabletInk) -> Outcome {
         switch sample.phase {
-        case .hover:
+        case .hover, .click:
             return .none
         case .down:
             if sample.sideSwitch {
@@ -195,7 +200,8 @@ final class TabletScribe: ObservableObject {
     /// The colour, width and tool — set by the pane from the page's own
     /// pen and the page's size on screen.
     var ink = TabletInk(colorHex: PageTheme.plain.defaultInk, width: 3)
-    /// A stroke went onto the page: ⌘Z is the page's now.
+    /// A stroke went onto the page, or a click of the pen's switches took
+    /// one off it or put one back: ⌘Z is the page's now.
     var onWrite: (() -> Void)?
 
     /// The other target: the note, in Notebook mode.
@@ -245,6 +251,26 @@ final class TabletScribe: ObservableObject {
         if let rect = box.rect { box.rect = TabletPage.turned(rect, by: by) }
     }
 
+    /// THE PEN'S BUTTONS UNDO AND REDO THE LAST DRAWING (Sean, 2026-10-02:
+    /// "make the wacom buttons undo and redo last drawing"): a click of the
+    /// LOWER switch takes it back, of the UPPER puts it back — and THIS IS
+    /// THE ONE PLACE THAT SAYS WHOSE, by where the pen writes. On the page
+    /// it is the page's own undo and redo, what the corner's two buttons
+    /// do, ⌘Z the page's afterwards as after them; in the notebook it is
+    /// the note's drawing undo and redo, the two ⌥⌘Z and ⇧⌥⌘Z call
+    /// (`NotebookScribe.takeBack`). Never a second undo beside either, and
+    /// with nothing to take back or put back, nothing at all: no step, no
+    /// claim on ⌘Z. A click cannot come while a stroke or a box is under
+    /// way — the pen's own state sees to that (`TabletPen.clicked`).
+    private func command(_ clicked: PenSwitch) {
+        switch (target, clicked) {
+        case (.page, .lower): if page.undo() { onWrite?() }
+        case (.page, .upper): if page.redo() { onWrite?() }
+        case (.notebook, .lower): notebook.takeBack()
+        case (.notebook, .upper): notebook.putBack()
+        }
+    }
+
     private func dropUnderWay() {
         writing = TabletWriting()
         if stroke != nil { stroke = nil }
@@ -253,6 +279,10 @@ final class TabletScribe: ObservableObject {
     }
 
     func consume(_ sample: TabletSample) {
+        if case .click(let clicked) = sample.phase {
+            command(clicked)
+            return
+        }
         if target == .notebook {
             notebook.consume(sample)
             return

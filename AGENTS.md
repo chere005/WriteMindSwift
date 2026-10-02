@@ -475,13 +475,18 @@ CoreMind's `bin/report-status.sh`.
   `Stroke.starting(…, pen: .pen(pressure:))`, a drag appends, the lift
   finishes it WITHOUT a point of its own (it reports no pressure, and the
   notebook's pen does not take its mouse-up either) — so a tap is one
-  point, which the ink draws as a dot. The side switch held down draws a
-  box instead and never ink; under 1% of the page it is a click, which
-  puts a box away. **INK ENDS WHERE THE NIB LIFTS**, whatever the switch
-  is doing: asked as "nib or switch", a switch pressed under ink and held
-  past the lift went on drawing in the air at no pressure — and a switch
-  held over from ink starts no box until it is let go
-  (`TabletPen.switchHeldOver`). `TabletScribe` is its shell and the ONE
+  point, which the ink draws as a dot. A side switch HELD AS THE NIB GOES
+  DOWN — either switch — makes the stroke a box instead and never ink;
+  under 1% of the page it is the box's click (a tap with the switch
+  held), which puts a box away. The switch alone, in the air, begins
+  nothing: it used to begin the box there, and now it is a command (THE
+  PEN'S TWO BUTTONS, below). Once begun the box goes on while the nib or
+  the switch is down, as it always has. **INK ENDS WHERE THE NIB LIFTS**,
+  whatever the switch is doing: asked as "nib or switch", a switch pressed
+  under ink and held past the lift went on drawing in the air at no
+  pressure — and a switch held over from ink makes no box of the next
+  stroke until it is let go (`TabletPen.switchHeldOver`). `TabletScribe`
+  is its shell and the ONE
   consumer of `TabletInput.samples` — and the notebook is the second
   target, chosen there (the rule after next). **120 SAMPLES A SECOND REDRAW ONE STROKE**: the stroke
   being written is `TabletScribe.stroke`, watched by its own layer; the
@@ -493,9 +498,10 @@ CoreMind's `bin/report-status.sh`.
   hosted NSView over the pane (the eighth cause, below).
   **The box is the camera's `SectionBox`**, its look, its gestures and its
   three buttons (`help: .tabletPage` says what they do here), over the
-  sheet in page fractions: a mouse or trackpad drag draws it, the side
-  switch draws the same one, a click on the sheet or the pane round it
-  puts it away and so does the nib going down; Esc puts it away and is
+  sheet in page fractions: a mouse or trackpad drag draws it, the nib with
+  a side switch held draws the same one, a click on the sheet or the pane
+  round it puts it away and so does the nib going down to write; Esc puts
+  it away and is
   taken ONLY while there is one, and only for the page's own window with
   no field being typed in (`TabletBox.putsAway`). **ONE ESC CHAIN**: the
   box is a step in the drawing layer's (`DrawingCanvas.handleKey`: a
@@ -657,14 +663,16 @@ CoreMind's `bin/report-status.sh`.
   (⌘Y), SwiftUI can bring the new one up first, and the old one's going
   left the new one with no place and no way into the note — every stroke
   after it drawn live and landed nowhere; the coming one hands its place
-  back besides. **The side switch is the layer's marquee**: drawn while it is
-  dragged (`paintMarquee`, the ⌘-drag's look), and let go it goes to the
+  back besides. **A side switch held as the nib goes down is the layer's
+  marquee**: drawn while it is dragged (`paintMarquee`, the ⌘-drag's
+  look), and when the nib and the switch are both up it goes to the
   layer (`NotebookScribe.picks` → `DrawingCanvas.pick(byTablet:)`) and
   picks by `marqueePicked` — `Drawing.ids(touching:)`, whole groups by
   `CanvasGroups.whole`, ⇧ to add — the ONE rule the ⌘-drag's end now
   calls too; so ⌫ and the handles act on it as on a ⌘-drag's (and under
-  the pen, as there, it picks with no handles drawn). A side-switch click
-  is a ⌘-click. **WHAT IS ON SCREEN DECIDES, BY TARGET**:
+  the pen, as there, it picks with no handles drawn). A tap with the switch
+  held is a ⌘-click; the switch clicked in the air is the note's drawing
+  undo or redo (the rule below). **WHAT IS ON SCREEN DECIDES, BY TARGET**:
   `TabletInput.aim(at:)` (fed from the app, as the turn now is too) and
   two counts — pages, and notebooks: a note open under its layer, counted
   by `NotebookTabletLayer` appearing — give `targetIsShowing`, and both
@@ -711,6 +719,63 @@ CoreMind's `bin/report-status.sh`.
   names from 372, the icons below that. The switch is two buttons, not a
   segmented `Picker` (an NSSegmentedControl, hosted, over the pane), and
   the one in use is lit with the primary colour, never the accent.
+- **THE PEN'S TWO BUTTONS UNDO AND REDO THE LAST DRAWING.** Sean,
+  2026-10-02: "make the wacom buttons undo and redo last drawing". His pen
+  (the One by Wacom's LP-190K) has two switches on the barrel, and each
+  is its own bit of the raw report (`PenSwitch`: 0x02 the LOWER, nearer
+  the nib, 0x04 the UPPER — the Linux driver's BTN_STYLUS and
+  BTN_STYLUS2; the upper used to be read as nothing). **A CLICK — pressed
+  and let go with the nib UP the whole time, in reach — is a command: the
+  lower takes back the last drawing, the upper puts it back.** It fires as
+  the switch is LET GO, once a click however long it was held and however
+  far the pen moved, so that holding a switch and then putting the nib
+  down is still the box, and letting go after a box is not a click. The
+  pen's own state tells the two apart (`TabletPen.clicked`, pure, walked
+  in `TabletPenTests`): a press seen in the air with nothing else held
+  ARMS that switch (`armed`); the nib touching while it is held, a switch
+  already held as the pen comes into reach, the pen leaving, the other
+  switch joining in (two at once say nothing about which was meant), and
+  a raw report that is not ready — its switches are NIL, "cannot say"
+  (`TabletReading.Kind.point(switches:)`), because read as "let go" an
+  unready report at the edge of the tablet's reach could make a click of
+  a switch still held (a precaution: how the LP-190K's reports end there
+  is unmeasured) — all disarm it and owe nothing; only the armed switch
+  read as let go, nib still up, is the click. A switch pressed under a
+  stroke or a box is nothing, during and after. **SO THE BOX IS BEGUN BY
+  THE NIB**: a side switch alone, in the air, used to begin the box (the
+  driver's right-button drag), and a click could then be no command; now
+  the box begins with the nib going down with a switch held — either
+  switch, where the upper used to write ink — and once begun goes on as
+  it always did, while the nib or the switch is down (the switch let go
+  mid-drag, or the nib lifted with it held, is still the box). The click comes down
+  the one stream as a sample of its own kind, `TabletSample.Phase.click`,
+  by both routes (`TabletInputTests`, raw reports and the driver's events
+  alike); `TabletWriting` and `NotebookWriting` ignore it. **ONE PLACE
+  SAYS WHOSE UNDO IT IS** (`TabletScribe.command`, by the funnel's target,
+  which is `AppState.tabletTarget`): in Page mode the page's own
+  `undo`/`redo`, what the corner's two buttons do, `onWrite` (⌘Z the
+  page's) only when something changed; in Notebook mode the note's
+  drawing undo and redo — `NoteStore.undoDrawing`/`redoDrawing`
+  THEMSELVES, the two ⌥⌘Z and ⇧⌥⌘Z call, never a second undo beside them
+  — through `NotebookScribe.takeBack`/`putBack` and the way in the notes
+  pane hands over as its layer comes up (`NotebookScribe.writes(into:
+  telling:)`, which also carries the stroke's way in, so the tests go
+  through the same wiring), only with notes on screen. With nothing to
+  take back or put back nothing happens: no beep, no step, no claim on
+  ⌘Z. **BY THE DRIVER'S EVENTS THE UPPER IS THE MASK'S 0x4**: the
+  fallback route sends the lower switch as the right button (mask 0x2),
+  and the upper only in the mask, `penUpperSide` — measured on the nib's
+  own events (`/tmp/writemind-debug.log`, 2026-10-02: a leftMouseDown
+  with mask 0x5, a leftMouseUp with 0x4) — so either switch held as the
+  nib goes down is the box by both routes (`TabletReading.point`). No
+  hover has been seen carrying 0x4, so the upper's click in the air —
+  REDO — IS PROMISED ONLY WITH THE CAPTURE, and the page's Redo tip says
+  so (`TabletPane.undoTip`, `redoTip`: both name the pen's buttons). **WHICH
+  PHYSICAL BUTTON IS 0x02 IS THE LINUX DRIVER'S WORD, NOT MEASURED**: the
+  first click of each switch in a pick is written to the log
+  (`TabletInput.noteFirstClick`), so a session in which undo and redo come
+  out on the wrong buttons says which bit the finger pressed — swap the
+  two in `TabletScribe.command` and nowhere else.
 - **A project is a list of folders in a JSON file** (`Project`,
   `.writemind-project`) — Sublime Text's shape. What is NOT in it is the
   session: which notes are open, which one is in front, and any text that had
@@ -1776,7 +1841,10 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   block · ⌃⌘↑/↓ move section · ⌃G group/ungroup what is picked on the
   drawing layer · ⌥⌘Z / ⇧⌥⌘Z undo and redo the
   DRAWING (⌘Z does it too while the pen is up; ⌘Z and ⇧⌘Z are the
-  tablet page's straight after the pen wrote on it) · ⌘D select next occurrence,
+  tablet page's straight after the pen wrote on it; a click of the tablet
+  pen's lower button, nib off the tablet, is undo and of its upper button
+  redo — the page's in Page mode, the note's drawing's in Notebook mode) ·
+  ⌘D select next occurrence,
   ⌃⌘G all of them · ⌥⌘R refresh cameras · ⇧⌘O open the notes folder.
 - **EVERY FORMATTING SHORTCUT LIVES IN THE FORMAT MENU**, not on the toolbar
   button that does the same thing. A button inside a collapsed section of the

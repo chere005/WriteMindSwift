@@ -12,8 +12,9 @@ import Combine
 //
 // The fallback, measured with Sean's One by Wacom (2026-10-02): the nib's
 // strokes arrive as leftMouseDown/Dragged/Up whose SUBTYPE is
-// `.tabletPoint`, a hover as a mouseMoved with that subtype, the side
-// switch as rightMouseDown/Dragged/Up with buttonMask 0x2, and the pen
+// `.tabletPoint`, a hover as a mouseMoved with that subtype, the lower side
+// switch as rightMouseDown/Dragged/Up with buttonMask 0x2, the upper one as
+// 0x4 in the mask of the nib's own events (`PenSwitch`), and the pen
 // coming near or going away as a native `.tabletProximity` event and as a
 // mouseMoved with that subtype. `absoluteX/Y` are the tablet's own counts,
 // origin top left, y down — the RAW LANDSCAPE frame, whichever way the
@@ -32,6 +33,14 @@ import Combine
 //
 // A session is diagnosed from /tmp/writemind-debug.log: the first event of
 // each kind is written there, with which monitor saw it.
+//
+// THE PEN'S TWO BUTTONS ARE COMMANDS WHEN CLICKED IN THE AIR (Sean,
+// 2026-10-02: "make the wacom buttons undo and redo last drawing"): the
+// pen's state (`TabletPen.clicked`) tells a click — pressed and let go with
+// the nib up throughout — from a switch held as the nib goes down, which is
+// the box, and the click comes down the one stream as a sample of its own
+// kind (`TabletSample.Phase.click`), by either route. What it does is the
+// scribe's to say (`TabletScribe.command`).
 //
 // Everything that decides anything — the reading of one event, the mapping
 // onto the page, the rotation, the pen's state from one event to the next —
@@ -177,12 +186,33 @@ protocol TabletEventFields {
 
 extension NSEvent: TabletEventFields {}
 
+/// The two switches on the pen's barrel (Sean's pen, the One by Wacom's
+/// LP-190K, has both). Held as the nib goes down, either one makes the
+/// stroke a selection; CLICKED IN THE AIR, each is a command
+/// (`TabletPen.clicked`, `TabletScribe.command`).
+enum PenSwitch: Hashable {
+    /// The one nearer the nib: bit 0x02 of the raw report (`WacomPenPacket`;
+    /// the Linux driver's BTN_STYLUS), and by the driver's events the right
+    /// button (mask 0x2, `penLowerSide`).
+    case lower
+    /// The one further up the barrel: bit 0x04 (BTN_STYLUS2), and by the
+    /// driver's events 0x4 in the mask (`penUpperSide`) — seen there on
+    /// the nib's own events; whether a hover carries it has not been seen,
+    /// so its click (redo) is sure only with the tablet captured.
+    case upper
+}
+
 /// What one event says about the pen, or nothing for an event that is not
 /// the pen's.
 struct TabletReading: Equatable {
     enum Kind: Equatable {
-        /// Where the nib is, in counts, and what is pressed.
-        case point(counts: CGPoint, tip: Bool, sideSwitch: Bool, pressure: Double, buttons: UInt)
+        /// Where the nib is, in counts, and what is pressed. `switches` is
+        /// nil when the reading CANNOT SAY what the switches are doing — a
+        /// raw report that is not ready — which is neither a switch pressed
+        /// nor one let go: read as "let go", one at the edge of the
+        /// tablet's reach could make a click of a switch still held. A
+        /// precaution; how the LP-190K's reports end there is unmeasured.
+        case point(counts: CGPoint, tip: Bool, switches: Set<PenSwitch>?, pressure: Double, buttons: UInt)
         /// The pen came within reach of the tablet, or left it.
         case proximity(entering: Bool)
     }
@@ -214,7 +244,7 @@ struct TabletReading: Equatable {
             let pressure = clamped(event.pressure)
             let buttons = event.buttonMask
             return point(event, buttons: buttons, tip: buttons.contains(.penTip) || pressure > 0,
-                         sideSwitch: buttons.contains(.penLowerSide), pressure: pressure, native: true)
+                         lower: buttons.contains(.penLowerSide), pressure: pressure, native: true)
         case .leftMouseDown, .leftMouseDragged, .leftMouseUp,
              .rightMouseDown, .rightMouseDragged, .rightMouseUp, .mouseMoved:
             switch event.subtype {
@@ -224,21 +254,22 @@ struct TabletReading: Equatable {
             case .tabletPoint:
                 let buttons = event.buttonMask
                 var tip = buttons.contains(.penTip)
-                var side = buttons.contains(.penLowerSide)
+                var lower = buttons.contains(.penLowerSide)
                 // The event's own type is the surest word on the button it
-                // is about; the mask speaks for the other one.
+                // is about — the right button's up still carries 0x2
+                // (measured) — and the mask speaks for the others.
                 switch event.type {
                 case .leftMouseDown, .leftMouseDragged: tip = true
                 case .leftMouseUp: tip = false
-                case .rightMouseDown, .rightMouseDragged: side = true
-                case .rightMouseUp: side = false
+                case .rightMouseDown, .rightMouseDragged: lower = true
+                case .rightMouseUp: lower = false
                 default: break
                 }
                 // A hover's pressure is not read at all (see PenSample);
                 // the side switch's is made up (1.0, measured) and means
                 // nothing. Only a nib on the tablet has one.
                 let pressure = tip && event.type != .mouseMoved ? clamped(event.pressure) : 0
-                return point(event, buttons: buttons, tip: tip, sideSwitch: side, pressure: pressure, native: false)
+                return point(event, buttons: buttons, tip: tip, lower: lower, pressure: pressure, native: false)
             default:
                 // A mouse, a trackpad: not the pen, and never touched.
                 return nil
@@ -248,12 +279,22 @@ struct TabletReading: Equatable {
         }
     }
 
+    /// BOTH SWITCHES BY THIS ROUTE, EACH BY ITS OWN WORD: the lower is the
+    /// right button (mask 0x2, measured), the upper the mask's 0x4,
+    /// `penUpperSide` — on Sean's tablet the nib's own events carried it, a
+    /// down with mask 0x5 and an up with 0x4 (2026-10-02), so either switch
+    /// held as the nib goes down is the box by this route as by the raw
+    /// reports. No hover has been seen with it, so the upper's click —
+    /// redo — is promised only with the tablet captured (`TabletPane.redoTip`).
     private static func point<Event: TabletEventFields>(_ event: Event, buttons: NSEvent.ButtonMask, tip: Bool,
-                                                        sideSwitch: Bool, pressure: Double,
+                                                        lower: Bool, pressure: Double,
                                                         native: Bool) -> TabletReading {
-        TabletReading(kind: .point(counts: CGPoint(x: event.absoluteX, y: event.absoluteY), tip: tip,
-                                   sideSwitch: sideSwitch, pressure: pressure, buttons: UInt(buttons.rawValue)),
-                      timestamp: event.timestamp, native: native)
+        var switches: Set<PenSwitch> = []
+        if lower { switches.insert(.lower) }
+        if buttons.contains(.penUpperSide) { switches.insert(.upper) }
+        return TabletReading(kind: .point(counts: CGPoint(x: event.absoluteX, y: event.absoluteY), tip: tip,
+                                          switches: switches, pressure: pressure, buttons: UInt(buttons.rawValue)),
+                             timestamp: event.timestamp, native: native)
     }
 
     private static func clamped(_ pressure: Float) -> Double {
@@ -264,17 +305,23 @@ struct TabletReading: Equatable {
 }
 
 /// One moment of the pen on the turned tablet — what `TabletScribe` makes
-/// ink and boxes of on the page, or ink and a marquee in the note.
+/// ink and boxes of on the page, or ink and a marquee in the note, and the
+/// click of a side switch, which is neither.
 struct TabletSample: Equatable {
     enum Phase: Equatable {
-        /// Near the tablet, nothing pressed: the marker follows it.
+        /// Near the tablet, the nib up: the marker follows it.
         case hover
-        /// The nib (or the side switch) went down here.
+        /// The nib went down here.
         case down
-        /// Still down, here now.
+        /// Still under way, here now: the nib down — or, for a box, a
+        /// switch still held after the nib came up.
         case drag
-        /// Let go, here.
+        /// It ended here: the nib came up, and for a box the switch too.
         case up
+        /// A SIDE SWITCH WAS CLICKED IN THE AIR, here — pressed and let go
+        /// with the nib up the whole time. A command, not ink and not a
+        /// box: once, as it is let go (`TabletPen.clicked`).
+        case click(PenSwitch)
     }
 
     /// Where on the page, (u, v) in 0…1 from the top left, after the turn.
@@ -282,9 +329,9 @@ struct TabletSample: Equatable {
     /// 0…1 while the nib is on the tablet; 0 on a hover and at the up.
     let pressure: Double
     let phase: Phase
-    /// The stroke is a SELECTION, not ink: the side switch was held when it
-    /// went down. The same on every sample of one down…up, so a stroke is
-    /// one thing from start to finish.
+    /// The stroke is a SELECTION, not ink: a side switch was held as the
+    /// nib went down. The same on every sample of one down…up, so a stroke
+    /// is one thing from start to finish.
     let sideSwitch: Bool
     /// False on the one sample that says the pen went out of reach — the
     /// marker goes, at the last place it was.
@@ -296,13 +343,22 @@ struct TabletSample: Equatable {
 /// walk it through any sequence.
 struct TabletPen {
     private(set) var inProximity = false
-    /// The nib or the switch is down.
+    /// A stroke — ink, or a box — is under way: begun by the nib, and a box
+    /// kept going by a switch still held after the nib came up.
     private(set) var engaged = false
     /// What the stroke under way is: latched at its down.
     private(set) var selecting = false
-    /// The side switch was pressed under a stroke of INK and is still held
-    /// after the nib came up: it starts nothing until it has been let go.
+    /// A side switch was pressed under a stroke of INK and is still held
+    /// after the nib came up: it makes no box of the next stroke until it
+    /// has been let go.
     private(set) var switchHeldOver = false
+    /// A side switch pressed IN THE AIR and not yet let go: the click it
+    /// will be if it is let go before anything else happens (`clicked`).
+    private(set) var armed: PenSwitch?
+    /// The switches as the last point had them, and nil while nothing has
+    /// said — the pen out of reach, or the tablet not ready: a switch first
+    /// seen already held was not pressed here.
+    private var held: Set<PenSwitch>?
     private(set) var last: CGPoint?
     /// Timestamps lately consumed, points and proximity apart: the same
     /// sample arriving by a second route is a duplicate, not a second
@@ -319,6 +375,10 @@ struct TabletPen {
         switch reading.kind {
         case .proximity(let entering):
             guard fresh(reading.timestamp, in: &recentProximity) else { return [] }
+            // Coming or going, nothing here says what the switches are
+            // doing: one held across it was neither pressed nor let go.
+            armed = nil
+            held = nil
             if entering {
                 // No position comes with it; the marker appears with the
                 // first point rather than flashing up where it last was.
@@ -338,40 +398,78 @@ struct TabletPen {
             }
             return out
 
-        case .point(let counts, let tip, let sideSwitch, let pressure, _):
+        case .point(let counts, let tip, let switches, let pressure, _):
             guard fresh(reading.timestamp, in: &recentPoints) else { return [] }
             extent = extent.widened(toInclude: counts)
             let page = TabletMapping.page(counts, extent: extent, quarterTurns: quarterTurns)
             last = page
             inProximity = true
-            if !sideSwitch { switchHeldOver = false }
-            let side = sideSwitch && !switchHeldOver
-            // INK ENDS WHERE THE NIB LIFTS. Once a stroke is under way its
-            // own kind says what keeps it going: the nib, for ink; the nib
-            // or the switch, for a box (the switch let go mid-drag is still
-            // the box). Asked as "either", a switch pressed under ink and
-            // held past the lift went on drawing in the air at no pressure.
-            let pressing = engaged ? (selecting ? tip || side : tip) : tip || side
+            let switchDown = switches?.isEmpty == false
+            if !switchDown { switchHeldOver = false }
+            let click = clicked(switches, tip: tip)
+            // A STROKE BEGINS WITH THE NIB, and what KIND of stroke is
+            // latched at that down: A SWITCH HELD AS THE NIB GOES DOWN
+            // MAKES IT THE BOX, either switch. The switch alone, in the air,
+            // begins nothing — it used to begin the box there, and a click
+            // of it could then be no command (Sean, 2026-10-02: "make the
+            // wacom buttons undo and redo last drawing"). Once under way the
+            // stroke's own kind says what keeps it going, as it always has:
+            // INK ENDS WHERE THE NIB LIFTS — asked as "nib or switch", a
+            // switch pressed under ink and held past the lift went on
+            // drawing in the air at no pressure — and THE BOX GOES ON WHILE
+            // THE NIB OR THE SWITCH IS DOWN, so a switch let go mid-drag is
+            // still the box and so is the nib lifted with one held.
+            let pressing = engaged && selecting ? tip || switchDown : tip
             let phase: TabletSample.Phase
             switch (engaged, pressing) {
             case (false, true):
                 engaged = true
-                selecting = side
+                selecting = switchDown && !switchHeldOver
                 phase = .down
             case (true, true):
                 phase = .drag
             case (true, false):
                 engaged = false
                 phase = .up
-                // Still held as the ink ended: not a box until pressed again.
-                if !selecting, sideSwitch { switchHeldOver = true }
+                // Still held as the ink ended: no box until pressed again.
+                if !selecting, switchDown { switchHeldOver = true }
             case (false, false):
-                phase = .hover
+                phase = click.map { .click($0) } ?? .hover
             }
             let out = sample(page, tip && phase != .up ? pressure : 0, phase, true, reading.timestamp)
             if phase == .up { selecting = false }
             return [out]
         }
+    }
+
+    /// A CLICK OF A SIDE SWITCH (Sean, 2026-10-02: "make the wacom buttons
+    /// undo and redo last drawing"): pressed and let go IN THE AIR — the nib
+    /// up from the press to the letting go, the pen in reach, and the press
+    /// itself seen. It is the switch's own click only when it is LET GO, so
+    /// that holding it and putting the nib down is still the box, and it is
+    /// one click however long it was held: nothing repeats. Returns the
+    /// switch on the one reading that lets it go.
+    ///
+    /// Everything else is no click, and leaves none owed: the nib touching
+    /// while the switch is held (the box — and letting go after it), a
+    /// switch pressed under a stroke, one already held as the pen comes
+    /// into reach, a reading that cannot say what the switches are doing,
+    /// and the other switch joining in — two at once say nothing about
+    /// which was meant.
+    private mutating func clicked(_ switches: Set<PenSwitch>?, tip: Bool) -> PenSwitch? {
+        let before = held
+        held = switches
+        guard let now = switches, !tip, !engaged else {
+            armed = nil
+            return nil
+        }
+        if let pressed = armed {
+            if now == [pressed] { return nil }
+            armed = nil
+            return now.isEmpty ? pressed : nil
+        }
+        if before?.isEmpty == true, now.count == 1 { armed = now.first }
+        return nil
     }
 
     private func sample(_ page: CGPoint, _ pressure: Double, _ phase: TabletSample.Phase,
@@ -397,7 +495,7 @@ final class TabletInput: ObservableObject {
     enum Route: String { case local, global }
 
     /// Every sample, in order — what `TabletScribe` draws ink and boxes
-    /// from. Only while `isCapturing`.
+    /// from, and takes the switches' clicks from. Only while `isCapturing`.
     let samples = PassthroughSubject<TabletSample, Never>()
 
     /// The pen as last seen, for the hover marker; nil once it is out of
@@ -610,7 +708,7 @@ final class TabletInput: ObservableObject {
     /// a button the driver left down has not been seen, and this is how a
     /// session says it happened.
     static func penAsTaken(_ first: TabletReading) -> String {
-        guard case .point(_, let tip, let sideSwitch, _, _) = first.kind, tip || sideSwitch else {
+        guard case .point(_, let tip, let switches, _, _) = first.kind, tip || switches?.isEmpty == false else {
             return "its first report has nothing pressed"
         }
         return "its first report has the pen DOWN, so the driver saw it go down and will not see it lift"
@@ -643,9 +741,22 @@ final class TabletInput: ObservableObject {
             if sample.inProximity != (pen != nil) {
                 log("tablet: proximity \(sample.inProximity ? "in" : "out")")
             }
+            if case .click(let clicked) = sample.phase { noteFirstClick(clicked) }
             pen = sample.inProximity ? sample : nil
             samples.send(sample)
         }
+    }
+
+    /// WHICH SWITCH A CLICK WAS, once each a pick. That 0x02 is the button
+    /// nearer the nib is the Linux driver's word (BTN_STYLUS), never checked
+    /// against Sean's own pen: if undo and redo come out on the wrong
+    /// buttons, this line says which bit his finger pressed.
+    private func noteFirstClick(_ clicked: PenSwitch) {
+        let key = "click-\(clicked)"
+        guard !seen.contains(key) else { return }
+        seen.insert(key)
+        log("tablet: first click of the pen's \(clicked) switch"
+            + (rawSince == nil ? " (by the driver's events)" : " (off the tablet itself)"))
     }
 
     /// ONE LINE PER KIND, NOT PER SAMPLE: the first event of each type and
@@ -660,8 +771,8 @@ final class TabletInput: ObservableObject {
         var line = "tablet: first \(route.rawValue) event type=\(event.type.rawValue) "
             + "subtype=\(subtype) native=\(reading.native)"
         switch reading.kind {
-        case .point(_, let tip, let side, _, let buttons):
-            line += " buttons=0x\(String(buttons, radix: 16)) tip=\(tip) side=\(side)"
+        case .point(_, let tip, let switches, _, let buttons):
+            line += " buttons=0x\(String(buttons, radix: 16)) tip=\(tip) side=\(switches?.isEmpty == false)"
         case .proximity(let entering):
             line += " proximity=\(entering ? "in" : "out")"
         }

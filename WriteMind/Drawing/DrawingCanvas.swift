@@ -69,8 +69,9 @@ struct DrawingCanvas: View {
     /// Esc while the tablet's page has a box up: it is put away. True when
     /// it was taken (`TabletBox.key`).
     var onEscapeBox: ((NSEvent) -> Bool)?
-    /// The tablet's side switch let go over the notes, in document points
-    /// (`NotebookScribe.picks`): picked by the marquee's own rule.
+    /// The tablet's marquee — the nib dragged with a side switch held — let
+    /// go over the notes, in document points (`NotebookScribe.picks`):
+    /// picked by the marquee's own rule.
     var tabletPicks: AnyPublisher<CGRect, Never> = Empty().eraseToAnyPublisher()
     /// How far the text under the layer has scrolled. Objects live in the
     /// DOCUMENT — a picture sits beside the paragraph it was put next to and
@@ -942,8 +943,8 @@ struct DrawingCanvas: View {
         interaction = .moving
     }
 
-    /// THE TABLET'S SIDE SWITCH, let go over the notes: the end of a
-    /// ⌘-drag, by the same rule — what it touches, whole groups, ⇧ to add —
+    /// THE TABLET'S MARQUEE — its nib dragged with a side switch held — let
+    /// go over the notes: the end of a ⌘-drag, by the same rule — what it touches, whole groups, ⇧ to add —
     /// and the same way out of a crop, a style bar and a label as a press
     /// on the layer takes. So ⌫ and the handles act on what it picked, as
     /// they do on a ⌘-drag's.

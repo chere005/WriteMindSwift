@@ -257,7 +257,8 @@ struct TabletPane: View {
     private var corners: some View {
         HStack(spacing: 6) {
             // The page's own undo, redo and clear — ⌘Z and ⇧⌘Z reach the
-            // same two while the page was written on last. Out of play while
+            // same two while the page was written on last, and so does a
+            // click of the pen's own buttons (`undoTip`). Out of play while
             // the pen writes in the notebook — the page is set aside, and
             // the notes' own undo is the one in play — but IN THEIR PLACE,
             // so the bar beside them is offered the same room in both modes
@@ -265,12 +266,11 @@ struct TabletPane: View {
             if showsPageControls {
                 Group {
                     corner(icon: "arrow.uturn.backward", label: "Undo on the Page",
-                           help: "Take back the last stroke on the page — ⌘Z does it too, straight after writing",
-                           enabled: sheet.canUndo) {
+                           help: Self.undoTip, enabled: sheet.canUndo) {
                         if sheet.undo() { appState.pageWritten() }
                     }
                     corner(icon: "arrow.uturn.forward", label: "Redo on the Page",
-                           help: "Put back what Undo took off the page", enabled: sheet.canRedo) {
+                           help: Self.redoTip, enabled: sheet.canRedo) {
                         if sheet.redo() { appState.pageWritten() }
                     }
                     corner(icon: "trash", label: "Clear the Page",
@@ -304,6 +304,17 @@ struct TabletPane: View {
         appState.orientTablet(orientation)
         scribe.align(to: appState.tabletQuarterTurns)
     }
+
+    /// WHAT THE PAGE'S UNDO AND REDO SAY UNDER THE POINTER — every way to
+    /// each, the pen's own buttons among them (Sean, 2026-10-02: "make the
+    /// wacom buttons undo and redo last drawing"): a click of the lower one
+    /// in the air is this Undo, of the upper one this Redo. Redo's says
+    /// what it needs: by the driver's events the upper button has been
+    /// seen only with the nib down, so its click is promised only captured.
+    nonisolated static let undoTip = "Take back the last stroke on the page — ⌘Z does it too, straight after "
+        + "writing, and so does a click of the pen's lower button with the nib off the tablet"
+    nonisolated static let redoTip = "Put back what Undo took off the page — and so does a click of the pen's "
+        + "upper button with the nib off the tablet, while the pen is captured"
 
     private func corner(icon: String, label: String, help: String, enabled: Bool = true,
                         action: @escaping () -> Void) -> some View {
