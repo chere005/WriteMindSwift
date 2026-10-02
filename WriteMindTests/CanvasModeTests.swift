@@ -36,6 +36,21 @@ final class CanvasModeTests: XCTestCase {
         XCTAssertFalse(app.canvasOwnsPane)
     }
 
+    /// Sean, 2026-10-02: "esc should exit pen mode". Taken only when there
+    /// was a pen to put down, so Esc in cursor mode is still everyone
+    /// else's.
+    func testEscapePutsThePenDownAndOnlyTakesTheKeyWhenItDid() {
+        let app = state()
+        XCTAssertFalse(app.escapePen(), "no pen up: the key is not ours")
+        XCTAssertEqual(app.canvasMode, .cursor)
+
+        app.canvasMode = .pen
+        XCTAssertTrue(app.escapePen())
+        XCTAssertEqual(app.canvasMode, .cursor)
+        XCTAssertFalse(app.canvasOwnsPane, "the notebook has the pane back")
+        XCTAssertFalse(app.escapePen(), "a second Esc has nothing to put down")
+    }
+
     func testTheOneGestureToolsTakeThePaneWithoutBeingModes() {
         let app = state()
         app.connectActive = true

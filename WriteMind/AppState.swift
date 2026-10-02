@@ -162,6 +162,15 @@ final class AppState: ObservableObject {
     /// toggling draw mode"). A second press puts it down rather than
     /// doing nothing, which is what the pen button has always done here.
     func togglePen() { canvasMode = penActive ? .cursor : .pen }
+
+    /// Esc puts the pen down (Sean, 2026-10-02: "esc should exit pen
+    /// mode"). True when there was a pen to put down, so the key is taken
+    /// only then — in cursor mode Esc belongs to whatever else wants it.
+    func escapePen() -> Bool {
+        guard penActive else { return false }
+        canvasMode = .cursor
+        return true
+    }
     /// The arrow tool (Sean, 2026-09-18): drag from node to node. One tool
     /// at a time — picking it up puts the pen down, and the other way round.
     @Published var connectActive: Bool = false {

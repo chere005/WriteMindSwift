@@ -57,6 +57,8 @@ struct DrawingCanvas: View {
     var placing: CanvasPlacement?
     /// The object has been placed (or the placing was called off).
     var onPlaced: (() -> Void)?
+    /// Esc with the pen up: the pen goes down. True when it was taken.
+    var onEscapePen: (() -> Bool)?
     /// How far the text under the layer has scrolled. Objects live in the
     /// DOCUMENT — a picture sits beside the paragraph it was put next to and
     /// goes up with it — so everything is drawn and hit this far up.
@@ -1013,6 +1015,13 @@ struct DrawingCanvas: View {
             case 53: cancelCrop(); return true         // esc
             default: break
             }
+        }
+        // Esc puts the pen down (Sean, 2026-10-02: "esc should exit pen
+        // mode") — after a label, a style bar, an armed shape and a crop
+        // have had it, since each of those is the nearer thing to call off.
+        if penActive, event.keyCode == 53, flags.isSubset(of: [.function, .numericPad]),
+           onEscapePen?() == true {
+            return true
         }
         // ⌘Z belongs to the drawing while the pen is up, while something on
         // the layer is picked, or while a shape is waiting to be put down —

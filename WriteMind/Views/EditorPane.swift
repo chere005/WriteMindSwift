@@ -101,6 +101,7 @@ struct EditorPane: View {
                                   onRedo: { store.redoDrawing() },
                                   placing: appState.placing,
                                   onPlaced: { appState.placing = nil },
+                                  onEscapePen: { appState.escapePen() },
                                   // Both panes scroll their objects with
                                   // the text now, so a picture stays beside
                                   // what it was put beside.

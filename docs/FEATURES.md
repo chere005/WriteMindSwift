@@ -268,7 +268,7 @@ is how the code is put together.
   sidebar's header; the notes pane from the corner of the video. ⌘K, ⌘Y.
 - **The five keys you reach for.** ⌘S saves what has not reached disk yet
   (it saves itself half a second after you stop typing anyway), ⌘P puts the
-  pen up and down, ⌘E exports (PDF, or the project), ⌘T turns the markdown into
+  pen up and down (Esc puts it down too), ⌘E exports (PDF, or the project), ⌘T turns the markdown into
   the page and back, ⌘Y shows and hides the video. Every key the app binds
   is in one list (`Shortcut`) and a test says no two commands want the same
   one — ⌃⌘S was quietly on two of them until 2026-09-21.

@@ -592,6 +592,12 @@ before"). Erosion roughened every edge and turned grid dots into specks the
 lattice search no longer caught. If the port picked either entry up, take it
 out: threshold, clean once, trace.
 
+### Esc puts the pen down
+With the pen up, Esc goes back to the cursor (Sean, 2026-10-02: "esc should
+exit pen mode"). It is asked after the nearer things Esc already calls off — a
+label being typed, a connector's style bar, an armed shape, a crop — and it is
+taken only when the pen was up, so Esc in cursor mode is still the text's.
+
 ## Done there
 
 Nothing yet.

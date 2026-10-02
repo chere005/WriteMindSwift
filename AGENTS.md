@@ -299,7 +299,11 @@ CoreMind's `bin/report-status.sh`.
   pressing it toggles; the cursor and the marquee each had one beside it,
   which was three buttons for two answers. A remembered `select` from
   before decodes to nothing and `CanvasMode(rawValue:) ?? .cursor` gives
-  the pane back to the notebook.
+  the pane back to the notebook. **Esc puts the pen down** (Sean,
+  2026-10-02: "esc should exit pen mode") — `AppState.escapePen()`, the
+  one writer beside `togglePen`, asked from `DrawingCanvas.handleKey`
+  AFTER a label, a style bar, an armed shape and a crop have had the key,
+  and taking it only when there was a pen to put down.
   **What a press does is `CanvasMode.press(with:)` and nothing else
   decides it**: ⌘ is the selector in BOTH modes, so it is asked BEFORE the
   mode — a modifier held down is asked for by hand, and that is what
