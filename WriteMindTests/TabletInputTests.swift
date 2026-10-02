@@ -80,6 +80,26 @@ final class TabletMappingTests: XCTestCase {
         XCTAssertEqual(extent.widened(toInclude: CGPoint(x: 10, y: 10)), extent)
     }
 
+    /// THE COUNTS ARE THE RAW LANDSCAPE SENSOR'S, whichever way the Wacom
+    /// driver's own orientation is set. On Sean's Mac it is set to portrait
+    /// and the driver says the tablet is 9499 × 15199 — while the pen was
+    /// seen at x = 13217. On the table's extent that is on the sheet where
+    /// the nib is, and nothing widens; on the driver's it was past the
+    /// "edge", stretched the page, and was then turned a second time.
+    func testACountPastTheDriversOrientedWidthIsOnTheTablesSheet() throws {
+        var pen = TabletPen()
+        var extent = try XCTUnwrap(TabletExtent.known(productID: 0x037A))
+        XCTAssertGreaterThan(extent.width, extent.height, "the raw sensor is landscape")
+        let seen = TabletReading(kind: .point(counts: CGPoint(x: 13217, y: 4750), tip: false, sideSwitch: false,
+                                              pressure: 0, buttons: 0), timestamp: 1, native: true)
+        let out = pen.consume(seen, extent: &extent, quarterTurns: 1)
+        XCTAssertEqual(extent, TabletExtent(width: 15200, height: 9500, countsPerMillimetre: 100),
+                       "inside the table: nothing widens")
+        assertPoint(out[0].page, 0.5, 13217.0 / 15200.0)
+        XCTAssertEqual(TabletMapping.aspect(of: extent, quarterTurns: 1), 0.625, accuracy: 1e-9,
+                       "turned once, the sheet is tall")
+    }
+
     func testAPointPastTheEdgeIsOnThePageAndMovesTheEdge() {
         var pen = TabletPen()
         var extent = small
@@ -205,8 +225,8 @@ final class TabletReadingTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(pointOf(try mouseEvent(.rightMouseUp, subtype: point, buttons: 0))).side)
     }
 
-    /// What the driver ought to send with Mvsc false: events of the
-    /// tablet's own type. The nib is down by its button or its pressure.
+    /// Events of the tablet's own type, should the driver ever send the pen
+    /// that way: the nib is down by its button or its pressure.
     func testAPureTabletEventIsThePen() throws {
         let nib = try XCTUnwrap(pointOf(try tabletEvent(x: 7000, y: 3000, buttons: 1, pressure: 0.25)))
         XCTAssertEqual(nib.counts, CGPoint(x: 7000, y: 3000))
@@ -484,10 +504,10 @@ final class TabletInputTests: XCTestCase {
     }
 
     /// A PURE TABLET EVENT HAS NO SUBTYPE TO ASK: `subtype` on one is an
-    /// exception that takes the app down (measured 2026-10-02) — and these
-    /// are exactly the events the driver ought to send once the context has
-    /// the pen off the pointer. Through the whole funnel, both routes,
-    /// taken or not, the first-event log line included.
+    /// exception that takes the app down (measured 2026-10-02) — and the
+    /// driver does send them: the pen coming near arrives as one. Through
+    /// the whole funnel, both routes, taken or not, the first-event log
+    /// line included.
     func testPureTabletEventsGoThroughWithoutAQuestionTheyCannotAnswer() throws {
         let input = TabletInput()
         var lines: [String] = []
@@ -596,5 +616,127 @@ final class TabletInputTests: XCTestCase {
         input.pageAppeared()
         _ = input.handle(try penDrag(x: 15600, y: 100), from: .local)
         XCTAssertEqual(input.extent, TabletExtent(width: 15600, height: 9500))
+    }
+
+    // MARK: - The raw route
+
+    private func rawPoint(x: Double = 3800, y: Double = 2375, tip: Bool = false, pressure: Double = 0,
+                          at time: TimeInterval) -> TabletReading {
+        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, sideSwitch: false, pressure: pressure,
+                                   buttons: tip ? 1 : 0), timestamp: time, native: true)
+    }
+
+    private func capturing() -> (TabletInput, () -> [TabletSample], AnyCancellable) {
+        let input = TabletInput()
+        input.start()
+        input.pageAppeared()
+        var got: [TabletSample] = []
+        let watching = input.samples.sink { got.append($0) }
+        return (input, { got }, watching)
+    }
+
+    /// ONE FUNNEL: a reading off the tablet itself goes through the same
+    /// pen state, the same turn and the same stream as an event's.
+    func testARawReadingIsThePenLikeAnyOther() {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        input.raw(rawPoint(at: 20))
+        input.raw(rawPoint(tip: true, pressure: 0.5, at: 20.008))
+        XCTAssertEqual(got().map(\.phase), [.hover, .down])
+        guard got().count == 2 else { return }
+        XCTAssertEqual(got()[1].page, CGPoint(x: 0.75, y: 0.25))
+        XCTAssertEqual(got()[1].pressure, 0.5)
+        XCTAssertEqual(input.pen?.phase, .down, "the marker follows it")
+        XCTAssertEqual(input.rawSince, 20)
+    }
+
+    /// A reading that arrives with nothing to write on — the tablet being
+    /// let go as the page went — writes nothing.
+    func testARawReadingWithNoTargetUpIsDropped() {
+        let input = TabletInput()
+        input.start()
+        var got = 0
+        let watching = input.samples.sink { _ in got += 1 }
+        defer { watching.cancel() }
+        input.raw(rawPoint(at: 20))
+        XCTAssertEqual(got, 0)
+        XCTAssertNil(input.rawSince)
+    }
+
+    /// ONE ROUTE AT A TIME: once the tablet itself is delivering, what the
+    /// driver posts is still the pen's — swallowed, so a tap clicks nothing
+    /// — and draws nothing: the same stroke by both routes would be two.
+    func testWhileTheTabletDeliversTheDriversEventsDrawNothing() throws {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        input.raw(rawPoint(at: 20))
+        XCTAssertNil(input.handle(try penDrag(at: 20_100_000_000), from: .local), "the pen's event reached the window")
+        _ = input.handle(try penDrag(at: 20_200_000_000), from: .global)
+        XCTAssertEqual(got().map(\.phase), [.hover], "the driver's event drew beside the tablet's own")
+        let trackpad = try trackpadDrag()
+        XCTAssertTrue(input.handle(trackpad, from: .local) === trackpad, "the trackpad is never the pen's")
+    }
+
+    /// Held but silent — WriteMind has the device and no pen report has
+    /// come — is not delivering: until one does, the driver's events still
+    /// write. A capture that brings nothing must not cost the page its pen.
+    func testUntilTheFirstRawReportTheDriversEventsStillWrite() throws {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        XCTAssertNil(input.handle(try penDrag(at: 1_000), from: .local))
+        XCTAssertEqual(got().map(\.phase), [.down])
+    }
+
+    /// The tablet let go — the app left the front, the page went: a stroke
+    /// under way ends where it was, the marker goes, and the driver's
+    /// events are the pen again.
+    func testTheTabletLetGoLiftsThePenAndGivesTheRouteBack() throws {
+        let (input, got, watching) = capturing()
+        defer { watching.cancel() }
+        input.raw(rawPoint(tip: true, pressure: 0.4, at: 20))
+        input.rawEnded(at: 21)
+        XCTAssertEqual(got().map(\.phase), [.down, .up, .hover])
+        guard got().count == 3 else { return }
+        XCTAssertEqual(got()[1].page, CGPoint(x: 0.75, y: 0.25), "lifted where it was")
+        XCTAssertNil(input.pen)
+        XCTAssertNil(input.rawSince)
+        input.rawEnded(at: 22)
+        XCTAssertEqual(got().count, 3, "let go once")
+        XCTAssertNil(input.handle(try penDrag(at: 23_000_000_000), from: .local))
+        XCTAssertEqual(got().last?.phase, .down, "the driver's events write again")
+    }
+
+    /// A SEIZED TABLET OUGHT TO SEND THE DRIVER NOTHING. Events it made
+    /// before the tablet was taken are still on their way up for a moment;
+    /// events made well after say the driver still hears it — written down
+    /// once, and told to whoever is listening.
+    func testEventsThatKeepComingSayTheDriverStillPosts() throws {
+        let (input, _, watching) = capturing()
+        defer { watching.cancel() }
+        var lines: [String] = []
+        input.log = { lines.append($0) }
+        var told: [Bool] = []
+        input.driverStillPostsChanged = { told.append($0) }
+        input.raw(rawPoint(at: 20))
+        _ = input.handle(try penDrag(at: 19_990_000_000), from: .local)
+        _ = input.handle(try penDrag(at: 20_300_000_000), from: .local)
+        XCTAssertFalse(input.driverStillPosts, "a straggler from before the tablet was taken")
+        XCTAssertEqual(lines.filter { $0.contains("a pen event from the driver while seized") }.count, 1,
+                       "the first is written down whatever it turns out to be: \(lines)")
+        _ = input.handle(try penDrag(at: 21_000_000_000), from: .local)
+        _ = input.handle(try penDrag(at: 21_008_000_000), from: .local)
+        XCTAssertTrue(input.driverStillPosts)
+        XCTAssertEqual(told, [true])
+        XCTAssertEqual(lines.filter { $0.contains("driver still posts events while seized") }.count, 1, "once")
+        // Picked again, it is a fresh question.
+        input.start()
+        XCTAssertFalse(input.driverStillPosts)
+        XCTAssertEqual(told, [true, false])
+    }
+
+    func testOnlyAnEventMadeWellAfterTheFirstReportCounts() {
+        XCTAssertFalse(TabletInput.stillPosting(eventAt: 19.9, rawSince: 20))
+        XCTAssertFalse(TabletInput.stillPosting(eventAt: 20 + TabletInput.stragglers, rawSince: 20))
+        XCTAssertTrue(TabletInput.stillPosting(eventAt: 20.6, rawSince: 20))
     }
 }

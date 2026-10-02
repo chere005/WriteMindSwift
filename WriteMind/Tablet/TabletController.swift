@@ -40,67 +40,30 @@ struct TabletDevice: Identifiable, Hashable {
     }
 }
 
-/// How WriteMind talks to the driver. One protocol so the controller's
-/// rules — who may ask, when a context is made, kept and let go — can be
-/// tested against a stand-in that answers like a driver, while the live
-/// one does the real thing off the main thread.
-protocol TabletDriverLink: AnyObject {
-    var driverIsRunning: Bool { get }
-    /// `WacomDriver.takeThePen`, answered on the main actor.
-    func takeThePen(existing: UInt32?, ask: Bool, done: @escaping @MainActor (WacomDriver.Outcome) -> Void)
-    /// Let a context go: waited for (in the background) or, on the way
-    /// out of the app, posted and not waited for.
-    func letGo(_ context: UInt32, wait: Bool)
-}
-
-/// The real driver, one conversation at a time on a queue of its own: an
-/// Apple Event waits for its reply, and the Automation prompt waits for
-/// Sean, and neither is allowed to stop the window.
-final class LiveDriverLink: TabletDriverLink {
-    private let queue = DispatchQueue(label: "com.seancheren.WriteMind.wacom")
-
-    var driverIsRunning: Bool { WacomDriver.isRunning }
-
-    func takeThePen(existing: UInt32?, ask: Bool, done: @escaping @MainActor (WacomDriver.Outcome) -> Void) {
-        queue.async {
-            let outcome = WacomDriver.takeThePen(existing: existing, ask: ask)
-            Task { @MainActor in done(outcome) }
-        }
-    }
-
-    func letGo(_ context: UInt32, wait: Bool) {
-        if wait {
-            queue.async { WacomDriver.letGo(context) }
-        } else {
-            WacomDriver.letGo(context, wait: false)
-        }
-    }
-}
-
 /// The Wacom tablets on this Mac, which one (if any) is the input, and
-/// whether the driver has taken the pen off the pointer for it.
+/// whether WriteMind has taken its pen off the pointer.
 ///
 /// THE TABLET IS CHOSEN THE WAY A CAMERA IS (Sean, 2026-10-02: "wacom
 /// should basically just be chosen as if it were an input display").
 /// Modelled on `CameraController`: found by itself (IOKit's own notices for
-/// a USB device from Wacom — the HID device is never opened, so there is no
-/// Input Monitoring prompt), listed in the Input Devices menu, remembered
-/// once picked, and A FIRST LAUNCH NEVER ASKS: nothing talks to the driver
-/// until the tablet has been picked from a menu at least once, and the
-/// Automation prompt only ever goes up as the direct result of that pick.
-/// A launch that finds the remembered tablet takes the pen again without
-/// asking anything.
+/// a USB device from Wacom — reading the registry opens nothing and asks
+/// nothing), listed in the Input Devices menu, remembered once picked, and
+/// A FIRST LAUNCH NEVER ASKS: nothing about the tablet's HID device is read
+/// or opened until a tablet is the input, and macOS's Input Monitoring
+/// question only ever goes up as the direct result of a pick. A launch that
+/// finds the remembered tablet takes the pen again if it is already
+/// allowed to, and says so in the pane if it is not.
 ///
-/// While a tablet is the input AND WHAT IT WRITES ON IS ON SCREEN — its
-/// page, or in Notebook mode a note — there is a driver CONTEXT with Mvsc
-/// false: the pen writes and the pointer stays where the trackpad left it.
-/// Put that away and the context goes with it: a pen kept off the pointer
-/// for a page nobody can see writes nowhere, and the notebook's own pen
-/// needs it as a pointer. Contexts only act while WriteMind is in front, so
-/// it is checked again every time WriteMind comes back to the front (kept
-/// if the driver still has it, made again if not) and whenever the driver
-/// restarts; and it is let go when the target goes, the tablet is turned
-/// off or unplugged, or the app quits.
+/// WRITEMIND TAKES THE TABLET ITSELF (`TabletCapture`, which says why the
+/// driver cannot be asked to let go): while a tablet is the input AND WHAT
+/// IT WRITES ON IS ON SCREEN — its page, or in Notebook mode a note — AND
+/// WRITEMIND IS THE ACTIVE APP, its HID device is held seized, the driver
+/// hears nothing and the pointer stays where the trackpad left it. Any of
+/// the three going gives it back: a pen held for a page nobody can see
+/// writes nowhere, the notebook's own pen needs it as a pointer, and in
+/// another app it is that app's pen. This class is the shell — it gathers
+/// the three, hands them to `TabletCapture`, does what it says through
+/// `TabletHID`, and turns the tablet's reports into the funnel's readings.
 @MainActor
 final class TabletController: ObservableObject {
     enum Status: Equatable {
@@ -108,13 +71,17 @@ final class TabletController: ObservableObject {
         case off
         /// The tablet that was picked is not plugged in.
         case unplugged
-        /// Asking the driver — or waiting for Sean to answer macOS.
-        case connecting
-        /// The context stands: the pen is the page's and not the pointer's.
-        case ready
-        /// No context, and why. The page still takes the pen from whatever
-        /// reaches WriteMind; the pointer moves with it.
-        case unavailable(WacomDriver.Failure)
+        /// The input, plugged in, and nothing to say: not held at this
+        /// moment — nothing to write on is up, WriteMind is not in front,
+        /// or the open is on its way — and no reason it could not be.
+        case standby
+        /// WriteMind holds the tablet: the pen is the page's and not the
+        /// pointer's. `driverStillPosts` when the driver's events kept
+        /// coming all the same (`TabletInput.driverStillPosts`).
+        case captured(driverStillPosts: Bool)
+        /// WriteMind cannot hold it, and why. The page still takes the pen
+        /// from what the driver posts; the pointer moves with it.
+        case fallback(TabletCapture.Refusal)
     }
 
     static let shared = TabletController()
@@ -132,29 +99,40 @@ final class TabletController: ObservableObject {
     var selectedTablet: TabletDevice? { tablets.first { $0.id == selectedTabletID } }
     var isSelected: Bool { selectedTabletID != nil }
 
-    /// The funnel the pen's events come through.
+    /// The funnel the pen comes through, by either route.
     let input: TabletInput
 
     private let defaults: UserDefaults
-    private let link: TabletDriverLink
-    private var contextID: UInt32?
-    /// One conversation at a time; a call that arrives during one is run
-    /// once more afterwards — asking, if any of the calls asked.
-    private var inFlight = false
-    private var pendingAsk: Bool?
+    private let hid: TabletHID
+    /// When the tablet is held, decided (`TabletCapture`); this class only
+    /// does what it says.
+    private(set) var capture = TabletCapture()
+    /// WriteMind is the active app — kept from the two notices, so that a
+    /// launch (not yet active) and a test (never active) are both plain.
+    private var appActive: Bool
+    /// Input Monitoring as it last read: looked at on every change, and
+    /// written to the log only when it is news.
+    private var accessRead: TabletCapture.Access?
     private var byRegistryID: [UInt64: TabletDevice] = [:]
     /// Which tablet `input.extent` is the size of.
     private var extentTabletID: String?
+    /// How many raw reports, and how many kinds of unknown one, this pick
+    /// has written to the log; and whether its first reading has been.
+    private var reportsLogged = 0
+    private var unknownKinds: Set<String> = []
+    private var firstReadingLogged = false
     private var notifyPort: IONotificationPortRef?
     private var arrivals: io_iterator_t = 0
     private var departures: io_iterator_t = 0
     private var observers: [NSObjectProtocol] = []
-    private var runningApplications: NSKeyValueObservation?
     var log: (String) -> Void = { line in if !TestHost.isActive { DebugLog.write(line) } }
 
-    /// A just-plugged tablet is not the driver's straight away; asking at
-    /// once found nothing to make a context over.
+    /// A just-plugged tablet's HID devices are not there straight away.
     nonisolated static let settle: TimeInterval = 1.5
+    /// The first raw reports of a pick go to the log whole, and the first
+    /// of each kind that is not the pen's after that.
+    nonisolated static let reportsToLog = 12
+    nonisolated static let unknownKindsToLog = 8
 
     private enum Keys {
         static let lastTablet = "lastTabletID"
@@ -162,18 +140,21 @@ final class TabletController: ObservableObject {
     }
 
     /// `live` is everything that reaches outside the process — the USB
-    /// notices, the app and workspace notifications, the remembered pick.
-    /// None of it in the test host, which has no tablet and must never
-    /// talk to the driver.
-    init(defaults: UserDefaults = .standard, link: TabletDriverLink = LiveDriverLink(),
+    /// notices, the app's notifications, the remembered pick. None of it in
+    /// the test host, which has no tablet and must never open one.
+    init(defaults: UserDefaults = .standard, hid: TabletHID = LiveTabletHID(),
          input: TabletInput = .shared, live: Bool = !TestHost.isActive) {
         self.defaults = defaults
-        self.link = link
+        self.hid = hid
         self.input = input
+        appActive = live && (NSApp?.isActive ?? false)
         // The page and the notes come and go on the main thread, from their
         // panes; the target changes there too.
-        input.targetShowingChanged = { [weak self] showing in
-            MainActor.assumeIsolated { self?.targetShowing(showing) }
+        input.targetShowingChanged = { [weak self] _ in
+            MainActor.assumeIsolated { self?.targetChanged() }
+        }
+        input.driverStillPostsChanged = { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
         }
         guard live else { return }
         restoreRemembered()
@@ -184,11 +165,12 @@ final class TabletController: ObservableObject {
     // MARK: - Picking
 
     /// Sean picked `tablet` from a menu — Input Devices, or the pane's own.
-    /// This is the ONE place the Automation prompt may come from. Picking
-    /// the tablet that is already the input asks again, which is how a
-    /// pick whose prompt never got answered is finished.
+    /// This is the ONE place macOS's Input Monitoring question may come
+    /// from. Picking the tablet that is already the input asks again, which
+    /// is how a remembered pick from before WriteMind took the tablet
+    /// itself — or a question put away unanswered — gets asked.
     func pick(_ tablet: TabletDevice) {
-        select(tablet, ask: true)
+        select(tablet, picked: true)
     }
 
     /// No tablet: the pane goes back to the camera's.
@@ -198,16 +180,15 @@ final class TabletController: ObservableObject {
         selectedName = nil
         defaults.removeObject(forKey: Keys.lastTablet)
         defaults.removeObject(forKey: Keys.lastTabletName)
-        pendingAsk = nil
         extentTabletID = nil
-        letGoOfContext(wait: true)
+        evaluate()
         input.stop()
-        status = .off
     }
 
-    private func select(_ tablet: TabletDevice, ask: Bool) {
+    private func select(_ tablet: TabletDevice, picked: Bool) {
         if extentTabletID != tablet.id {
-            // The table's size until the driver says otherwise.
+            // The raw sensor's size, from the table — and from then on
+            // only what the pen is seen to reach (`TabletExtent.known`).
             input.extent = TabletExtent.known(productID: tablet.productID) ?? .fallback
             extentTabletID = tablet.id
         }
@@ -215,9 +196,11 @@ final class TabletController: ObservableObject {
         selectedName = tablet.name
         defaults.set(tablet.id, forKey: Keys.lastTablet)
         defaults.set(tablet.name, forKey: Keys.lastTabletName)
+        reportsLogged = 0
+        unknownKinds = []
+        firstReadingLogged = false
         input.start()
-        guard tablets.contains(tablet) else { status = .unplugged; return }
-        connect(ask: ask)
+        evaluate(picked: picked)
     }
 
     /// The pick from the last session, if there was one: the pane shows the
@@ -228,172 +211,166 @@ final class TabletController: ObservableObject {
         selectedName = defaults.string(forKey: Keys.lastTabletName)
         input.start()
         if let tablet = tablets.first(where: { $0.id == id }) {
-            select(tablet, ask: false)
+            select(tablet, picked: false)
         } else {
-            status = .unplugged
+            refresh()
         }
     }
 
-    // MARK: - The driver
+    // MARK: - Holding the tablet
 
-    /// Get (or keep) the context. `ask` only from `pick`.
-    func connect(ask: Bool) {
-        guard isSelected, selectedTablet != nil else { return }
-        guard link.driverIsRunning else {
-            contextID = nil
-            status = .unavailable(.noDriver)
-            return
-        }
-        // Said only when it is news: the app coming back to the front
-        // re-checks a context that is almost always still there, and a
-        // pane that blinked "connecting" every time would be noise. And
-        // said BEFORE anything waits — a pick or a replug landing while an
-        // earlier conversation is still out (the Automation prompt waits
-        // for Sean) left the pane saying "No tablet selected", or
-        // "unplugged", under a menu that ticked a tablet plugged in.
-        switch status {
-        case .off, .unplugged: status = .connecting
-        case .unavailable where ask: status = .connecting
-        default: break
-        }
-        // Only a target on screen wants the pen off the pointer. A pick puts
-        // its question whether or not its page is up yet — the pane comes
-        // up a moment after the menu, and the question is the pick's — and
-        // what it makes waits for the target (`landed`).
-        guard ask || input.targetIsShowing else { return }
-        if inFlight {
-            pendingAsk = (pendingAsk ?? false) || ask
-            return
-        }
-        inFlight = true
-        link.takeThePen(existing: contextID, ask: ask) { [weak self] outcome in
-            self?.landed(outcome)
-        }
-    }
-
-    private func landed(_ outcome: WacomDriver.Outcome) {
-        inFlight = false
-        // Turned off or unplugged while the driver was answering: a context
-        // made for it is nobody's.
-        guard isSelected, selectedTablet != nil else {
-            if let made = outcome.context, made != contextID { link.letGo(made, wait: true) }
-            return
-        }
-        if let old = contextID, let now = outcome.context, old != now { link.letGo(old, wait: true) }
-        contextID = outcome.context
-        if let made = outcome.context, outcome.created {
-            log("tablet: context \(made) made on \(selectedName ?? "the tablet") — Mvsc false, the pen is off the pointer")
-        }
-        if let extent = outcome.extent {
-            log("tablet: the driver measures \(outcome.name ?? "the tablet") at \(Int(extent.width)) x \(Int(extent.height))")
-            // In counts; the table says how big that is in millimetres,
-            // which is what the paper is ruled by.
-            input.extent = extent.resolved(from: selectedTablet.flatMap { TabletExtent.known(productID: $0.productID) })
-        }
-        if let failure = outcome.failure {
-            // Once per change: a refusal re-read every time the app comes
-            // to the front is not news.
-            if status != .unavailable(failure) {
-                log("tablet: no context — \(failure)" + (failure.status.map { " (OSStatus \($0))" } ?? ""))
+    /// THE ONE PLACE IT IS DECIDED: the three conditions as they stand, and
+    /// Input Monitoring as it reads — read only while a tablet is the input
+    /// and plugged in, so a Mac that has never picked one is never so much
+    /// as looked up. `picked` only from `pick`.
+    private func evaluate(picked: Bool = false) {
+        let tablet = selectedTablet
+        let conditions = TabletCapture.Conditions(productID: tablet?.productID,
+                                                  targetShowing: input.targetIsShowing, active: appActive)
+        var access = TabletCapture.Access.undecided
+        if tablet != nil {
+            access = hid.access()
+            if access != accessRead {
+                accessRead = access
+                log("tablet: Input Monitoring reads \(access)")
             }
-            status = .unavailable(failure)
+        }
+        run(capture.changed(conditions, access: access, picked: picked))
+    }
+
+    private func run(_ commands: [TabletCapture.Command], quitting: Bool = false) {
+        for command in commands {
+            switch command {
+            case .ask:
+                log("tablet: asking macOS for Input Monitoring — the pick's question")
+                hid.requestAccess { [weak self] access in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.run(self.capture.answered(access))
+                    }
+                }
+            case .seize(let productID, let attempt):
+                log("tablet: capture start — seizing product 0x\(String(productID, radix: 16)) (attempt \(attempt))")
+                hid.seize(vendorID: TabletDevice.wacomVendorID, productID: productID, report: { [weak self] bytes, time in
+                    MainActor.assumeIsolated { self?.report(bytes, at: time, attempt: attempt) }
+                }, done: { [weak self] refusal in
+                    MainActor.assumeIsolated { self?.landed(attempt: attempt, refusal: refusal) }
+                })
+            case .release:
+                log("tablet: capture stop — the tablet is let go")
+                hid.release(waiting: quitting)
+                input.rawEnded(at: ProcessInfo.processInfo.systemUptime)
+            }
+        }
+        refresh()
+    }
+
+    private func landed(attempt: Int, refusal: TabletCapture.Refusal?) {
+        capture.landed(attempt: attempt, refusal: refusal)
+        refresh()
+    }
+
+    /// One raw report off the held tablet. Dropped unless it is this
+    /// capture's and the capture stands: one that was on its way when the
+    /// tablet was let go is nobody's.
+    private func report(_ bytes: [UInt8], at time: TimeInterval, attempt: Int) {
+        guard capture.isCaptured, attempt == capture.attempt else { return }
+        let packet = WacomPenPacket(bytes)
+        note(bytes, known: packet != nil)
+        let giveUp = capture.reported(known: packet != nil, at: time)
+        if !giveUp.isEmpty {
+            log("tablet: \(TabletCapture.unreadableBurst) reports in a row and none of them a pen report — "
+                + "the tablet cannot be read, and is given back")
+            run(giveUp)
+        }
+        guard let packet else { return }
+        let reading = packet.reading(at: time)
+        if !firstReadingLogged {
+            firstReadingLogged = true
+            log("tablet: first raw reading — \(packet) taken as \(reading.kind)")
+        }
+        input.raw(reading)
+    }
+
+    /// NOT ONE LINE PER SAMPLE: the first few reports of a pick, whole, and
+    /// after that the first of each kind that is not a pen report — what a
+    /// tablet nobody has read before sends is the only evidence of what it
+    /// means, and nothing here guesses.
+    private func note(_ bytes: [UInt8], known: Bool) {
+        if reportsLogged < Self.reportsToLog {
+            reportsLogged += 1
+            log("tablet: raw report \(reportsLogged) (\(bytes.count) bytes\(known ? "" : ", not a pen report")): "
+                + WacomPenPacket.hex(bytes))
+        } else if !known, unknownKinds.count < Self.unknownKindsToLog {
+            let kind = "\(bytes.first ?? 0)/\(bytes.count)"
+            guard unknownKinds.insert(kind).inserted else { return }
+            log("tablet: raw report of an unknown kind (id \(bytes.first ?? 0), \(bytes.count) bytes): "
+                + WacomPenPacket.hex(Array(bytes.prefix(16))))
+        }
+    }
+
+    /// What the pane says, from where things stand.
+    private func refresh() {
+        let now: Status
+        if !isSelected {
+            now = .off
+        } else if selectedTablet == nil {
+            now = .unplugged
+        } else if capture.isCaptured {
+            now = .captured(driverStillPosts: input.driverStillPosts)
+        } else if let refusal = capture.refusal {
+            now = .fallback(refusal)
         } else {
-            status = .ready
+            now = .standby
         }
-        // The target went while the driver was answering, or a pick asked
-        // before its page was up: the pen stays a pointer until it is.
-        if !input.targetIsShowing { letGoOfContext(wait: true) }
-        if let ask = pendingAsk {
-            pendingAsk = nil
-            connect(ask: ask)
-        }
+        // Only when it is news: an assignment publishes, changed or not.
+        if now != status { status = now }
     }
-
-    private func letGoOfContext(wait: Bool) {
-        guard let id = contextID else { return }
-        contextID = nil
-        link.letGo(id, wait: wait)
-        log("tablet: context \(id) let go")
-    }
-
-    /// The context's id, for the tests.
-    var currentContext: UInt32? { contextID }
 
     // MARK: - What happens around it
 
-    /// THE CONTEXT FOLLOWS THE TARGET. The page — or in Notebook mode a note
+    /// THE TABLET FOLLOWS THE TARGET. The page — or in Notebook mode a note
     /// — coming on screen takes the pen off the pointer, asking nothing;
     /// the last one going gives it back — ⌘Y, the pane's switch, a camera
     /// picked, the notes put away, Esc sending the pen back to a page that
-    /// is put away. Left standing, it kept the pen off the pointer while
+    /// is put away. Held on, it kept the pen off the pointer while
     /// WriteMind was in front with nothing to write on: the notebook's own
     /// pen, the only other use of the pen here, was dead, and the line that
     /// would have said why was hidden with the pane. From one target to the
-    /// other with both on screen is no change: the same context serves.
-    func targetShowing(_ showing: Bool) {
-        if showing { connect(ask: false) } else { letGoOfContext(wait: true) }
+    /// other with both on screen is no change.
+    func targetChanged() {
+        evaluate()
     }
 
-    /// Contexts only act while WriteMind is in front — check it is still
-    /// there (the driver can drop one, or restart) each time it comes back.
+    /// And it follows the app: taken as WriteMind comes to the front — which
+    /// is also when a permission given in System Settings is first seen —
+    /// and given back as it leaves, so the pen is a pen in whatever app is
+    /// in front.
     func appBecameActive() {
-        guard isSelected, selectedTablet != nil else { return }
-        connect(ask: false)
+        appActive = true
+        evaluate()
     }
 
-    /// On the way out the context goes with us — Wacom's rule. Posted, not
-    /// waited for: there is no time left to wait.
+    func appResignedActive() {
+        appActive = false
+        evaluate()
+    }
+
+    /// On the way out the tablet is closed before the process goes — and
+    /// waited for, briefly, because there is no later.
     func appWillQuit() {
-        letGoOfContext(wait: false)
-    }
-
-    /// The driver came (back) up: its contexts died with the old one.
-    func driverLaunched(settle: TimeInterval = TabletController.settle) {
-        contextID = nil
-        guard isSelected, selectedTablet != nil else { return }
-        // Whether or not WriteMind is in front: a context only acts while
-        // it is, and the next time it is, this one is already there.
-        after(settle) { [weak self] in self?.connect(ask: false) }
-    }
-
-    /// The running list changed: did the driver come, or go? An insertion
-    /// or a removal carries only what changed; a `.setting` carries both
-    /// lists whole. Bundle ids, so a test can say them.
-    func runningApplicationsChanged(kind: NSKeyValueChange, old: [String?], new: [String?],
-                                    settle: TimeInterval = TabletController.settle) {
-        let driver = WacomDriver.bundleIdentifier
-        let was = old.contains(driver), now = new.contains(driver)
-        let launched: Bool
-        switch kind {
-        case .insertion:
-            guard now else { return }
-            launched = true
-        case .removal:
-            guard was else { return }
-            launched = false
-        default:
-            guard was != now else { return }
-            launched = now
-        }
-        log("tablet: the Wacom driver \(launched ? "started" : "quit")")
-        if launched { driverLaunched(settle: settle) } else { driverQuit() }
-    }
-
-    func driverQuit() {
-        contextID = nil
-        guard isSelected, selectedTablet != nil else { return }
-        status = .unavailable(.noDriver)
+        run(capture.changed(TabletCapture.Conditions(), access: .undecided), quitting: true)
     }
 
     /// A Wacom arrived on the USB bus.
     func plugged(_ tablet: TabletDevice, registryID: UInt64, settle: TimeInterval = TabletController.settle) {
         byRegistryID[registryID] = tablet
         list()
-        guard tablet.id == selectedTabletID, status == .unplugged || status == .off else { return }
+        guard tablet.id == selectedTabletID, status == .unplugged else { return }
         // The pick is back: take the pen again, asking nothing.
         after(settle) { [weak self] in
             guard let self, self.selectedTabletID == tablet.id, self.tablets.contains(tablet) else { return }
-            self.select(tablet, ask: false)
+            self.select(tablet, picked: false)
         }
     }
 
@@ -402,8 +379,7 @@ final class TabletController: ObservableObject {
         guard let gone = byRegistryID.removeValue(forKey: registryID) else { return }
         list()
         guard gone.id == selectedTabletID, !tablets.contains(where: { $0.id == gone.id }) else { return }
-        letGoOfContext(wait: true)
-        status = .unplugged
+        evaluate()
     }
 
     private func list() {
@@ -422,9 +398,11 @@ final class TabletController: ObservableObject {
         switch status {
         case .off: return "off"
         case .unplugged: return "unplugged"
-        case .connecting: return "connecting"
-        case .ready: return "ready"
-        case .unavailable(let failure): return "unavailable(\(failure))"
+        case .standby: return "standby"
+        case .captured(let driverStillPosts):
+            return driverStillPosts ? "captured (the driver still posts)" : "captured"
+        case .fallback(let refusal):
+            return "fallback(\(refusal))" + (refusal.code.map { " \(TabletCapture.hex($0))" } ?? "")
         }
     }
 
@@ -436,34 +414,21 @@ final class TabletController: ObservableObject {
                                             object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.appBecameActive() }
         })
+        observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification,
+                                            object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.appResignedActive() }
+        })
         // Synchronously, on the way out: a Task would run after the app had
         // gone.
         observers.append(center.addObserver(forName: NSApplication.willTerminateNotification,
                                             object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.appWillQuit() }
         })
-        // THE DRIVER IS A BACKGROUND APP — LSBackgroundOnly and LSUIElement
-        // in its Info.plist — and NSWorkspace posts no didLaunch or
-        // didTerminate for one: its documentation says so, and a probe
-        // bundle with those two keys, launched and quit, raised neither
-        // notice while the running list changed both times. Watched by the
-        // notices, a driver restart was never seen — the dead context's id
-        // kept, the pane still "ready", the pen moving the pointer. So it
-        // is the running list that is watched.
-        runningApplications = NSWorkspace.shared.observe(\.runningApplications, options: [.old, .new]) { [weak self] _, change in
-            let kind = change.kind
-            let old = (change.oldValue ?? []).map(\.bundleIdentifier)
-            let new = (change.newValue ?? []).map(\.bundleIdentifier)
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.runningApplicationsChanged(kind: kind, old: old, new: new) }
-            }
-        }
     }
 
     /// IOKit's notices for USB devices from Wacom, first-match and
-    /// terminated. Matching on the USB DEVICE, not the HID interface, and
-    /// opening nothing: reading a registry entry's properties needs no
-    /// permission at all.
+    /// terminated. Matching on the USB DEVICE and opening nothing: reading
+    /// a registry entry's properties needs no permission at all.
     private func watchUSB() {
         guard let port = IONotificationPortCreate(kIOMainPortDefault) else {
             log("tablet: no IOKit notification port")
@@ -481,8 +446,7 @@ final class TabletController: ObservableObject {
             MainActor.assumeIsolated { controller.drainArrivals(iterator, settle: TabletController.settle) }
         }, me, &arrivals)
         // Draining arms the notice, and lists what is already plugged in —
-        // at launch, with the driver long since up, there is nothing to
-        // wait for.
+        // at launch, long since settled, there is nothing to wait for.
         drainArrivals(arrivals, settle: 0)
 
         IOServiceAddMatchingNotification(port, kIOTerminatedNotification, matching(), { refcon, iterator in
