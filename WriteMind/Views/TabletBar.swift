@@ -250,10 +250,12 @@ struct PaperMenu: View {
 
 /// A PICKER IN A POPOVER — the paper's, and how the tablet sits: its
 /// heading, a row a choice, and a line under them if it has one. One view
-/// for both, so the two cannot drift apart.
+/// for both, so the two cannot drift apart. As wide as its rows' words
+/// need: the paper's are short, the tablet's say where its light is.
 struct PickList<Rows: View>: View {
     let title: String
     var footer: String? = nil
+    var width: CGFloat = 310
     @ViewBuilder let rows: () -> Rows
 
     var body: some View {
@@ -270,7 +272,7 @@ struct PickList<Rows: View>: View {
             }
         }
         .padding(10)
-        .frame(width: 310)
+        .frame(width: width)
     }
 }
 

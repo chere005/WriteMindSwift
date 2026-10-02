@@ -340,11 +340,12 @@ struct TabletPane: View {
 /// HOW THE TABLET SITS — the one control for the turn, in the page's corner
 /// (Sean, 2026-10-02: "make sure i can orient the page with the device by
 /// rotating or flipping to make it match portrait or landscape"): the tablet
-/// drawn the way it lies (`TabletGlyph`), opening the four ways round by
-/// name. A button opening a popover, as the paper's does — a SwiftUI `Menu`
-/// is an AppKit control hosted over the pane (the eighth cause). It is the
-/// TABLET'S, so it holds for the notebook as for the page, and the popover
-/// says what a turn does to whichever the pen is writing on.
+/// drawn the way it lies, its light where the light is (`TabletGlyph`),
+/// opening the four ways round by name. A button opening a popover, as the
+/// paper's does — a SwiftUI `Menu` is an AppKit control hosted over the
+/// pane (the eighth cause). It is the TABLET'S, so it holds for the
+/// notebook as for the page, and the popover says what a turn does to
+/// whichever the pen is writing on.
 struct TabletOrientationButton: View {
     let orientation: TabletOrientation
     /// Where the pen writes — what the popover's last line is about.
@@ -358,7 +359,7 @@ struct TabletOrientationButton: View {
 
     var body: some View {
         Button { showing.toggle() } label: {
-            TabletGlyph(orientation: orientation, size: Self.glyph)
+            TabletGlyph(orientation: orientation, size: Self.glyph, onPane: true)
                 .foregroundStyle(Color.primary)
                 .padding(6)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
@@ -378,15 +379,20 @@ struct TabletOrientationButton: View {
 }
 
 /// The four ways round, a row each — the tablet drawn that way, its name,
-/// what was done to it, the one in use ticked — and under them what a turn
-/// does to what the pen writes on, and what the drawing's heavy edge is.
+/// what was done to it and where that leaves its light, the one in use
+/// ticked — and under them what a turn does to what the pen writes on, and
+/// what the drawing's dot is.
 struct TabletOrientationMenu: View {
     let current: TabletOrientation
     let target: TabletTarget
     let onPick: (TabletOrientation) -> Void
 
+    /// Wide enough that the way it sits by default — "A quarter turn
+    /// clockwise · light at the top" — is one line under its name.
+    static let width: CGFloat = 350
+
     var body: some View {
-        PickList(title: "How the Tablet Sits", footer: Self.footer(for: target)) {
+        PickList(title: "How the Tablet Sits", footer: Self.footer(for: target), width: Self.width) {
             ForEach(TabletOrientation.allCases) { orientation in
                 PickRow(title: orientation.title, detail: orientation.detail,
                         isCurrent: orientation == current, action: { onPick(orientation) }) {
@@ -400,16 +406,18 @@ struct TabletOrientationMenu: View {
     /// on. The page's writing turns with it, each stroke staying where it
     /// is on the tablet, and its paper is laid for the new shape; a NOTE'S
     /// strokes are the note's and never turn — only the tablet's area on
-    /// the notes does. And what the drawing's heavy edge is.
+    /// the notes does. And what the drawing's dot is (Sean, 2026-10-02:
+    /// "show the led on the tablet for the icon to give orientation") — a
+    /// dot nobody has named is one more shape.
     nonisolated static func footer(for target: TabletTarget) -> String {
-        let edge = "The heavy edge is the tablet's top: the far edge when it lies the way it ships."
+        let light = "The dot is the tablet's light — \(TabletOrientation.landscape.lightPlace) as it ships."
         switch target {
         case .page:
             return "The page turns to match, and its writing with it — each stroke stays where it is on the "
-                + "tablet. The paper's lines are laid out again for the new shape. " + edge
+                + "tablet. The paper's lines are laid out again for the new shape. " + light
         case .notebook:
             return "The tablet's area on the notes turns to match. What is already in the note stays where "
-                + "it was written. " + edge
+                + "it was written. " + light
         }
     }
 }

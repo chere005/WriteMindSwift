@@ -210,11 +210,45 @@ CoreMind's `bin/report-status.sh`.
   Wacom's "flipped": half way round, for the other hand) and Portrait —
   turned left (3). ONE CONTROL, in the pane's corner where the two
   quarter-turn buttons were (`TabletOrientationButton`): the tablet drawn
-  the way it lies (`TabletGlyph`: its outline, the edge that is its top as
-  it ships drawn heavy, that edge asked of `TabletMapping.page` in a
-  test), opening the four by name in a popover (a `Menu` is an AppKit
-  control hosted over the pane) whose last line says what a turn does to
-  what the pen writes on, and what the heavy edge is. A first cut put it
+  the way it lies, opening the four by name in a popover (a `Menu` is an
+  AppKit control hosted over the pane) whose last line says what a turn
+  does to what the pen writes on, and what the drawing's dot is. **THE
+  PICTURE SHOWS THE TABLET'S LIGHT, WHERE THE LIGHT REALLY IS** (Sean,
+  same day: "make the tablet orientation icon show the led on the tablet
+  for the icon to give orientation"). The first glyph drew the edge that
+  is the tablet's top as it ships HEAVY — a mark no tablet has, so it
+  told him nothing; a picture gives orientation only by something he can
+  find on the thing on the desk. On the One by Wacom lying landscape as
+  it ships — Wacom's own product photo of the small one, the frame the
+  pen's raw counts have their origin top left in — the status LED is a
+  small dot just inside the LEFT edge, half way down (the fabric tag is
+  on the right edge above the middle, the cable leaves the top; neither
+  is drawn — four pictures at 14 points tell apart by the light alone,
+  rendered and looked at). That is ONE FACT, `TabletOrientation.led`
+  (0, 0.5), and everything about the light is it carried through the
+  pen's own quarter turns: `ledPoint` is `TabletMapping.page` of it —
+  never a second table of four, which could drift from the one the pen
+  writes by — `ledEdge` the edge that point is on (left, top, right,
+  bottom for 0…3), `lightPlace` that edge in words. `TabletGlyph` is the
+  outline at the turned shape and a dot just inside that edge, half way
+  along it (`outline`, `light`: pure, tested at the corner's 14, the
+  popover's 26 and bigger, and the rendered view's lit pixels are held
+  to them), LIT — a colour of its own, never the outline's, with a
+  glow, so it is a light and not a hole — BY THE GROUND IT IS ON
+  (`lightHex(onPane:dark:)`): a blue white on a dark ground, a full blue
+  on a light one. A popover is dark or light with the appearance; the
+  corner's glass is over the pane's black and is dark in both (#202423
+  and #6E706F as the window server composites it — `ImageRenderer`
+  draws no material, so a probe window was captured, 2026-10-02), so
+  the corner's button says `onPane` and is lit pale in both: chosen by
+  the appearance alone, the full blue was 1.25 to 1 on that glass. The
+  corner's button, each row of the popover and the tip all say it: a
+  row's second line is what was done to the tablet and where that leaves
+  its light ("A quarter turn clockwise · light at the top", the light's
+  words held together by no-break spaces), the popover is as wide as
+  that line needs for the way it sits by default (`PickList.width`, 350
+  against the paper's 310), and its footer ends "The dot is the tablet's
+  light — on the left as it ships." A first cut put the CONTROL
   on the bar beside the two buttons it should have replaced — two controls
   for one turn, at either end of one row, which EVERY BUTTON HAS EXACTLY
   ONE PLACE forbids, and the bar squeezed to fit it. ONE WRITER:
@@ -1644,7 +1678,8 @@ WriteMind/
                           at the tablet's turned shape, the hover marker,
                           the page's undo, redo and clear, how the tablet
                           sits (TabletOrientationButton: the tablet drawn
-                          the way it lies, its popover the four by name;
+                          the way it lies, its light where the light is,
+                          its popover the four by name;
                           every turn handed to TabletScribe.align), the
                           bar, the one line about the pen, and the page
                           set aside while the pen writes in the notebook
@@ -1660,7 +1695,8 @@ WriteMind/
                           (a menu of papers, a swatch each, PaperSwatch),
                           in the first of its shapes that fits; setAside;
                           PickList and PickRow, the one picker popover the
-                          paper's and the turn's are both built from
+                          paper's and the turn's are both built from, each
+                          as wide as its rows' words need
   Views/TabletPageView.swift
                           the sheet's layers, each at its own rate: the
                           paper and what its theme prints, the finished
@@ -1691,8 +1727,10 @@ WriteMind/
                           on screen
   Tablet/TabletOrientation.swift
                           how the tablet sits, by Wacom's four names, as
-                          quarter turns; where its top edge lands; and
-                          TabletGlyph, the tablet drawn that way round
+                          quarter turns; where its status light is (one
+                          point on the tablet as it ships, through the
+                          pen's own turn); and TabletGlyph, the tablet
+                          drawn that way round with the light lit
   Tablet/TabletPage.swift the page: strokes in page fractions and page
                           points, its paper, undo/redo/clear, the ink
                           (and a box) turned with the sheet, the file in

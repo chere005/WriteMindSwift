@@ -15,6 +15,47 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### The tablet's picture shows its light
+Sean, 2026-10-02: "make the tablet orientation icon show the led on the
+tablet for the icon to give orientation". The little tablet in the page's
+corner (the orientation entry below) first marked the tablet's top edge
+with a heavy line — a mark no tablet has, so it told him nothing. A
+picture gives orientation only by something he can find on the thing on
+the desk, and that is its status light. What the port has to copy:
+
+- **One fact, and the pen's own turn.** On the One by Wacom lying
+  landscape as it ships (the frame the pen's raw coordinates have their
+  origin top left in) the LED is just inside the LEFT edge, half way
+  down: the raw landscape point (0, 0.5). Carry that one point through
+  the same quarter-turn mapping the pen's coordinates take — do not write
+  a table of four, which can drift from the one the pen writes by — and
+  it lands left, top, right, bottom for 0, 1, 2, 3 turns clockwise.
+- **The picture**: the outline at the turned shape (short side 0.625 of
+  the long), and a dot just inside the edge the light is on, half way
+  along it, clear of the outline's line by a hair. Sizes as fractions of
+  the glyph's long side: line 1/12, the gap 1/24, the dot 1/4.5 across
+  (never under 3 points — far bigger than the real one, because at 14
+  points it has to be seen). Nothing else is marked: the tag and the
+  cable are real too, but the four pictures tell apart by the light
+  alone.
+- **Lit, so it is a light and not a hole**: the outline takes the
+  control's colour and the dot never does — a blue white (#A8DCFF) on a
+  dark ground, a full blue (#0A7AFF) on a light one, with a soft glow of
+  the same colour about half the dot's width. Choose it by the GROUND,
+  not by the appearance alone: the list of four is dark or light with
+  the appearance, but the corner's button sits on glass over the pane's
+  black, a dark ground in both (a mid grey, about #6E706F, in light),
+  and takes the blue white in both.
+- **The words say it too.** Each row's second line is what was done to
+  the tablet and where that leaves its light — "As it ships · light on
+  the left", "A quarter turn clockwise · light at the top", "Turned half
+  way round, for the other hand · light on the right", "A quarter turn
+  anticlockwise, for the other hand · light at the bottom" — with
+  "· light at the top" kept from wrapping apart, and the list wide enough
+  that the default's line does not wrap at all. The hover tip is the
+  name and that line. The line under the four ends "The dot is the
+  tablet's light — on the left as it ships."
+
 ### Ink the colour of the note's paper is shown as its opposite
 A stroke keeps the colour it was written in, but on the NOTE it is painted
 black or white — whichever reads — when its contrast with the note's paper
@@ -145,12 +186,12 @@ port has to copy:
   takes ((x, y) on a W × H tablet → (1 − y/H, x/W) for one turn).
 - **One control, in the page's corner, where the two quarter-turn
   buttons were**: a little tablet drawn the way it lies — its outline at
-  the turned shape, the edge that is its top as it ships drawn heavy, on
-  the side the mapping puts that edge — opening the four by name, the
-  one in use ticked. Under them one line says what a turn does to what
-  the pen is writing on (the page's writing turns with it; a note's
-  stays where it was written) and that the heavy edge is the tablet's
-  top. It holds for both modes, so it is never hidden in Notebook mode.
+  the turned shape, with the tablet's status light on it (the entry
+  above: "The tablet's picture shows its light") — opening the four by
+  name, the one in use ticked. Under them one line says what a turn does
+  to what the pen is writing on (the page's writing turns with it; a
+  note's stays where it was written) and what the picture's dot is. It
+  holds for both modes, so it is never hidden in Notebook mode.
   It is the only control for the turn (one place per button), and the
   way it already sits picked again is no change.
 - **Everything in page fractions turns in one go**: every stroke on the

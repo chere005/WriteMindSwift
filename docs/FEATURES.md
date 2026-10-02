@@ -330,10 +330,13 @@ is how the code is put together.
   pane that showed the video shows a **page** — a sheet at the tablet's
   own shape, read turned a quarter turn clockwise unless you say
   otherwise. **Say how the tablet sits** with the little tablet in the
-  page's corner, drawn the way it lies, its heavy edge the tablet's top
-  as it ships: **Landscape** (as it ships), **Portrait — turned right**
-  (the default), **Landscape — upside down** or **Portrait — turned
-  left** (the two "flipped" ones, for the other hand). The page turns
+  page's corner, drawn the way it lies — the lit dot on it is the
+  tablet's own status light, so find the light on the tablet and pick
+  the picture that has it on the same side: **Landscape** (as it ships,
+  light on the left), **Portrait — turned right** (the default, light
+  at the top), **Landscape — upside down** (light on the right) or
+  **Portrait — turned left** (light at the bottom) — the last two are
+  the "flipped" ones, for the other hand. The page turns
   to match and what is written on it turns with it — each stroke stays
   where it is on the tablet, a box left up stays round the same writing
   — and the paper's lines are laid out again for the new shape, the
