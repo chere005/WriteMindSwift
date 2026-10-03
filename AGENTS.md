@@ -1181,7 +1181,9 @@ CoreMind's `bin/report-status.sh`.
   sessions in `WriteMindTests/Fixtures`, each the bytes its recipe in
   `PenFixtures` records and kept so by `PenFixtureFilesTests` — regenerate with
   `TEST_RUNNER_WRITEMIND_REGENERATE_FIXTURES=1`. NEVER open, seize or send to the
-  real tablet from any of it (`LiveTabletHID` still refuses under `TestHost`).
+  real tablet from any of it (`LiveTabletHID` still refuses under `TestHost`);
+  the tests that hand-built samples were ported where the gesture reads
+  clearer (`TabletPenGestureTests`, the button tests in `TabletNotebookTests`).
   `TabletSourceTests`, `TabletScriptTests`, `PenRecordingTests`,
   `VirtualTabletPanelTests`.
 - **THE MARKDOWN VIEW HAS NO FLOATING DRAWING, BUT ITS DRAWING CELLS STAY.**

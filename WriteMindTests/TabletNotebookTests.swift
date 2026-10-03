@@ -180,18 +180,6 @@ private func penPoint(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false,
                          timestamp: time, native: false)
 }
 
-/// A switch pressed and let go in the air, the nib never touching.
-///
-/// A DOUBLE PRESS now (Sean, 2026-10-03: "a double press of that same button is
-/// undo", "double tap to redo"): one tap alone is nothing.
-private func penClick(_ input: TabletInput, upper: Bool = false, at time: TimeInterval) {
-    input.feed(penPoint(5000, 5000, tip: false, at: time))
-    input.feed(penPoint(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.05))
-    input.feed(penPoint(5000, 5000, tip: false, at: time + 0.1))
-    input.feed(penPoint(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.15))
-    input.feed(penPoint(5200, 5100, tip: false, at: time + 0.2))
-}
-
 /// The shell: the funnel's stream into the note — through `TabletScribe`,
 /// the samples' one consumer, which chooses the target.
 @MainActor
@@ -261,48 +249,44 @@ final class NotebookScribeTests: XCTestCase {
     /// stroke; back in Page mode they are the page's, and the note's are
     /// left alone.
     func testThePensButtonsAreTheNotesInNotebookModeAndThePagesInPageMode() {
-        let (input, page, scribe, notebook) = rig()
-        withExtendedLifetime(scribe) {
-            var undone = 0, redone = 0
-            notebook.onUndo = { undone += 1 }
-            notebook.onRedo = { redone += 1 }
-            let onPage = pageStroke([CGPoint(x: 0.2, y: 0.2)])
-            page.commit(onPage)
+        let rig = TabletRig(target: .notebook)
+        rig.notebook.place = NotebookPlace(pane: CGSize(width: 800, height: 600), scroll: 40, aspect: 0.625)
+        var undone = 0, redone = 0
+        rig.notebook.onUndo = { undone += 1 }
+        rig.notebook.onRedo = { redone += 1 }
+        let onPage = pageStroke([CGPoint(x: 0.2, y: 0.2)])
+        rig.page.commit(onPage)
 
-            penClick(input, at: 1)
-            XCTAssertEqual(undone, 1, "the lower switch is the note's undo")
-            XCTAssertEqual(redone, 0)
-            penClick(input, upper: true, at: 2)
-            XCTAssertEqual(redone, 1, "the upper switch is the note's redo")
-            XCTAssertEqual(undone, 1)
-            XCTAssertEqual(page.strokes, [onPage], "the page is set aside: its undo is out of play")
-            XCTAssertFalse(page.canRedo)
+        rig.pen.hover(0.5, 0.5).doublePress(.lower)
+        XCTAssertEqual(undone, 1, "the lower switch is the note's undo")
+        XCTAssertEqual(redone, 0)
+        rig.pen.doublePress(.upper)
+        XCTAssertEqual(redone, 1, "the upper switch is the note's redo")
+        XCTAssertEqual(undone, 1)
+        XCTAssertEqual(rig.page.strokes, [onPage], "the page is set aside: its undo is out of play")
+        XCTAssertFalse(rig.page.canRedo)
 
-            input.aim(at: .page)
-            penClick(input, at: 3)
-            XCTAssertEqual(page.strokes, [], "in Page mode the lower switch is the page's undo")
-            penClick(input, upper: true, at: 4)
-            XCTAssertEqual(page.strokes, [onPage])
-            XCTAssertEqual(undone, 1, "and the note's is left alone")
-            XCTAssertEqual(redone, 1)
-        }
+        rig.input.aim(at: .page)
+        rig.pen.doublePress(.lower)
+        XCTAssertEqual(rig.page.strokes, [], "in Page mode the lower switch is the page's undo")
+        rig.pen.doublePress(.upper)
+        XCTAssertEqual(rig.page.strokes, [onPage])
+        XCTAssertEqual(undone, 1, "and the note's is left alone")
+        XCTAssertEqual(redone, 1)
     }
 
     /// With no notes on screen a click takes nothing back, as the nib
     /// writes nothing: an undo nobody can watch happen is a stroke lost.
     func testWithNoNotesOnScreenAClickTakesNothingBack() {
-        let (input, _, scribe, notebook) = rig()
-        withExtendedLifetime(scribe) {
-            var commands = 0
-            notebook.onUndo = { commands += 1 }
-            notebook.onRedo = { commands += 1 }
-            notebook.place = nil
-            penClick(input, at: 1)
-            penClick(input, upper: true, at: 2)
-            notebook.place = NotebookPlace(pane: CGSize(width: 10, height: 10), scroll: 0, aspect: 0.625)
-            penClick(input, at: 3)
-            XCTAssertEqual(commands, 0)
-        }
+        let rig = TabletRig(target: .notebook)
+        var commands = 0
+        rig.notebook.onUndo = { commands += 1 }
+        rig.notebook.onRedo = { commands += 1 }
+        rig.notebook.place = nil
+        rig.pen.hover(0.5, 0.5).doublePress(.lower).doublePress(.upper)
+        rig.notebook.place = NotebookPlace(pane: CGSize(width: 10, height: 10), scroll: 0, aspect: 0.625)
+        rig.pen.doublePress(.lower)
+        XCTAssertEqual(commands, 0)
     }
 
     /// The last layer going takes the way to the note's undo with it, as it
@@ -322,26 +306,27 @@ final class NotebookScribeTests: XCTestCase {
     /// layer's marquee: shown while it is dragged, handed to the layer to
     /// pick with when it is let go, and no ink and no box on the page.
     func testTheSideSwitchPicksInTheNoteAndWritesNothing() throws {
-        let (input, page, scribe, notebook) = rig()
+        let rig = TabletRig(target: .notebook)
+        rig.notebook.place = NotebookPlace(pane: CGSize(width: 800, height: 600), scroll: 40, aspect: 0.625)
         var picks: [CGRect] = []
-        let watching = notebook.picks.sink { picks.append($0) }
+        let watching = rig.notebook.picks.sink { picks.append($0) }
         defer { watching.cancel() }
         var landed = 0
-        notebook.onStroke = { _ in landed += 1 }
-        input.feed(point(3000, 3000, tip: false, upper: true, at: 0.5))
-        XCTAssertNil(notebook.marquee, "the switch alone, in the air, began a marquee")
-        input.feed(point(0, 0, tip: true, upper: true, at: 1))
-        input.feed(point(7600, 4750, tip: true, upper: true, at: 2))
-        XCTAssertNotNil(notebook.marquee, "the marquee shows while it is dragged")
-        input.feed(point(7600, 4750, tip: false, upper: false, at: 3))
-        XCTAssertNil(notebook.marquee)
+        rig.notebook.onStroke = { _ in landed += 1 }
+
+        rig.pen.hover(0.3, 0.3).press(.upper)
+        XCTAssertNil(rig.notebook.marquee, "the switch alone, in the air, began a marquee")
+        rig.pen.hover(1, 0).down().line(to: 0.5, 0.5)
+        XCTAssertNotNil(rig.notebook.marquee, "the marquee shows while it is dragged")
+        rig.pen.up().release(.upper)
+        XCTAssertNil(rig.notebook.marquee)
         XCTAssertEqual(picks.count, 1)
-        let place = try XCTUnwrap(notebook.place)
+        let place = try XCTUnwrap(rig.notebook.place)
         assertRect(picks.first, CanvasGeometry.rect(from: place.inDocument(CGPoint(x: 1, y: 0)),
                                                     to: place.inDocument(CGPoint(x: 0.5, y: 0.5))))
         XCTAssertEqual(landed, 0)
-        XCTAssertEqual(page.strokes, [])
-        XCTAssertNil(scribe.box.rect, "no box on the page")
+        XCTAssertEqual(rig.page.strokes, [])
+        XCTAssertNil(rig.scribe.box.rect, "no box on the page")
     }
 
     func testChangingWhereThePenWritesDropsWhatWasHalfWritten() {
@@ -494,43 +479,32 @@ final class NotebookInkUndoTests: XCTestCase {
     /// lower switch takes it back, the upper puts it back, and with nothing
     /// to take back or put back a click changes nothing — no step of its
     /// own on the drawing's undo.
-    func testThePensButtonsTakeTheNotesDrawingBackAndPutItBack() {
-        let state = AppState(defaults: UserDefaults(suiteName: "WriteMindTests-\(UUID().uuidString)")!)
-        let input = TabletInput()
-        input.extent = TabletExtent(width: 15200, height: 9500)
-        input.aim(at: .notebook)
-        let notebook = NotebookScribe()
-        notebook.place = NotebookPlace(pane: CGSize(width: 800, height: 600), scroll: 0, aspect: 0.625)
-        let scribe = TabletScribe(page: TabletPage(url: nil), input: input, notebook: notebook)
-        notebook.writes(into: store, telling: state)
-        withExtendedLifetime(scribe) {
-            let blank = store.drawing
-            penClick(input, at: 1)
-            penClick(input, upper: true, at: 2)
-            XCTAssertEqual(store.drawing, blank)
-            XCTAssertFalse(store.canUndoDrawing, "a click with nothing to take back left a step behind it")
-            XCTAssertFalse(store.canRedoDrawing)
-            XCTAssertEqual(store.drawingSteps, 0)
+    func testThePensButtonsTakeTheNotesDrawingBackAndPutItBack() throws {
+        let rig = TabletRig(target: .notebook, notes: true)
+        let store = try XCTUnwrap(rig.notes?.store)
+        let blank = store.drawing
+        rig.pen.hover(0.5, 0.5).doublePress(.lower).doublePress(.upper)
+        XCTAssertEqual(store.drawing, blank)
+        XCTAssertFalse(store.canUndoDrawing, "a click with nothing to take back left a step behind it")
+        XCTAssertFalse(store.canRedoDrawing)
+        XCTAssertEqual(store.drawingSteps, 0)
 
-            input.feed(penPoint(3800, 2375, tip: true, at: 3))
-            input.feed(penPoint(7600, 4750, tip: true, at: 4))
-            input.feed(penPoint(7600, 4750, tip: false, at: 5))
-            XCTAssertEqual(store.drawing.strokes.count, 1)
-            let written = store.drawing
+        rig.pen.stroke([(0.25, 0.25), (0.5, 0.5)])
+        XCTAssertEqual(store.drawing.strokes.count, 1)
+        let written = store.drawing
 
-            penClick(input, at: 6)
-            XCTAssertEqual(store.drawing, blank, "the lower switch did not take the stroke back")
-            XCTAssertTrue(store.canRedoDrawing)
-            penClick(input, at: 7)
-            XCTAssertEqual(store.drawing, blank, "nothing more to take back")
-            XCTAssertTrue(store.canRedoDrawing, "and what can be put back is still there")
-            penClick(input, upper: true, at: 8)
-            XCTAssertEqual(store.drawing, written, "the upper switch did not put it back")
-            XCTAssertEqual(store.drawingSteps, 1, "the same count ⌥⌘Z keeps")
-            penClick(input, upper: true, at: 9)
-            XCTAssertEqual(store.drawing, written)
-            XCTAssertFalse(store.canRedoDrawing)
-        }
+        rig.pen.hover(0.5, 0.5).doublePress(.lower)
+        XCTAssertEqual(store.drawing, blank, "the lower switch did not take the stroke back")
+        XCTAssertTrue(store.canRedoDrawing)
+        rig.pen.doublePress(.lower)
+        XCTAssertEqual(store.drawing, blank, "nothing more to take back")
+        XCTAssertTrue(store.canRedoDrawing, "and what can be put back is still there")
+        rig.pen.doublePress(.upper)
+        XCTAssertEqual(store.drawing, written, "the upper switch did not put it back")
+        XCTAssertEqual(store.drawingSteps, 1, "the same count ⌥⌘Z keeps")
+        rig.pen.doublePress(.upper)
+        XCTAssertEqual(store.drawing, written)
+        XCTAssertFalse(store.canRedoDrawing)
     }
 
     /// The pen is in one hand and ⌘Z under the other, and the keyboard is
