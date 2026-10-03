@@ -25,16 +25,22 @@ import SwiftUI
 /// always be visible against the background").
 enum DrawingInk {
     /// Everything on the layer, back to front.
+    ///
+    /// `onScreen` is for a drawing cell painted by a pane rather than on
+    /// paper (`DrawingCellPainter`): a stroke and a connector keep the
+    /// colour they were drawn in unless it would vanish into the note's
+    /// paper, the rule the layer itself paints by (`InkPaths.shownHex`) —
+    /// so ink in a cell is the colour of the same ink floating beside it.
     static func draw(_ drawing: Drawing, in context: CGContext, size: CGSize,
-                     media: URL?, paper: NSColor = .white) {
+                     media: URL?, paper: NSColor = .white, onScreen: Bool = false) {
         for item in drawing.visibleItems {
-            draw(item, in: context, size: size, media: media, paper: paper)
+            draw(item, in: context, size: size, media: media, paper: paper, onScreen: onScreen)
         }
     }
 
     /// One object, where it sits.
     static func draw(_ item: CanvasItem, in context: CGContext, size: CGSize,
-                     media: URL?, paper: NSColor = .white) {
+                     media: URL?, paper: NSColor = .white, onScreen: Bool = false) {
         context.saveGState()
         context.concatenate(item.matrix(in: size))
         switch item {
@@ -43,13 +49,14 @@ enum DrawingInk {
             // path the screen fills (`InkPaths`), nonzero like it.
             let (path, _) = InkPaths.path(for: stroke, points: item.basePoints(in: size))
             let opacity = CGFloat(stroke.inkTool?.opacity ?? 1)
-            context.setFillColor(ink(stroke.colorHex, on: paper).withAlphaComponent(opacity).cgColor)
+            context.setFillColor(line(stroke.colorHex, on: paper, onScreen: onScreen)
+                .withAlphaComponent(opacity).cgColor)
             context.addPath(path.cgPath)
             context.fillPath()
         case .stroke(let stroke):
             let (path, filled) = InkPaths.path(for: stroke, points: item.basePoints(in: size))
-            context.setFillColor(ink(stroke.colorHex, on: paper).cgColor)
-            context.setStrokeColor(ink(stroke.colorHex, on: paper).cgColor)
+            context.setFillColor(line(stroke.colorHex, on: paper, onScreen: onScreen).cgColor)
+            context.setStrokeColor(line(stroke.colorHex, on: paper, onScreen: onScreen).cgColor)
             context.addPath(path.cgPath)
             if filled {
                 context.fillPath()
@@ -67,7 +74,7 @@ enum DrawingInk {
             figure(shape, box: item.baseBounds(in: size), in: context, paper: paper)
         case .connector(let connector):
             let (line, heads) = InkPaths.paths(for: connector, points: item.basePoints(in: size))
-            let colour = ink(connector.colorHex, on: paper)
+            let colour = Self.line(connector.colorHex, on: paper, onScreen: onScreen)
             context.setStrokeColor(colour.cgColor)
             context.setFillColor(colour.cgColor)
             context.setLineWidth(connector.lineWidth)
@@ -178,6 +185,14 @@ enum DrawingInk {
         return NSColor(hex: readable) ?? .black
     }
 
+    /// A stroke's or a connector's colour: on paper made readable (`ink`);
+    /// on screen as the layer paints it, its own unless the paper would
+    /// swallow it.
+    private static func line(_ hex: String, on paper: NSColor, onScreen: Bool) -> NSColor {
+        guard onScreen else { return ink(hex, on: paper) }
+        return NSColor(hex: InkPaths.shownHex(hex, onPaper: paper.hexString)) ?? .labelColor
+    }
+
     /// How tall `text` is at this width.
     private static func measured(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
         let bounds = (text as NSString).boundingRect(
@@ -189,8 +204,8 @@ enum DrawingInk {
     /// Words into a y-down context, as TEXT — AppKit is told the context is
     /// flipped, so it lays the lines out downwards and the glyphs the right
     /// way up.
-    private static func write(_ text: String, in rect: CGRect, font: NSFont, colour: NSColor,
-                              alignment: NSTextAlignment, in context: CGContext) {
+    static func write(_ text: String, in rect: CGRect, font: NSFont, colour: NSColor,
+                      alignment: NSTextAlignment, in context: CGContext) {
         guard !text.isEmpty, rect.width > 1, rect.height > 0 else { return }
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment

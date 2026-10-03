@@ -19,13 +19,37 @@ final class NoteStore: ObservableObject {
     @Published var selection: Note.ID?
     @Published var text: String = ""
     @Published var drawing = Drawing()
+    /// THE OPEN NOTE'S DRAWING CELLS, by id (`DrawingCells`): each one's
+    /// objects, in fractions of its own width. Loaded for every id in the
+    /// text when the note opens, and for a new one the moment the text
+    /// names it. Kept OUT of `drawing`, so Clear Drawing, `Drawing.isEmpty`
+    /// and the sidecar's save and delete never see them; a cell nothing has
+    /// been drawn in yet is not here at all.
+    @Published var cells: [UUID: DrawingCell] = [:]
+    /// What may be done with each cell's file (`DrawingCellState`).
+    @Published private(set) var cellStates: [UUID: DrawingCellState] = [:]
+    /// The pixels of each read-only cell: what it shows.
+    private var cellPictures: [UUID: NSImage] = [:]
+    /// The bytes last read from or written to each cell's file — the only
+    /// bytes a write may go over (`DrawingCellStore.write`).
+    private var cellKnown: [UUID: Data] = [:]
+    /// What each cell's file holds, as last read or written: a cell equal
+    /// to it has nothing to save.
+    private var cellSaved: [UUID: DrawingCell] = [:]
+    /// What each cell's file held when it was first read — what a step of
+    /// the drawing taken before it was read restores it to (`restore`).
+    private var cellLoaded: [UUID: DrawingCell] = [:]
+    /// Where the cells are on the pane on screen, as it last laid them out:
+    /// a tablet stroke begun in one lands there (`inkFromTablet`).
+    var cellFrames: [CellFrame] = []
     /// What the drawing looked like before each change, newest last, and the
-    /// states Undo has stepped back out of. Whole snapshots, not strokes: an
-    /// object that was moved, scaled or deleted has to come back too. Both
-    /// are cleared when the note changes, so Undo never reaches into another
-    /// note's work.
-    @Published private(set) var drawingHistory: [Drawing] = []
-    @Published private(set) var drawingFuture: [Drawing] = []
+    /// states Undo has stepped back out of — the floating layer AND the
+    /// cells (`DrawingState`). Whole snapshots, not strokes: an object that
+    /// was moved, scaled or deleted has to come back too. Both are cleared
+    /// when the note changes, so Undo never reaches into another note's
+    /// work.
+    @Published private(set) var drawingHistory: [DrawingState] = []
+    @Published private(set) var drawingFuture: [DrawingState] = []
     /// A word about the last page capture, shown for a moment in the footer.
     @Published private(set) var captureNotice: String?
     /// A shape the canvas should open for typing as soon as it sees it —
@@ -199,10 +223,22 @@ final class NoteStore: ObservableObject {
                 // In `willSet`: `self.text` is still the text before.
                 self.topCell = self.topCell.shifted(from: self.text, to: new)
                 self.scheduleSave()
+                // A line that names a cell not read yet — ⌘0, a paste, a
+                // duplicated cell — is read now.
+                if !self.isLoadingText, let note = self.selectedNote { self.loadCells(named: new, besides: note.url) }
             }
             .store(in: &cancellables)
 
         $drawing
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self, !self.isLoadingText else { return }
+                self.layerChanged = true
+                self.scheduleDrawingSave()
+            }
+            .store(in: &cancellables)
+
+        $cells
             .dropFirst()
             .sink { [weak self] _ in self?.scheduleDrawingSave() }
             .store(in: &cancellables)
@@ -397,6 +433,14 @@ final class NoteStore: ObservableObject {
         drawingHistory.removeAll()
         drawingFuture.removeAll()
         drawingSteps = 0
+        cells = [:]
+        cellStates = [:]
+        cellPictures = [:]
+        cellKnown = [:]
+        cellSaved = [:]
+        cellLoaded = [:]
+        cellFrames = []
+        layerChanged = false
         guard let note = notes.first(where: { $0.id == id }) else {
             text = ""
             drawing = Drawing()
@@ -409,6 +453,61 @@ final class NoteStore: ObservableObject {
         // over anything else — see NoteWriting.
         onDisk = read
         drawing = DrawingStore.load(for: note.url, in: owningFolder(for: note.url))
+        loadCells(named: text, besides: note.url)
+    }
+
+    /// Every cell `text` names that has not been read yet, read from its
+    /// file beside the note (`DrawingCellStore.load`): drawn in when it is
+    /// WriteMind's and readable whole, shown as its pixels when it is not,
+    /// one line when iCloud has not downloaded it, and empty — the first
+    /// change makes the file — when there is none.
+    private func loadCells(named text: String, besides note: URL) {
+        guard text.contains(DrawingCells.relativeFolder) else { return }
+        let unread = DrawingCells.ids(in: text).filter { cellStates[$0] == nil }
+        guard !unread.isEmpty else { return }
+        var states = cellStates, read = cells
+        for id in unread {
+            let loaded = DrawingCellStore.load(id, besides: note)
+            states[id] = loaded.state
+            cellKnown[id] = loaded.known
+            if let cell = loaded.cell {
+                read[id] = cell
+                cellSaved[id] = cell
+                cellLoaded[id] = cell
+            }
+            if case .readOnly = loaded.state { cellPictures[id] = loaded.known.flatMap(NSImage.init(data:)) }
+        }
+        cellStates = states
+        if read != cells { cells = read }
+    }
+
+    /// What each cell shows, for the panes and the PDF.
+    var cellLooks: [UUID: DrawingCellLook] {
+        var looks: [UUID: DrawingCellLook] = [:]
+        for (id, state) in cellStates {
+            looks[id] = DrawingCellLook(cell: cells[id], state: state, picture: cellPictures[id])
+        }
+        for (id, cell) in cells where looks[id] == nil { looks[id] = DrawingCellLook(cell: cell) }
+        return looks
+    }
+
+    /// A cell drawn in, grown to keep its ink: content within a line of its
+    /// bottom gets room under it, and what was moved past its sides or top
+    /// is shifted back in (`DrawingCell.fitted`, `keptIn`). Part of the
+    /// step that changed it, never a step of its own.
+    func fitCell(_ id: UUID) {
+        guard let cell = cells[id] else { return }
+        let fitted = cell.keptIn().fitted(lineHeight: Double(MarkdownTextView.lineHeight))
+        if fitted != cell { cells[id] = fitted }
+    }
+
+    /// Drawing cells DUPLICATED with the cell their lines are in: each copy
+    /// gets a copy of its original's file — after anything not yet saved in
+    /// the original is written, so the copy is the drawing as it is now.
+    func copyCells(_ pairs: [(old: UUID, new: UUID)]) {
+        guard let note = selectedNote, !pairs.isEmpty else { return }
+        saveCellsNow()
+        for pair in pairs { DrawingCellStore.copy(pair.old, to: pair.new, from: note.url, to: note.url) }
     }
 
     /// The bytes this app last read from the open note's file, or last
@@ -469,7 +568,7 @@ final class NoteStore: ObservableObject {
     /// opened, less the ones taken back — a step begun, an undo, a redo —
     /// and NOT held to the sixty `drawingHistory` keeps, whose count stands
     /// still under a new step once it is full. What the tablet's claim on
-    /// ⌘Z is measured against (`AppState.tabletInkFloor`).
+    /// ⌘Z is measured against (`AppState.inkFloor`).
     private(set) var drawingSteps = 0
 
     var canUndoDrawing: Bool { !drawingHistory.isEmpty }
@@ -480,7 +579,7 @@ final class NoteStore: ObservableObject {
     /// leave. A drag is one entry, however many frames it took.
     func beginDrawingChange() {
         drawingSteps += 1
-        drawingHistory.append(drawing)
+        drawingHistory.append(DrawingState(layer: drawing, cells: cells))
         if drawingHistory.count > 60 { drawingHistory.removeFirst() }
         drawingFuture.removeAll()
     }
@@ -494,8 +593,8 @@ final class NoteStore: ObservableObject {
         // Counted before the drawing changes: its change is told with the
         // count (`AppState.drawingChanged`).
         drawingSteps -= 1
-        drawingFuture.append(drawing)
-        drawing = previous
+        drawingFuture.append(DrawingState(layer: drawing, cells: cells))
+        restore(previous)
         return true
     }
 
@@ -503,19 +602,52 @@ final class NoteStore: ObservableObject {
     func redoDrawing() -> Bool {
         guard let next = drawingFuture.popLast() else { return false }
         drawingSteps += 1
-        drawingHistory.append(drawing)
-        drawing = next
+        drawingHistory.append(DrawingState(layer: drawing, cells: cells))
+        restore(next)
         return true
+    }
+
+    /// A step of the drawing put back: the layer, and the cells. A cell the
+    /// step has nothing of was not part of it — read after it was taken, or
+    /// first drawn in after it — and goes back to what its file held when
+    /// it was read, or EMPTY AT THE SIZE IT HAS: never out of the dictionary
+    /// with its drawing still in the file, and never a file deleted
+    /// (nothing under `_drawings/cells` ever is).
+    private func restore(_ state: DrawingState) {
+        var restored = state.cells
+        for (id, cell) in cells where restored[id] == nil {
+            restored[id] = cellLoaded[id] ?? DrawingCell(width: cell.width, aspect: cell.aspect, drawing: Drawing())
+        }
+        drawing = state.layer
+        if restored != cells { cells = restored }
     }
 
     /// A stroke the tablet's pen wrote straight into the note (Notebook
     /// mode, `NotebookScribe`). ONE STEP BACK, taken as it LANDS — so ⌘Z
     /// takes the stroke, and one given up half-way (the target changed, the
     /// notes went) leaves no empty step behind it. False with no note open.
+    ///
+    /// BEGUN IN A DRAWING CELL, IT IS THE CELL'S: routed by its first point
+    /// against the cells' frames on the pane, moved into the cell's own
+    /// fractions point for point with every pressure kept
+    /// (`CanvasSpace.rehome`), and the cell grows to keep it — the same
+    /// step. Anywhere else it floats, as it always did.
     @discardableResult
     func inkFromTablet(_ stroke: Stroke) -> Bool {
         guard selectedNote != nil else { return false }
         beginDrawingChange()
+        let pane = paneSize
+        if let first = stroke.points.first,
+           let frame = cellFrames.first(where: {
+               $0.writable && $0.rect.contains(CGPoint(x: first.x * pane.width, y: first.y * pane.height))
+           }) {
+            var cell = cells[frame.id] ?? .empty(width: Double(frame.width))
+            cell.drawing.items.append(CanvasSpace.rehome(.stroke(stroke), from: .floating(pane: pane),
+                                                         to: .cell(frame)))
+            cells[frame.id] = cell
+            fitCell(frame.id)
+            return true
+        }
         drawing.items.append(contentsOf: landed([.stroke(stroke)]))
         return true
     }
@@ -942,9 +1074,44 @@ final class NoteStore: ObservableObject {
         }
     }
 
+    /// Whether the floating layer has changed since its sidecar was
+    /// written. The cells have files of their own, and a stroke in one is
+    /// no reason to write the sidecar again.
+    private var layerChanged = false
+
     private func saveDrawingNow() {
         guard let note = selectedNote else { return }
-        DrawingStore.save(drawing, for: note.url, in: owningFolder(for: note.url))
+        if layerChanged {
+            layerChanged = false
+            DrawingStore.save(drawing, for: note.url, in: owningFolder(for: note.url))
+        }
+        saveCellsNow()
+    }
+
+    /// EVERY CELL THAT HAS CHANGED since its file was read or written, into
+    /// its file — and only those, and only the writable ones. A cell put
+    /// back by undo to nothing is written EMPTY at the size it last had: a
+    /// file is never removed. A write the store refuses — another writer's
+    /// bytes on disk, a placeholder — makes the cell read-only, shown as
+    /// what was read, and the footer says why.
+    private func saveCellsNow() {
+        guard let note = selectedNote else { return }
+        let media = owningFolder(for: note.url)
+        for id in Set(cells.keys).union(cellSaved.keys) where cellStates[id] ?? .writable == .writable {
+            let emptied = cellSaved[id].map { DrawingCell(width: $0.width, aspect: $0.aspect, drawing: Drawing()) }
+            guard let wanted = cells[id] ?? emptied, wanted != cellSaved[id],
+                  let rendition = DrawingCellPainter.rendition(wanted, media: media) else { continue }
+            switch DrawingCellStore.write(wanted, rendition: rendition, id: id, besides: note.url, known: cellKnown[id]) {
+            case .written(let bytes):
+                cellKnown[id] = bytes
+                cellSaved[id] = wanted
+                if cellStates[id] != .writable { cellStates[id] = .writable }
+            case .refused(let why):
+                cellStates[id] = .readOnly(why)
+                cellPictures[id] = cellKnown[id].flatMap(NSImage.init(data:))
+                notice(why)
+            }
+        }
     }
 
     private func scheduleSave() {
@@ -1151,11 +1318,17 @@ final class NoteStore: ObservableObject {
 
     // MARK: - Moving and duplicating
 
-    /// Move a note into a section. A no-op when it is already there.
+    /// Move a note into a section. A no-op when it is already there, and
+    /// when the "section" is a note's `_drawings` (`NoteTree.isSection`).
+    ///
+    /// Its drawing cells' files are COPIED to `_drawings/cells` beside it
+    /// in the new folder, where its lines already point; the originals stay
+    /// where they were, so nothing is lost if the move is undone in Finder.
     @discardableResult
     func move(_ note: Note, to section: NoteSection) -> Bool {
         let from = note.url.deletingLastPathComponent()
-        guard from.standardizedFileURL != section.url.standardizedFileURL else { return false }
+        guard from.standardizedFileURL != section.url.standardizedFileURL,
+              NoteTree.isSection(section.url) else { return false }
         flushPendingSave()
         let destination = NoteTree.uniqueURL(in: section.url,
                                              base: note.filename, extension: note.url.pathExtension)
@@ -1163,6 +1336,10 @@ final class NoteStore: ObservableObject {
             try FileManager.default.moveItem(at: note.url, to: destination)
             DrawingStore.move(from: note.url, in: owningFolder(for: note.url),
                               to: destination, in: owningFolder(for: destination))
+            let moved = (try? String(contentsOf: destination, encoding: .utf8)) ?? ""
+            for id in DrawingCells.ids(in: moved) {
+                DrawingCellStore.copy(id, to: id, from: note.url, to: destination)
+            }
             forgetInOrder(name: note.url.lastPathComponent, folder: from)
             appendToOrder(name: destination.lastPathComponent, folder: section.url)
             let wasOpen = selection == note.id
@@ -1178,7 +1355,7 @@ final class NoteStore: ObservableObject {
     /// Move a section inside another one, refusing to put it inside itself.
     @discardableResult
     func move(_ section: NoteSection, to target: NoteSection) -> Bool {
-        guard !section.isRoot else { return false }
+        guard !section.isRoot, NoteTree.isSection(target.url) else { return false }
         let from = section.url.deletingLastPathComponent()
         guard from.standardizedFileURL != target.url.standardizedFileURL else { return false }
         guard !target.url.standardizedFileURL.path.hasPrefix(section.url.standardizedFileURL.path + "/"),
@@ -1231,6 +1408,10 @@ final class NoteStore: ObservableObject {
         return true
     }
 
+    /// A copy of the note beside it. TWO NOTES NEVER SHARE A DRAWING CELL:
+    /// the copy's cells get new ids and copies of their files, so drawing in
+    /// one never draws in the other — a note with no cells is copied byte
+    /// for byte, as it always was.
     @discardableResult
     func duplicate(_ note: Note) -> Note? {
         flushPendingSave()
@@ -1238,7 +1419,15 @@ final class NoteStore: ObservableObject {
         let destination = NoteTree.uniqueURL(in: folder, base: note.filename + " copy",
                                              extension: note.url.pathExtension)
         do {
-            try FileManager.default.copyItem(at: note.url, to: destination)
+            let forked = (try? String(contentsOf: note.url, encoding: .utf8)).map { DrawingCells.forked($0) }
+            if let forked, !forked.ids.isEmpty {
+                for (old, new) in forked.ids {
+                    DrawingCellStore.copy(old, to: new, from: note.url, to: destination)
+                }
+                try forked.markdown.write(to: destination, atomically: true, encoding: .utf8)
+            } else {
+                try FileManager.default.copyItem(at: note.url, to: destination)
+            }
             let folderRoot = owningFolder(for: note.url)
             let drawing = DrawingStore.load(for: note.url, in: folderRoot)
             if !drawing.isEmpty {

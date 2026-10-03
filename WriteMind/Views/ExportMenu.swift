@@ -106,6 +106,8 @@ struct ExportMenu: Commands {
         // on screen is what Sean means by "this note", debounce or no.
         guard let data = NoteExport.pdf(markdown: store.text,
                                         drawing: store.drawing,
+                                        cells: DrawingCellsShown(looks: store.cellLooks,
+                                                                 media: store.owningFolder(for: note.url)),
                                         media: store.owningFolder(for: note.url),
                                         pane: store.canvasSize,
                                         markers: appState.showMarkers,

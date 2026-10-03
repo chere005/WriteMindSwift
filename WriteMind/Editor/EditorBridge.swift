@@ -179,14 +179,62 @@ final class EditorBridge {
     ///
     /// Returns true when the command is FINISHED, false when the caller
     /// still has to run it — in the cell that has just opened.
+    ///
+    /// A DRAWING CELL STANDS IN FOR THE BAR UNDER IT: it takes no
+    /// characters, so a command with the caret in one — a kind, or
+    /// something to write — makes its cell after the drawing, and the
+    /// drawing's line is never touched (a `# ` or a fence written onto it
+    /// would break it). Here and only here: `isAtArmedBar` is not asked
+    /// it, because a command that acts ON a cell — delete it, duplicate
+    /// it, move it — acts on the drawing cell as a cell.
     @discardableResult
     private func atArmedBar(_ kind: CellTypes.Kind?) -> Bool {
+        if let line = drawingCellAtCursor { armBar(under: line) }
         if let tv = textView as? PasteAwareTextView, tv.armedSeam != nil {
             tv.openArmedSeam(as: kind ?? .text)
             return kind != nil
         }
         return armedBar?(kind) ?? false
     }
+
+    /// The drawing cell the cursor is in, by its line: the rendered page's
+    /// `.drawing` cursor, or the markdown pane's caret on a drawing line.
+    private var drawingCellAtCursor: NSRange? {
+        if let drawingCursorInDocument { return drawingCursorInDocument() }
+        guard let tv = textView as? PasteAwareTextView, !(tv is BlockTextView), tv.armedSeam == nil else { return nil }
+        return tv.drawingCellAtCaret
+    }
+
+    /// The bar under a drawing cell, armed, in whichever pane is up.
+    private func armBar(under line: NSRange) {
+        if let armBarInDocument { armBarInDocument(line); return }
+        guard let tv = textView as? PasteAwareTextView else { return }
+        tv.armedSeam = DrawingCells.seamAfter(line, in: tv.string)
+    }
+
+    /// The drawing cell the RENDERED page's cursor is in. Nil with no such
+    /// page up — the markdown pane's caret is read off its text view.
+    var drawingCursorInDocument: (() -> NSRange?)?
+    /// The caret into a drawing cell on the rendered page, which keeps its
+    /// own cursor.
+    var focusDrawingCellInDocument: ((UUID) -> Void)?
+
+    /// THE CARET INTO A DRAWING CELL — a click on its paper that drew
+    /// nothing (`DrawingCanvas.onCellTap`). In the markdown pane, at the end
+    /// of its line, with the keyboard: what a click on a line's end does.
+    func focusDrawingCell(_ id: UUID) {
+        if let focusDrawingCellInDocument { focusDrawingCellInDocument(id); return }
+        guard let tv = textView as? PasteAwareTextView, !(tv is BlockTextView),
+              let line = DrawingCells.lines(in: tv.string).first(where: { $0.id == id })?.range else { return }
+        tv.armedSeam = nil
+        tv.window?.makeFirstResponder(tv)
+        tv.setSelectedRange(NSRange(location: NSMaxRange(line), length: 0))
+    }
+
+    /// A drawing cell DUPLICATED: the copy's new id and the original's, for
+    /// the store to copy the file by (`NoteStore.copyCells`) — two cells
+    /// never share a drawing unless a line was pasted by hand.
+    var onFork: (([(old: UUID, new: UUID)]) -> Void)?
 
     /// Is the bar the cursor right now — asked without touching anything.
     private var isAtArmedBar: Bool {
@@ -431,9 +479,19 @@ final class EditorBridge {
         cellEdit { CellCommands.delete($0, in: $1) }
     }
 
-    /// The same cell again, under it.
+    /// The same cell again, under it. A drawing cell's copy is a drawing of
+    /// its own: a new id, and a copy of the file (`onFork`), so drawing in
+    /// one never draws in the other.
     func duplicateCell() {
-        cellEdit { CellCommands.duplicate($0, in: $1) }
+        cellEdit { [weak self] cell, text in
+            let edit = CellCommands.duplicate(cell, in: text)
+            let forked = DrawingCells.forked(edit.replacement)
+            guard !forked.ids.isEmpty else { return edit }
+            self?.onFork?(forked.ids)
+            // An id is the same length whatever it is, so the selection
+            // the copy lands with still means what it did.
+            return MarkdownFormatting.Edit(range: edit.range, replacement: forked.markdown, selection: edit.selection)
+        }
     }
 
     /// Swap it with the cell above or below — what dragging its bracket
@@ -509,12 +567,44 @@ final class EditorBridge {
     /// position").
     func evaluationCell(_ evaluator: Evaluator) { insert(.evaluation(evaluator)) }
 
+    /// ⌘0 on the RENDERED page, which decides where its cell goes itself:
+    /// under the caret of the cell that is open, or with nothing open in
+    /// the middle of what is on screen.
+    var drawingCellInDocument: (() -> Void)?
+
+    /// ⌘0 — A DRAWING CELL HERE (Sean, 2026-10-02: "drawing cell which is
+    /// cmd + 0"). At a bar it is made there, as every kind is; in a cell it
+    /// goes under the caret's own line (`DrawingCells.landing`). One text
+    /// edit, so ⌘Z takes it out, and the mode is left alone: the caret is
+    /// at the end of the new line.
+    ///
+    /// Never `caretCell()`: on the rendered page that falls back to the
+    /// note's first cell, and a drawing asked for at the bottom of the
+    /// screen would appear at the top of the note.
+    func drawingCell() {
+        if atArmedBar(.drawing) { return }
+        if let drawingCellInDocument { drawingCellInDocument(); return }
+        guard let tv = textView as? PasteAwareTextView, !(tv is BlockTextView) else { return }
+        let at = DrawingCells.landing(caret: NSMaxRange(tv.selectedRange()), in: tv.string)
+        MarkdownTextView.openSeam(at: at, as: .drawing, in: tv)
+    }
+
     func quote() {
         if atArmedBar(.quote) { return }
         lines(MarkdownFormatting.toggleQuote)
     }
-    func indent() { lines(MarkdownFormatting.indent) }
-    func outdent() { lines(MarkdownFormatting.outdent) }
+    /// Nothing in a drawing cell: it has no lines of words to move in or
+    /// out, and standing in for the bar under it would open an empty cell
+    /// just to indent it.
+    func indent() {
+        guard drawingCellAtCursor == nil else { return }
+        lines(MarkdownFormatting.indent)
+    }
+
+    func outdent() {
+        guard drawingCellAtCursor == nil else { return }
+        lines(MarkdownFormatting.outdent)
+    }
 
     /// Maths, kept as Wolfram Language whichever way it goes in.
     func insertMath(_ wl: String, display: Bool) {

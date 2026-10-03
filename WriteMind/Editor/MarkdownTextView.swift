@@ -43,6 +43,15 @@ struct MarkdownTextView: NSViewRepresentable {
     /// becomes a pen in the notes pane in drawing mode!!!!!"), so the
     /// pointer is never horizontal and no seam can be armed.
     var seamsEnabled: Bool = true
+    /// The note's drawing cells, as this pane paints them under their lines
+    /// (`NoteStore.cellLooks`).
+    var drawingCells = DrawingCellsShown()
+    /// Where the drawing cells are on this pane, each time one has moved
+    /// (`CellFrame.moved`) — what the drawing layer draws into them by.
+    var onDrawingFrames: (([CellFrame]) -> Void)?
+    /// The drawing cell the caret is in, or nil, each time that changes —
+    /// its grip is the layer's to show.
+    var onDrawingCaret: ((UUID?) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -173,13 +182,16 @@ struct MarkdownTextView: NSViewRepresentable {
             coordinator.select(ranges, in: tv)
         }
         insertions.onChoose = { [weak tv] kind in
-            (tv as? PasteAwareTextView)?.armedType = kind
+            guard let tv else { return }
+            tv.armedType = kind
+            if kind.opensAtOnce { tv.openArmedSeam(as: kind) }
         }
         tv.addSubview(insertions)
         context.coordinator.insertions = insertions
 
         context.coordinator.documentID = documentID
         context.coordinator.watchScrolling(of: scroll)
+        context.coordinator.show(drawingCells, in: tv)
         // The cursor, read on the way out of this pane by ⌘T.
         bridge.paneCaret = { [weak tv] in
             guard let tv else { return EditorBridge.Carried(caret: nil, text: "") }
@@ -224,6 +236,7 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         context.coordinator.setSeams(enabled: seamsEnabled)
+        context.coordinator.show(drawingCells, in: tv)
         context.coordinator.collapsed = collapsed
         context.coordinator.applyFolding()
         if context.coordinator.hiding.isEnabled == showMarkers {
@@ -299,8 +312,7 @@ struct MarkdownTextView: NSViewRepresentable {
             let end = min(max(NSMaxRange(block.range), start), text.length - 1)
             let lines = NSUnionRange(text.lineRange(for: NSRange(location: start, length: 0)),
                                      text.lineRange(for: NSRange(location: end, length: 0)))
-            let glyphs = layout.glyphRange(forCharacterRange: lines, actualCharacterRange: nil)
-            let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            let rect = box(of: lines, layout: layout, container: container)
             // A block inside a closed section is laid out with no height
             // at all (`FoldingTypesetter`) and is not on the page: it is
             // still parsed, so leaving it in piled a seam per hidden block
@@ -315,6 +327,37 @@ struct MarkdownTextView: NSViewRepresentable {
         return boxes
     }
 
+    /// The box a run of the note takes on the page, in the text
+    /// container's coordinates: its glyphs' bounding rect, and every
+    /// drawing cell in it — a cell's drawing is in the room under its line
+    /// (`CellLines`), one geometry for everything that asks
+    /// (`FoldingLayoutManager.cellRect`), so whether `boundingRect` takes
+    /// that room in is never relied on. No height at all for a run that is
+    /// folded away.
+    static func box(of characters: NSRange, layout: NSLayoutManager, container: NSTextContainer) -> CGRect {
+        let glyphs = layout.glyphRange(forCharacterRange: characters, actualCharacterRange: nil)
+        var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+        guard rect.height > 1, let folding = layout as? FoldingLayoutManager else { return rect }
+        for line in folding.drawings.lines where NSIntersectionRange(line.range, characters).length > 0 {
+            if let cell = folding.cellRect(line, in: container, origin: .zero) { rect = rect.union(cell) }
+        }
+        return rect
+    }
+
+    /// Where this pane's drawing cells are, in the text view's own
+    /// coordinates — the document's, for the drawing layer over it.
+    static func drawingFrames(in tv: NSTextView) -> [CellFrame] {
+        guard let layout = tv.layoutManager as? FoldingLayoutManager, let container = tv.textContainer else { return [] }
+        let column = FoldingLayoutManager.column(of: container)
+        return layout.drawings.lines.compactMap { line in
+            guard let rect = layout.cellRect(line, in: container, origin: tv.textContainerOrigin) else { return nil }
+            let look = layout.drawings.shown.look(line.id)
+            return CellFrame(id: line.id, line: line.range, rect: rect, scale: look.shown(column: column).scale,
+                             width: look.cell.map { CGFloat($0.width) } ?? column,
+                             writable: look.state == .writable)
+        }
+    }
+
     /// THE BOXES THIS PANE WOULD GIVE THE NOTE, with no text view on
     /// screen — what the rendered page needs to show the drawing layer
     /// where this pane put it (`PaneMapping`), and what the PDF needs to
@@ -323,19 +366,25 @@ struct MarkdownTextView: NSViewRepresentable {
     /// at a pane `width` wide, so the lines wrap where this pane wraps
     /// them. What it cannot know is the caret: in the text view the cell
     /// the caret is in shows its markers, which can wrap that one cell
-    /// differently.
+    /// differently. Its drawing cells take the room they take there
+    /// (`cells`), or every cell under one would be laid out a drawing too
+    /// high.
     static func cellBoxes(of text: String, width: CGFloat, showMarkers: Bool,
-                          collapsed: Set<String>) -> [CellSeams.Box] {
+                          collapsed: Set<String>, cells: DrawingCellsShown = DrawingCellsShown()) -> [CellSeams.Box] {
         guard !text.isEmpty, width > inset.width * 2 else { return [] }
         let storage = NSTextStorage(string: text, attributes: [.font: font, .paragraphStyle: paragraphStyle])
         let layout = FoldingLayoutManager()
         layout.typesetter = FoldingTypesetter(layout.folding)
         layout.folding.hidden = NotebookOutline.hiddenRanges(in: text, collapsed: collapsed)
+        // The text was in the storage before the layout manager was, so no
+        // edit has told it where the drawing lines are.
+        _ = layout.drawings.read(text, edited: 0)
         let hiding = MarkerHiding()
         hiding.isEnabled = !showMarkers
         layout.delegate = hiding
         let container = NSTextContainer(size: NSSize(width: width - inset.width * 2,
                                                      height: .greatestFiniteMagnitude))
+        _ = layout.drawings.show(cells, column: FoldingLayoutManager.column(of: container))
         layout.addTextContainer(container)
         storage.addLayoutManager(layout)
         style(storage, with: hiding)
@@ -352,13 +401,16 @@ struct MarkdownTextView: NSViewRepresentable {
     /// at, and how tall the note is at the pane's full width — the one
     /// number that decides the scroller, so a pane only made taller or
     /// shorter can tell from it whether its layout still holds.
-    static func cellBoxes(of text: String, pane size: CGSize, showMarkers: Bool, collapsed: Set<String>)
+    static func cellBoxes(of text: String, pane size: CGSize, showMarkers: Bool, collapsed: Set<String>,
+                          drawings: DrawingCellsShown = DrawingCellsShown())
         -> (cells: [CellSeams.Box], width: CGFloat, height: CGFloat) {
-        let cells = cellBoxes(of: text, width: size.width, showMarkers: showMarkers, collapsed: collapsed)
+        let cells = cellBoxes(of: text, width: size.width, showMarkers: showMarkers, collapsed: collapsed,
+                              cells: drawings)
         let height = (cells.last?.bottom ?? 0) + inset.height
         let width = textWidth(pane: size, noteHeight: height)
         guard width < size.width else { return (cells, size.width, height) }
-        return (cellBoxes(of: text, width: width, showMarkers: showMarkers, collapsed: collapsed), width, height)
+        return (cellBoxes(of: text, width: width, showMarkers: showMarkers, collapsed: collapsed, cells: drawings),
+                width, height)
     }
 
     /// How wide the text is in a pane of `size` holding a note `noteHeight`
@@ -422,6 +474,20 @@ struct MarkdownTextView: NSViewRepresentable {
                 let range = NSIntersectionRange(line, whole)
                 guard range.length > 0 else { continue }
                 storage.addAttributes([.font: small, .paragraphStyle: tight], range: range)
+            }
+            // A DRAWING CELL'S LINE is the name of its file and nothing to
+            // read: a sliver tall, drawn in no colour, with the cell's gap
+            // under it — under the drawing, which the typesetter puts
+            // between the two (`CellLines`).
+            let drawn = NSMutableParagraphStyle()
+            drawn.setParagraphStyle(MarkdownTextView.paragraphStyle)
+            drawn.lineSpacing = 0
+            drawn.paragraphSpacing = MarkdownPreview.gapHeight
+            for line in DrawingCells.lines(in: source) {
+                let range = NSIntersectionRange(text.lineRange(for: line.range), whole)
+                guard range.length > 0 else { continue }
+                storage.addAttributes([.font: small, .foregroundColor: NSColor.clear, .paragraphStyle: drawn],
+                                      range: range)
             }
             hiding.setMarkers(MarkerHiding.hideable(MarkdownSourceStyle.runs(in: source), in: text))
         } else {
@@ -487,6 +553,13 @@ struct MarkdownTextView: NSViewRepresentable {
     /// character of a long note. That holds with a kind chosen too,
     /// because the command it runs only ever touches the line the caret
     /// was left on, which is inside what the opening just added.
+    ///
+    /// INTO THE STORAGE, between `shouldChangeText` and `didChangeText`,
+    /// as every other edit nobody typed is (`EditorBridge.apply`) — never
+    /// `insertText(_:replacementRange:)` inside that pair: that one does
+    /// its own pair, so the opening went on the undo stack twice and ⌘Z
+    /// took it out once and then failed on the second, stale, copy
+    /// (`NSRangeException`, measured 2026-10-02 in a hosted editor).
     static func openSeam(at offset: Int, as type: CellTypes.Kind = .text, in tv: NSTextView) {
         let text = tv.string as NSString
         let place = min(max(offset, 0), text.length)
@@ -568,6 +641,10 @@ struct MarkdownTextView: NSViewRepresentable {
         /// The notebook's closed sections, and what was last folded away.
         var collapsed: Set<String> = []
         private var lastHidden: [NSRange] = []
+        /// The drawing cells' frames as last told, and the cell the caret
+        /// was last said to be in.
+        private var drawingFrames: [CellFrame] = []
+        private var caretDrawing: UUID?
         weak var gutter: NotebookGutter?
         weak var insertions: CellInsertions?
         private weak var scrollView: NSScrollView?
@@ -599,6 +676,58 @@ struct MarkdownTextView: NSViewRepresentable {
             insertions.disarm()
         }
 
+        /// What the drawing cells show, handed over again: a cell that is
+        /// another size now is laid out again — and everything under it,
+        /// which moves — one that only looks different is painted again, and
+        /// nothing else is touched. A stroke drawn in a cell is a repaint of
+        /// that cell, never a relayout of the note.
+        func show(_ shown: DrawingCellsShown, in tv: NSTextView) {
+            guard let layout = tv.layoutManager as? FoldingLayoutManager, let container = tv.textContainer,
+                  let storage = tv.textStorage else { return }
+            let changed = layout.drawings.show(shown, column: FoldingLayoutManager.column(of: container))
+            if let first = changed.relayout.map(\.location).min(), first < storage.length {
+                layout.invalidateLayout(forCharacterRange: NSRange(location: first, length: storage.length - first),
+                                        actualCharacterRange: nil)
+                tv.sizeToFit()
+                tv.needsDisplay = true
+                refreshBrackets(in: tv)
+                return
+            }
+            for range in changed.repaint {
+                guard let line = layout.drawings.lines.first(where: { $0.range == range }),
+                      let rect = layout.cellRect(line, in: container, origin: tv.textContainerOrigin) else { continue }
+                tv.setNeedsDisplay(rect.insetBy(dx: -2, dy: -2))
+            }
+        }
+
+        /// Where the drawing cells are, told to the layer over this pane —
+        /// only when one has moved, which on most keystrokes none has.
+        private func tellDrawingFrames(in tv: NSTextView) {
+            let frames = MarkdownTextView.drawingFrames(in: tv)
+            guard CellFrame.moved(drawingFrames, frames) else { return }
+            drawingFrames = frames
+            // A turn late: this runs inside a view update, and what it
+            // tells is SwiftUI state.
+            let tell = parent.onDrawingFrames
+            DispatchQueue.main.async { tell?(frames) }
+        }
+
+        /// The drawing cell the caret is in — its outline lit here, its grip
+        /// the layer's to show — told when it changes.
+        private func tellDrawingCaret(in tv: NSTextView) {
+            guard let pane = tv as? PasteAwareTextView, let layout = tv.layoutManager as? FoldingLayoutManager
+            else { return }
+            let here = pane.armedSeam == nil
+                ? pane.drawingCellAtCaret.flatMap { line in layout.drawings.lines.first { $0.range == line }?.id }
+                : nil
+            guard here != caretDrawing else { return }
+            caretDrawing = here
+            layout.drawings.lit = here
+            tv.needsDisplay = true
+            let tell = parent.onDrawingCaret
+            DispatchQueue.main.async { tell?(here) }
+        }
+
         /// Style the source the way the preview's blocks are styled, then
         /// work out which markers can vanish and re-generate their glyphs.
         ///
@@ -618,6 +747,9 @@ struct MarkdownTextView: NSViewRepresentable {
             let selection = tv.selectedRanges
             let whole = NSRange(location: 0, length: (source as NSString).length)
             MarkdownTextView.style(storage, with: hiding)
+            // The caret stands in for the bar under a drawing cell only
+            // while its line is hidden; shown, the line is text like any.
+            (tv as? PasteAwareTextView)?.drawingStandIns = hiding.isEnabled
             tv.typingAttributes = [.font: MarkdownTextView.font,
                                    .foregroundColor: NSColor.textColor,
                                    .paragraphStyle: MarkdownTextView.paragraphStyle]
@@ -758,6 +890,7 @@ struct MarkdownTextView: NSViewRepresentable {
             // stayed hidden, each for one keystroke.
             tv.updateHiddenMarkers(hiding)
             refreshBrackets(in: tv)
+            tellDrawingCaret(in: tv)
         }
 
         /// Put that place in that cell back at the top of the window — the
@@ -912,8 +1045,7 @@ struct MarkdownTextView: NSViewRepresentable {
                          group: Bool = false) -> NotebookGutter.Bracket? {
                 let clipped = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
                 guard clipped.length > 0 else { return nil }
-                let glyphs = layout.glyphRange(forCharacterRange: clipped, actualCharacterRange: nil)
-                let box = layout.boundingRect(forGlyphRange: glyphs, in: container)
+                let box = MarkdownTextView.box(of: clipped, layout: layout, container: container)
                 guard box.height > 1 else { return nil }
                 // Lit and HELD are not the same thing: the caret's own
                 // cell is drawn heavy with nothing selected, and the
@@ -967,6 +1099,7 @@ struct MarkdownTextView: NSViewRepresentable {
             let cells = MarkdownTextView.cellBoxes(in: tv)
             self.cells = cells
             cellsWidth = tv.bounds.width
+            tellDrawingFrames(in: tv)
 
             if let insertions {
                 let wanted = NSRect(origin: .zero, size: NSSize(width: tv.bounds.width,
@@ -1001,10 +1134,19 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         /// Moving the caret INTO a closed section puts it the other side of
-        /// it instead.
+        /// it instead — and into the hidden line of a drawing cell, to one
+        /// end of it (`DrawingCells.snap`).
         func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange oldRange: NSRange,
                       toCharacterRange newRange: NSRange) -> NSRange {
-            Self.snap(newRange, out: lastHidden, backwards: newRange.location < oldRange.location)
+            let backwards = newRange.location < oldRange.location
+            return snapped(Self.snap(newRange, out: lastHidden, backwards: backwards), in: textView,
+                           backwards: backwards)
+        }
+
+        /// Out of the middle of a drawing cell's line, while it is hidden.
+        private func snapped(_ range: NSRange, in textView: NSTextView, backwards: Bool) -> NSRange {
+            guard let pane = textView as? PasteAwareTextView, pane.drawingStandIns else { return range }
+            return DrawingCells.snap(range, lines: pane.drawingLines, backwards: backwards)
         }
 
         /// The same for a selection of SEVERAL ranges — and THIS is what
@@ -1020,10 +1162,20 @@ struct MarkdownTextView: NSViewRepresentable {
         /// looked like when ⌘D's run first hit it.
         func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRanges oldRanges: [NSValue],
                       toCharacterRanges newRanges: [NSValue]) -> [NSValue] {
-            guard !lastHidden.isEmpty else { return newRanges }
             let backwards = (newRanges.first?.rangeValue.location ?? 0)
                 < (oldRanges.first?.rangeValue.location ?? 0)
-            return newRanges.map { NSValue(range: Self.snap($0.rangeValue, out: lastHidden, backwards: backwards)) }
+            return newRanges.map {
+                NSValue(range: snapped(Self.snap($0.rangeValue, out: lastHidden, backwards: backwards), in: textView,
+                                       backwards: backwards))
+            }
+        }
+
+        /// No red underline in a drawing cell's line: it is a file's name,
+        /// and under it is the drawing.
+        func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range affectedCharRange: NSRange)
+            -> Int {
+            let lines = (textView as? PasteAwareTextView)?.drawingLines ?? []
+            return lines.contains { NSIntersectionRange($0, affectedCharRange).length > 0 } ? 0 : value
         }
 
         /// And an edit that would reach into one opens it first, rather than
@@ -1283,6 +1435,52 @@ class PasteAwareTextView: NSTextView {
     /// never told about would be a cursor nobody can see.
     var onArmChanged: ((Int?) -> Void)?
 
+    // MARK: - The caret in a drawing cell
+
+    /// The note's drawing cells' lines, as the layout reads them after
+    /// every edit (`CellLines`) — none in a text view that does not lay
+    /// drawing cells out, such as a rendered page's open block.
+    var drawingLines: [NSRange] {
+        (layoutManager as? FoldingLayoutManager)?.drawings.lines.map(\.range) ?? []
+    }
+
+    /// The drawing cell the caret is in, by its line — with the markers
+    /// shown as well as hidden: a command that names a kind of cell must
+    /// never write its marker onto a drawing's line either way.
+    var drawingCellAtCaret: NSRange? { DrawingCells.cell(atCaret: selectedRange(), lines: drawingLines) }
+
+    /// Whether the KEYS stand in for the bar under a drawing cell — while
+    /// its line is hidden (`restyle`). Shown, the line is ordinary text and
+    /// typed in as text.
+    var drawingStandIns = false
+
+    /// A DRAWING CELL TAKES NO CHARACTERS (docs: the caret key table,
+    /// `DrawingCells.Key`): for anything that writes, the caret in one
+    /// stands in for the bar under it. Nil whenever a bar is the cursor
+    /// already — the bar above a cell parks the caret at the cell's start.
+    private var standingIn: NSRange? {
+        drawingStandIns && armedSeam == nil ? drawingCellAtCaret : nil
+    }
+
+    /// The bar under a drawing cell, armed — the cell it opens is the next
+    /// thing done.
+    private func armBar(under line: NSRange) {
+        armedSeam = DrawingCells.seamAfter(line, in: string)
+    }
+
+    /// NO CARET IN A DRAWING CELL while its line is hidden: the line's
+    /// fragment is as tall as the drawing under it, and a caret that tall
+    /// down the page is not a cursor anybody asked for — the lit outline
+    /// and the heavy bracket are the cursor there. With the line shown it
+    /// is typed in, so its caret is one line of it, at the top.
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
+        guard drawingCellAtCaret != nil else { return super.drawInsertionPoint(in: rect, color: color, turnedOn: flag) }
+        if drawingStandIns { return super.drawInsertionPoint(in: rect, color: .clear, turnedOn: flag) }
+        super.drawInsertionPoint(in: NSRect(x: rect.minX, y: rect.minY, width: rect.width,
+                                            height: min(rect.height, MarkdownTextView.lineHeight)),
+                                 color: color, turnedOn: flag)
+    }
+
     /// Open the cell an armed seam stands for, if one is armed. The offset
     /// is taken and the bar put out BEFORE the note is touched, so the
     /// insertion that opens the cell is not read as a second arming.
@@ -1315,6 +1513,9 @@ class PasteAwareTextView: NSTextView {
             armedSeam = nil
             return super.insertText(string, replacementRange: replacementRange)
         }
+        // A character typed in a drawing cell: a text cell after it, with
+        // the character in it.
+        if let line = standingIn { armBar(under: line) }
         guard openArmedSeam() else {
             return super.insertText(string, replacementRange: replacementRange)
         }
@@ -1334,6 +1535,28 @@ class PasteAwareTextView: NSTextView {
     /// pressed at a bar must never edit the cell beside it. A key that
     /// only moves, selects or scrolls then does that (`CellSeams.handsOn`).
     override func doCommand(by selector: Selector) {
+        if let line = standingIn {
+            switch DrawingCells.key(command: selector) {
+            case .empty:
+                armBar(under: line)
+                openArmedSeam()
+                return
+            case .hold:
+                // Held whole, its bracket with it; ⌫ again takes it
+                // (`EditorBridge.deleteHeldCells`).
+                setSelectedRange(line)
+                return
+            case .step(let up):
+                // The bar first, so the caret parked at its offset reads
+                // as the bar and not as a caret in a cell (`CellSeams.arm`).
+                let offset = up ? line.location : DrawingCells.seamAfter(line, in: string)
+                armedSeam = offset
+                setSelectedRange(NSRange(location: offset, length: 0))
+                return
+            case .write, .leave, .pass:
+                break
+            }
+        }
         guard let offset = armedSeam else { return super.doCommand(by: selector) }
         let type = armedType
         let meaning = CellSeams.command(NSStringFromSelector(selector))
@@ -1619,7 +1842,9 @@ class PasteAwareTextView: NSTextView {
         if taken { return }
         // Text pasted into an armed seam is a new cell, the same as a
         // character typed there. A picture is not — it floats over the
-        // note, and opening a cell for it would leave an empty one.
+        // note, and opening a cell for it would leave an empty one. Pasted
+        // in a drawing cell, it is a cell after the drawing.
+        if let line = standingIn { armBar(under: line) }
         openArmedSeam()
         super.paste(sender)
     }
@@ -1628,6 +1853,7 @@ class PasteAwareTextView: NSTextView {
         let taken = onPasteImage?(pasteboard) == true
         DebugLog.write("pasteAsPlainText: in \(type(of: self)) handler=\(onPasteImage == nil ? "nil" : "set") taken=\(taken)")
         if taken { return }
+        if let line = standingIn { armBar(under: line) }
         openArmedSeam()
         super.pasteAsPlainText(sender)
     }

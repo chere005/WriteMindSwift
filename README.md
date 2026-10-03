@@ -50,6 +50,7 @@ fails if the two disagree.
 | ⌃⌘Q | Quote |
 | ⌘8 | Code block |
 | ⌘9 | An evaluation cell here — or turn this cell into one |
+| ⌘0 | A drawing cell here |
 | ⌘] ⌘[ | Indent, outdent |
 | ⇧⌘I | Insert a picture |
 

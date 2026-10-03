@@ -12,7 +12,8 @@ final class CellTypeListTests: XCTestCase {
                        ["Body Text",
                         "Title", "Chapter", "Author", "Section", "Subsection", "Subsubsection",
                         "Dots List", "Dashes List", "Numbered List", "To-do List", "Quote",
-                        "Code Block"])
+                        "Code Block",
+                        "Drawing"])
     }
 
     func testTheLadderIsSixDeepAndBodyTextIsNotOneOfItsRungs() {
@@ -32,7 +33,19 @@ final class CellTypeListTests: XCTestCase {
 
     func testTheGroupsAreTheSameListWithSeparatorsBetweenThem() {
         XCTAssertEqual(CellTypes.groups.flatMap { $0 }, CellTypes.all)
-        XCTAssertEqual(CellTypes.groups.count, 4)
+        XCTAssertEqual(CellTypes.groups.count, 5)
+        // The one cell that is not words, in a group of its own, last.
+        XCTAssertEqual(CellTypes.groups.last, [.drawing])
+    }
+
+    /// Chosen on the +, a drawing opens there and then: its next input is
+    /// a stroke, and a character waited for would be typed onto its line.
+    /// Every other kind waits on the bar for the next thing typed, as it
+    /// always has (Sean, 2026-09-20: "the next input will create a cell the
+    /// type of").
+    func testOnlyTheDrawingOpensAtOnce() {
+        XCTAssertEqual(CellTypes.all.filter(\.opensAtOnce), [.drawing])
+        XCTAssertFalse(Evaluator.allCases.contains { CellTypes.Kind.evaluation($0).opensAtOnce })
     }
 
     /// The menu both panes pop at the +. Nothing here can prove what it
@@ -125,6 +138,51 @@ final class CellTypeOpeningTests: XCTestCase {
     /// not triple the menu.
     func testTheEvaluationKindIsNotOnThePlusMenu() {
         XCTAssertFalse(CellTypes.all.contains { if case .evaluation = $0 { return true } else { return false } })
+    }
+
+    // MARK: - A drawing cell
+
+    /// The line on the empty line `insertBlock` made, a blank line either
+    /// side, and the caret at the end of it — at a bar, at the note's end,
+    /// and in a note with nothing in it.
+    func testADrawingIsItsLineWithTheCaretAtTheEnd() {
+        let id = UUID()
+        let line = DrawingCells.line(id)
+        let length = (line as NSString).length
+        XCTAssertEqual(line, "![](_drawings/cells/\(id.uuidString).png)")
+
+        let atBar = CellTypes.open(.drawing, in: note, at: 12, minting: id)
+        XCTAssertEqual(atBar.markdown, "First cell\n\n\(line)\n\nSecond cell")
+        XCTAssertEqual(atBar.caret, 12 + length)
+        XCTAssertEqual(atBar.cell, NSRange(location: 12, length: length))
+
+        let atEnd = CellTypes.open(.drawing, in: note, at: (note as NSString).length, minting: id)
+        XCTAssertEqual(atEnd.markdown, "First cell\n\nSecond cell\n\n\(line)")
+        XCTAssertEqual(atEnd.caret, (atEnd.markdown as NSString).length)
+
+        let alone = CellTypes.open(.drawing, in: "", at: 0, minting: id)
+        XCTAssertEqual(alone.markdown, line)
+        XCTAssertEqual(alone.caret, length)
+        XCTAssertEqual(MarkdownParser.blocks(from: alone.markdown), [.drawing(id: id, alt: "")])
+    }
+
+    func testADrawingAddsExactlyOneDrawingCellWhereverTheBarIs() {
+        let notes = ["", "First cell\n\nSecond cell", "# Title\n\nBody\n\n- one\n- two",
+                     "baz\n" + String(repeating: "\n", count: 10) + "# asdf", "Only cell", "Only cell\n"]
+        for note in notes {
+            let before = MarkdownParser.blocks(from: note)
+            let seams = MarkdownPreview.seams(
+                rows: MarkdownParser.positioned(from: note).map { (id: $0.range.location, height: CGFloat(30)) },
+                noteLength: (note as NSString).length, pageHeight: 600)
+            for (index, seam) in seams.enumerated() {
+                let id = UUID()
+                var wanted = before
+                wanted.insert(.drawing(id: id, alt: ""), at: index)
+                XCTAssertEqual(MarkdownParser.blocks(from: CellTypes.open(.drawing, in: note, at: seam.offset,
+                                                                          minting: id).markdown),
+                               wanted, "seam \(index) of \(note.debugDescription)")
+            }
+        }
     }
 
     func testTheCellIsReallyOfThatKindAndTheNeighboursAreUntouched() {
@@ -319,7 +377,9 @@ final class PreviewArmedTypeTests: XCTestCase {
 
     func testBothPanesOpenTheSameCellForTheSameChoice() {
         let plain = CellTypes.open(.text, writing: "x", in: note, at: 12).markdown
-        for kind in CellTypes.all {
+        // A kind that opens at once never waits on the bar for a character;
+        // what it opens is below.
+        for kind in CellTypes.all where !kind.opensAtOnce {
             let page = MarkdownPreview.opened(.write("x"), as: kind, at: 12, in: note)
             let pane = CellTypes.open(kind, writing: "x", in: note, at: 12)
             XCTAssertEqual(page?.markdown, pane.markdown, "\(kind.name)")
@@ -328,6 +388,14 @@ final class PreviewArmedTypeTests: XCTestCase {
             guard kind != .text else { continue }
             XCTAssertNotEqual(page?.markdown, plain, "\(kind.name) is not a plain paragraph")
         }
+    }
+
+    /// What the page writes when Drawing is chosen on its +: the cell, as
+    /// the markdown pane writes it, with a fresh id.
+    func testTheRenderedPageOpensADrawingAsTheMarkdownPaneDoes() throws {
+        let opened = try XCTUnwrap(MarkdownPreview.opened(.empty, as: .drawing, at: 12, in: note))
+        let id = try XCTUnwrap(DrawingCells.ids(in: opened.markdown).first)
+        XCTAssertEqual(opened.markdown, CellTypes.open(.drawing, in: note, at: 12, minting: id).markdown)
     }
 
     func testACodeCellIsHandedOverAsItsCodeWithTheFencesKept() {

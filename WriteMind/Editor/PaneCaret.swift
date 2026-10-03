@@ -59,6 +59,10 @@ enum PaneCaret: Equatable {
         case item(NSRange, selection: NSRange)
         case cells([NSRange])
         case bar(offset: Int, kind: CellTypes.Kind)
+        /// The caret in a drawing cell, by its line: the page holds the
+        /// cell as its cursor and opens no editor on the line — an editor
+        /// on it is a way to break it.
+        case drawing(NSRange)
     }
 
     /// The cell a caret is in, opened round it. Nil for a caret in no cell
@@ -74,6 +78,7 @@ enum PaneCaret: Equatable {
                 .first(where: { NSLocationInRange(range.location, $0.range) || NSMaxRange($0.range) == range.location })
             else { return nil }
             let cell = block.range
+            if case .drawing = block.block { return .drawing(cell) }
             // As much of the selection as is in the cell: a selection
             // running on into the next cell has no one editor to be in.
             let end = min(NSMaxRange(range), NSMaxRange(cell))

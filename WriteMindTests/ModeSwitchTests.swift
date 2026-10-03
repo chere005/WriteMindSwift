@@ -298,7 +298,7 @@ final class ModeRenderTests: XCTestCase {
         // The markdown pane, its layer straight from the sidecar.
         let sourceHost = host(ZStack {
             MarkdownTextView(text: .constant(note), documentID: nil, bridge: EditorBridge(), showMarkers: false)
-            DrawingCanvas(drawing: .constant(drawing), mode: .cursor, color: .black, width: 2,
+            DrawingCanvas(layer: .constant(drawing), mode: .cursor, color: .black, width: 2,
                           mediaDirectory: folder)
         })
         let tv = try XCTUnwrap(Self.all(sourceHost).compactMap { $0 as? PasteAwareTextView }.first)
@@ -395,6 +395,6 @@ private struct PaneFramesLayer: View {
     let folder: URL
 
     var body: some View {
-        DrawingCanvas(drawing: $drawing, mode: .cursor, color: .black, width: 2, mediaDirectory: folder)
+        DrawingCanvas(layer: $drawing, mode: .cursor, color: .black, width: 2, mediaDirectory: folder)
     }
 }

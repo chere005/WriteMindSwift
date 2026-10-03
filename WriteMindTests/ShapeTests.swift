@@ -183,6 +183,20 @@ final class SymbolTests: XCTestCase {
         }
     }
 
+    /// The drawing layer's handles are not in any enum either: rotate,
+    /// scale, move, trash, a connector's style, a picture's crop and read,
+    /// a crop's two, and the grip at the foot of a drawing cell
+    /// (`arrow.up.and.down`, 2026-10-02).
+    func testEveryHandleHasAnIconThatExists() {
+        let icons = ["arrow.clockwise", "arrow.up.left.and.arrow.down.right",
+                     "arrow.up.and.down.and.arrow.left.and.right", "trash", "slider.horizontal.3",
+                     "crop", "text.viewfinder", "checkmark", "xmark", "arrow.up.and.down"]
+        for icon in icons {
+            XCTAssertNotNil(NSImage(systemSymbolName: icon, accessibilityDescription: nil),
+                            "a handle asks for the missing symbol \(icon)")
+        }
+    }
+
     /// The pens' picker, on the pen menu and on the page's bar: an icon
     /// and a name each, and no two the same.
     func testEveryInkToolHasANameAndAnIconThatExists() {

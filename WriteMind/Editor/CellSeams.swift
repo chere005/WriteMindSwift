@@ -122,6 +122,15 @@ enum CellSeams {
         seams.first { $0.contains(y) }
     }
 
+    /// The seam whose bar is nearest a height on the page — where a cell
+    /// goes when nothing on the page says where: ⌘0 on the rendered page
+    /// with nothing open puts its drawing in the middle of what is on
+    /// screen, never above the note's first cell for want of a caret. The
+    /// upper of two as near.
+    static func nearest(toLine y: CGFloat, in seams: [Seam]) -> Seam? {
+        seams.min { abs($0.line - y) < abs($1.line - y) }
+    }
+
     /// The seam an empty selection is sitting IN, as the offset a cell
     /// would be opened at — nil when the caret is in a cell and the
     /// ordinary caret belongs there.

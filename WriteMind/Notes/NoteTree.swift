@@ -114,8 +114,20 @@ enum NoteTree {
             && isDirectory.boolValue
     }
 
+    /// Whether a folder is a section. Every folder is, but one: `_drawings`
+    /// beside a note holds that note's drawing cells (`DrawingCells`) — the
+    /// note's data, visible on Sean's word (2026-10-02: "visible data
+    /// generally speaking"), and not a folder of notes. So the sidebar never
+    /// lists it, nothing counts it, no section is made or renamed to its
+    /// name, and no note is moved into it. Any case: the disk is not
+    /// case-sensitive.
+    static func isSection(_ folder: URL) -> Bool {
+        folder.lastPathComponent.caseInsensitiveCompare(DrawingCells.dataFolder) != .orderedSame
+    }
+
     /// Read a folder and everything under it. Hidden folders — `.drawings`,
-    /// `.writemind` — are skipped: they are the app's own bookkeeping.
+    /// `.writemind` — are skipped: they are the app's own bookkeeping. So is
+    /// a note's `_drawings` (`isSection`).
     static func read(directory: URL, root: URL, order: NoteOrder, depth: Int = 0,
                      excluding: Set<String> = []) -> NoteSection {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isDirectoryKey]
@@ -130,7 +142,7 @@ enum NoteTree {
             let values = try? url.resourceValues(forKeys: Set(keys))
             if values?.isDirectory == true {
                 // A folder taken out of the project stays on disk and out of the tree.
-                guard !excluding.contains(url.standardizedFileURL.path) else { continue }
+                guard !excluding.contains(url.standardizedFileURL.path), isSection(url) else { continue }
                 sections.append(read(directory: url, root: root, order: order, depth: depth + 1,
                                      excluding: excluding))
             } else if noteExtensions.contains(url.pathExtension.lowercased()) {
@@ -156,7 +168,9 @@ enum NoteTree {
                            depth: depth, notes: notes, sections: sections)
     }
 
-    /// A name nothing else in `folder` is using.
+    /// A name nothing else in `folder` is using — and, for a folder, never
+    /// the name of a note's data (`isSection`), which a section by that name
+    /// would vanish into.
     static func uniqueURL(in folder: URL, base: String, extension ext: String?) -> URL {
         let stem = base.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         func candidate(_ name: String) -> URL {
@@ -164,7 +178,7 @@ enum NoteTree {
         }
         var url = candidate(stem)
         var counter = 2
-        while FileManager.default.fileExists(atPath: url.path) {
+        while FileManager.default.fileExists(atPath: url.path) || (ext == nil && !isSection(url)) {
             url = candidate("\(stem) \(counter)")
             counter += 1
         }

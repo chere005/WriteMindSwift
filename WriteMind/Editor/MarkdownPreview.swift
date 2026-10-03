@@ -60,6 +60,15 @@ struct MarkdownPreview: View {
     var onPickEvaluator: ((Evaluator, NSRange) -> Void)?
     /// Which cell is running, by the offset it starts at.
     var runningCell: Int?
+    /// The note's drawing cells, as this page paints them in their rows
+    /// (`NoteStore.cellLooks`).
+    var drawingCells = DrawingCellsShown()
+    /// Where the drawing cells are on this page, each time one has moved
+    /// (`CellFrame.moved`) — what the drawing layer draws into them by.
+    var onDrawingFrames: (([CellFrame]) -> Void)?
+    /// The drawing cell the cursor is in, or nil, each time that changes —
+    /// its grip is the layer's to show.
+    var onDrawingCaret: ((UUID?) -> Void)?
 
     @State private var rowHeights: [Int: CGFloat] = [:]
     /// The fence lines of the code block being typed in. The editor shows
@@ -87,6 +96,11 @@ struct MarkdownPreview: View {
         case cell(NSRange)
         /// The range of the item's WORDS, not of its line.
         case item(NSRange)
+        /// A DRAWING CELL, by its line: the cell itself is the cursor — lit,
+        /// its bracket heavy, the keys its own (`drawingKey`) — and no
+        /// editor is ever opened on its line, which is the name of its
+        /// file: an editor on it is a way to break it.
+        case drawing(NSRange)
     }
 
     @State private var cursor: Cursor = .none
@@ -114,7 +128,7 @@ struct MarkdownPreview: View {
     private var openCell: NSRange? {
         switch cursor {
         case .none: return nil
-        case .cell(let range): return range
+        case .cell(let range), .drawing(let range): return range
         case .item(let range):
             return NotebookCells.block(containing: range.location, in: markdown)?.range
         }
@@ -128,6 +142,7 @@ struct MarkdownPreview: View {
         switch cursor {
         case .none: return 0
         case .cell(let range), .item(let range): return range.location + inside
+        case .drawing(let range): return NSMaxRange(range)
         }
     }
     /// The cells held by their brackets — several of them, discontiguous,
@@ -188,6 +203,14 @@ struct MarkdownPreview: View {
     /// The armed seam holds the keyboard, because the bar IS the cursor
     /// and there is no text view to hold it on this side.
     @FocusState private var focusedSeam: SeamID?
+    /// And a drawing cell that is the cursor holds it, by its row, for the
+    /// same reason.
+    @FocusState private var focusedDrawing: Int?
+    /// How wide the page's content is: a drawing cell is shown in the
+    /// column this leaves, and its frame for the layer has to say so.
+    @State private var pageWidth: CGFloat = 0
+    /// The drawing cells' frames as last told.
+    @State private var toldFrames: [CellFrame] = []
     /// A seam the page has to bring into view — the one under an answer a
     /// run has just written, so the bar is somewhere the eye can find.
     @State private var bringIntoView: SeamRow?
@@ -323,6 +346,7 @@ struct MarkdownPreview: View {
                 GeometryReader { proxy in
                     Color.clear.preference(key: PreviewScrollKey.self,
                                            value: -proxy.frame(in: .named(Self.space)).minY)
+                        .preference(key: PreviewWidthKey.self, value: proxy.size.width)
                 }
                 .frame(height: 0)
 
@@ -415,6 +439,7 @@ struct MarkdownPreview: View {
             // still at no height puts every cell under it a row too high.
             guard let cells = Self.cells(of: items.map { ($0.id, measured[$0.id]) }) else { return }
             onLayout?(cells)
+            tellDrawingFrames(cells)
             // And the place it was asked to open at, now that it can be
             // found.
             markOpening(in: cells)
@@ -436,8 +461,23 @@ struct MarkdownPreview: View {
             else { return }
             onTopCell?(top)
         }
+        .onPreferenceChange(PreviewWidthKey.self) { width in
+            guard abs(width - pageWidth) > 0.5 else { return }
+            pageWidth = width
+            tellDrawingFrames()
+        }
+        .onChange(of: drawingCells) { _, _ in tellDrawingFrames() }
+        .environment(\.drawingCells, drawingCells)
         .background(Color(nsColor: .textBackgroundColor))
-        .onChange(of: cursor) { _, cursor in onEditingChanged?(cursor != .none) }
+        .onChange(of: cursor) { _, cursor in
+            onEditingChanged?(cursor != .none)
+            onDrawingCaret?(drawingCell(of: cursor))
+        }
+        .onChange(of: focusedDrawing) { _, focused in
+            // Whatever else takes the keyboard takes it from the drawing
+            // cell, as from the bar.
+            if case .drawing(let line) = cursor, focused != line.location { cursor = .none }
+        }
         // The pen going up takes the bar with it.
         .onChange(of: seamsEnabled) { _, enabled in if !enabled { disarm() } }
         .onChange(of: focusedSeam) { _, focused in
@@ -533,6 +573,15 @@ struct MarkdownPreview: View {
             // ⌘8, ⌘9 and the maths palette: this page holds the note and
             // where its caret is in it, so it asks `Insertion` itself.
             bridge.insertInDocument = { thing in insert(thing) }
+            bridge.drawingCellInDocument = { drawingCellHere() }
+            bridge.drawingCursorInDocument = {
+                if case .drawing(let line) = cursor { return line }
+                return nil
+            }
+            bridge.focusDrawingCellInDocument = { id in
+                guard let line = DrawingCells.lines(in: markdown).first(where: { $0.id == id })?.range else { return }
+                beginDrawing(line)
+            }
             // An answer written under a cell while somebody is typing in
             // another one: the note changes, and everything holding a raw
             // offset further down it moves by the same amount. Nothing
@@ -550,6 +599,7 @@ struct MarkdownPreview: View {
                 case .none: break
                 case .cell(let range): cursor = .cell(EvalCells.shifted(range, by: edit))
                 case .item(let range): cursor = .item(EvalCells.shifted(range, by: edit))
+                case .drawing(let range): cursor = .drawing(EvalCells.shifted(range, by: edit))
                 }
                 selectedCells = selectedCells.map { EvalCells.shifted($0, by: edit) }
                 if let seam = armedSeam {
@@ -581,6 +631,9 @@ struct MarkdownPreview: View {
             bridge.armedBar = nil
             bridge.barIsUp = nil
             bridge.insertInDocument = nil
+            bridge.drawingCellInDocument = nil
+            bridge.drawingCursorInDocument = nil
+            bridge.focusDrawingCellInDocument = nil
             bridge.writeInDocument = nil
             bridge.armBarInDocument = nil
         }
@@ -768,7 +821,8 @@ struct MarkdownPreview: View {
             BlockView(block: block,
                       onToggleTodo: { index in tickTodo(item.range, at: index) },
                       evaluation: evaluation(of: item, in: groups),
-                      editing: checklistEditing(in: item.range, block: block))
+                      editing: checklistEditing(in: item.range, block: block),
+                      drawingLit: cursor == .drawing(item.range))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // The faint promise a hover over the gutter makes. An
                 // overlay of colour rather than a background, so a code
@@ -818,6 +872,31 @@ struct MarkdownPreview: View {
     /// cursor taken back by the cell it left.
     @ViewBuilder
     private func cell(_ item: Item, in groups: [EvalCells.Group]) -> some View {
+        if case .drawing? = item.block, !item.isEditing {
+            drawingRow(item)
+        } else {
+            textCell(item, in: groups)
+        }
+    }
+
+    /// A DRAWING CELL'S ROW. A tap on it — which reaches it only where the
+    /// drawing layer does not take it, right of a narrow cell — puts the
+    /// cursor in the cell and never opens an editor on its line. No I-beam
+    /// over it: over its paper the pointer is the layer's pencil.
+    private func drawingRow(_ item: Item) -> some View {
+        row(item, in: [])
+            .padding(.horizontal, Self.sideInset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { beginDrawing(item.range) }
+            .focusable(editable)
+            .focusEffectDisabled()
+            .focused($focusedDrawing, equals: item.id)
+            .onKeyPress(phases: .down) { press in drawingKey(press, in: item.range) }
+    }
+
+    @ViewBuilder
+    private func textCell(_ item: Item, in groups: [EvalCells.Group]) -> some View {
         row(item, in: groups)
             .padding(.horizontal, Self.sideInset)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1429,6 +1508,7 @@ struct MarkdownPreview: View {
         DispatchQueue.main.async {
             CellTypeMenu.popUp(current: current, at: NSEvent.mouseLocation, in: nil) { kind in
                 armedType = kind
+                if kind.opensAtOnce { openSeam(.empty, as: kind, at: id.offset) }
             }
         }
     }
@@ -1551,6 +1631,14 @@ struct MarkdownPreview: View {
         dropHover()
         guard let opened = Self.opened(key, as: type, at: offset, in: markdown) else { return }
         markdown = opened.markdown
+        // A drawing cell is never opened as its markdown: the line is the
+        // file's name, and an editor on it is a way to break it. The cell
+        // itself is the cursor — and whatever was open is closed, since a
+        // drawing under its caret's line has just moved the rest of it.
+        guard type != .drawing else {
+            beginDrawing(opened.editing, clicked: false)
+            return
+        }
         // Plain text unless the + on this bar said otherwise, whatever the
         // cell above it was (Sean, 2026-09-19: "default is always just
         // text").
@@ -1560,6 +1648,111 @@ struct MarkdownPreview: View {
         // Behind what was typed — which for an empty cell is the same place.
         caret = .end
         focusToken += 1
+    }
+
+    /// THE CURSOR INTO A DRAWING CELL on this page. The other cursors go
+    /// out, as they do for any: a bar, an open cell, cells held.
+    private func beginDrawing(_ line: NSRange, clicked: Bool = true) {
+        guard editable else { return }
+        if clicked { onClick?() }
+        disarm()
+        dropHover()
+        selectedCells = []
+        cursor = .drawing(line)
+        // A turn late, the way the brackets take the keyboard: a row this
+        // very edit made is not on the page to be focused yet.
+        DispatchQueue.main.async { focusedDrawing = line.location }
+    }
+
+    /// The drawing cell a cursor is in, by its id.
+    private func drawingCell(of cursor: Cursor) -> UUID? {
+        guard case .drawing(let line) = cursor, NSMaxRange(line) <= (markdown as NSString).length else { return nil }
+        return DrawingCells.parse((markdown as NSString).substring(with: line)
+            .trimmingCharacters(in: .whitespaces))?.id
+    }
+
+    /// A key while a drawing cell is the cursor — the table both panes keep
+    /// (`DrawingCells.Key`). For anything that writes, the cell stands in
+    /// for the bar under it.
+    private func drawingKey(_ press: KeyPress, in line: NSRange) -> KeyPress.Result {
+        guard cursor == .drawing(line) else { return .ignored }
+        // Escape, Return, the arrows and the deletes by name: what
+        // `characters` carries for them is AppKit's business.
+        let characters: String
+        switch press.key {
+        case .escape: characters = "\u{1B}"
+        case .return: characters = "\r"
+        case .upArrow: characters = "\u{F700}"
+        case .downArrow: characters = "\u{F701}"
+        case .delete: characters = "\u{8}"
+        case .deleteForward: characters = "\u{7F}"
+        default: characters = press.characters
+        }
+        let after = DrawingCells.seamAfter(line, in: markdown)
+        switch DrawingCells.key(characters: characters, chord: !press.modifiers.isDisjoint(with: [.command, .control])) {
+        case .write(let typed):
+            openSeam(.write(typed), as: .text, at: after)
+        case .empty:
+            openSeam(.empty, as: .text, at: after)
+        case .hold:
+            selectCells([line])
+        case .step(let up):
+            armSeam(beside: line, below: !up)
+        case .leave:
+            cursor = .none
+            focusedDrawing = nil
+        case .pass:
+            return .ignored
+        }
+        return .handled
+    }
+
+    /// Where the drawing cells are on this page, told to the layer over it
+    /// — only when one has moved. Off the stack the page is laid out by,
+    /// at the page's left margin, in the column its margins leave.
+    private func tellDrawingFrames(_ measured: [CellSeams.Box]? = nil) {
+        guard let onDrawingFrames,
+              let cells = measured ?? Self.cells(of: items.map { ($0.id, rowHeights[$0.id]) }) else { return }
+        let frames = Self.drawingFrames(blocks: items.map { ($0.id, $0.range, $0.block) }, cells: cells,
+                                        column: max(0, pageWidth - Self.sideInset * 2), shown: drawingCells)
+        guard CellFrame.moved(toldFrames, frames) else { return }
+        toldFrames = frames
+        onDrawingFrames(frames)
+    }
+
+    /// The frames of the drawing cells among a page's rows, measured as
+    /// `cells`: each at the column's left, the size it is shown in it.
+    static func drawingFrames(blocks: [(id: Int, range: NSRange, block: MarkdownBlock?)], cells: [CellSeams.Box],
+                              column: CGFloat, shown: DrawingCellsShown) -> [CellFrame] {
+        blocks.compactMap { row in
+            guard case .drawing(let id, _)? = row.block,
+                  let box = cells.first(where: { $0.offset == row.id }) else { return nil }
+            let look = shown.look(id)
+            let (scale, size) = look.shown(column: column)
+            return CellFrame(id: id, line: row.range,
+                             rect: CGRect(x: sideInset, y: box.top, width: size.width, height: size.height),
+                             scale: scale, width: look.cell.map { CGFloat($0.width) } ?? column,
+                             writable: look.state == .writable)
+        }
+    }
+
+    /// ⌘0 on this page: the cell goes where `drawingCellLanding` says.
+    private func drawingCellHere() {
+        guard let at = Self.drawingCellLanding(open: openCell, caret: caretInNote, seams: seams,
+                                               middle: scrolled + pageHeight / 2, in: markdown)
+        else { return }
+        openSeam(.empty, as: .drawing, at: at)
+    }
+
+    /// WHERE ⌘0 PUTS A DRAWING ON THIS PAGE: under the caret's line of the
+    /// cell that is open — the markdown pane's own rule — or, with nothing
+    /// open, at the seam nearest the middle of what is on screen. Never
+    /// after the note's first cell for want of an open one, which is where
+    /// `caretCell()` would put it.
+    static func drawingCellLanding(open: NSRange?, caret: Int, seams: [CellSeams.Seam],
+                                   middle: CGFloat, in markdown: String) -> Int? {
+        if open != nil { return DrawingCells.landing(caret: caret, in: markdown) }
+        return CellSeams.nearest(toLine: middle, in: seams)?.offset
     }
 
     /// Every keystroke goes straight into the note, at the block's own range.
@@ -1689,6 +1882,13 @@ struct MarkdownPreview: View {
 
     private func beginEditing(_ range: NSRange, caret: BlockEditor.Caret = .end, clicked: Bool = true) {
         guard editable else { return }
+        // EVERY WAY INTO A CELL comes through here — a bracket, an arrow
+        // off the next cell, a cell moved or duplicated, the one ⌫ left
+        // behind — and a drawing cell is never opened as its line.
+        if MarkdownParser.positioned(from: markdown)
+            .contains(where: { NSEqualRanges($0.range, range) && $0.block.isDrawing }) {
+            return beginDrawing(range, clicked: clicked)
+        }
         if clicked { onClick?() }
         // Two cursors is what he was looking at before: a block with a
         // caret in it is not a seam with a bar in it, and neither of them
@@ -1741,6 +1941,8 @@ struct MarkdownPreview: View {
         case .none: return nil
         case .cell(let range): return PaneCaret.rendered(open: range, inside: inside, fence: fence?.open)
         case .item(let words): return PaneCaret.rendered(open: words, inside: inside, fence: nil)
+        // The markdown pane's caret in a drawing cell is at its line's end.
+        case .drawing(let line): return .text(NSRange(location: NSMaxRange(line), length: 0))
         }
     }
 
@@ -1754,6 +1956,8 @@ struct MarkdownPreview: View {
             beginEditing(range, caret: .range(selection), clicked: false)
         case .item(let words, let selection)?:
             openItem(words, caret: .range(selection), clicked: false)
+        case .drawing(let line)?:
+            beginDrawing(line, clicked: false)
         case .cells(let ranges)?:
             selectedCells = ranges
             DispatchQueue.main.async { focusedBrackets = true }
@@ -2124,7 +2328,10 @@ struct MarkdownPreview: View {
         /// export builds a `BlockView` with nothing but its block, and
         /// an `ImageRenderer` draws an AppKit text view as nothing at all.
         var editing: ChecklistEditing?
+        /// A drawing cell that is the page's cursor: its outline is lit.
+        var drawingLit = false
         @Environment(\.notePaper) private var paper
+        @Environment(\.drawingCells) private var drawingCells
 
         /// The one item of a checklist that is open for typing, and
         /// everything it needs to be.
@@ -2275,6 +2482,8 @@ struct MarkdownPreview: View {
                 // would be widened to the 8 pt minimum straight through
                 // it, and there would be nowhere left to click the rule.
                 Divider().frame(height: 9)
+            case .drawing(let id, _):
+                DrawingCellRow(look: drawingCells.look(id), media: drawingCells.media, lit: drawingLit)
             }
         }
 
@@ -2415,6 +2624,12 @@ private struct PreviewRowHeights: PreferenceKey {
     static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
         value.merge(nextValue()) { _, new in new }
     }
+}
+
+/// How wide the page's content is.
+private struct PreviewWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private struct PreviewScrollKey: PreferenceKey {

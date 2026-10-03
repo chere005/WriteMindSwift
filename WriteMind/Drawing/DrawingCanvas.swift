@@ -11,8 +11,17 @@ import SwiftUI
 /// rotated without the editor losing a single keystroke (Sean, 2026-09-18).
 /// Holding ⌘ there is the marquee as well, which is where select mode came
 /// from and is why the modifier still works.
+///
+/// AND IT DRAWS IN THE DRAWING CELLS (`CanvasSpace`): one canvas, one key
+/// monitor, one gesture, over the floating layer and every cell on the
+/// page. A press is in the space its first point is in, and everything it
+/// does — a stroke, a shape, a pick, a move, the handles — happens there,
+/// at that space's size; a selection lives in one space. The panes paint
+/// the cells' objects; this paints only what is being done to the one
+/// that is active.
 struct DrawingCanvas: View {
-    @Binding var drawing: Drawing
+    /// The floating layer: everything on the page that is not in a cell.
+    @Binding var layer: Drawing
     /// Whose pane it is (`AppState.CanvasMode`). The pen was a boolean
     /// until 2026-09-20 and everything here that asks whether it is up
     /// still asks, through `penActive`.
@@ -78,11 +87,83 @@ struct DrawingCanvas: View {
     /// DOCUMENT — a picture sits beside the paragraph it was put next to and
     /// goes up with it — so everything is drawn and hit this far up.
     var scrollOffset: CGFloat = 0
+    /// The drawing cells' objects, by id (`NoteStore.cells`) — written as a
+    /// cell is drawn in.
+    var cells: Binding<[UUID: DrawingCell]> = .constant([:])
+    /// Where the cells are on the pane underneath, as it laid them out
+    /// (`CellFrame`).
+    var cellFrames: [CellFrame] = []
+    /// The drawing cell the caret is in: its grip is shown.
+    var litCell: UUID?
+    /// A click on a cell's paper that drew nothing: the caret goes into the
+    /// cell (`EditorBridge.focusDrawingCell`).
+    var onCellTap: ((UUID) -> Void)?
+    /// A gesture changed a cell: it grows to keep its ink, and anything
+    /// moved off its sides comes back (`NoteStore.fitCell`) — the same step.
+    var onCellChanged: ((UUID) -> Void)?
+    /// A stroke is going into a cell in CURSOR mode, with the keyboard in
+    /// the text and nothing picked: ⌘Z is the ink's until the next
+    /// keystroke (`AppState.inkedNote`). Told before the step is taken.
+    var onCursorInk: (() -> Void)?
 
-    /// A point on the pane, in the document's coordinates.
-    private func doc(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x, y: point.y + scrollOffset) }
-    /// A point in the document, where it is on the pane.
-    private func screen(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x, y: point.y - scrollOffset) }
+    /// A point on the pane, in the ACTIVE SPACE's own points — the
+    /// document's, for the floating layer.
+    private func doc(_ point: CGPoint) -> CGPoint {
+        space.fromDocument(CGPoint(x: point.x, y: point.y + scrollOffset))
+    }
+    /// A point in the active space, where it is on the pane.
+    private func screen(_ point: CGPoint) -> CGPoint {
+        let document = space.toDocument(point)
+        return CGPoint(x: document.x, y: document.y - scrollOffset)
+    }
+
+    /// The space the selection and the gesture are in.
+    @State private var active: CanvasSpaceID = .floating
+
+    /// The active cell, while it has a frame on the page — folded away or
+    /// taken out of the note, the floating layer is the active space again.
+    private var activeCell: CellFrame? {
+        guard case .cell(let id) = active else { return nil }
+        return cellFrames.first { $0.id == id }
+    }
+
+    /// THE ACTIVE SPACE: where its objects are on the page and what they
+    /// are measured against.
+    private var space: CanvasSpace {
+        activeCell.map(CanvasSpace.cell) ?? .floating(pane: paneSize)
+    }
+
+    /// THE DRAWING EVERY GESTURE WORKS ON — the floating layer's, or the
+    /// active cell's. Everything below reads and writes this, at the active
+    /// space's size, so a stroke, a move, the handles, ⌫ and ⌃G work in a
+    /// cell exactly as they work on the layer. A cell nothing was drawn in
+    /// yet is made at the first change, as wide as the column it is in.
+    private var drawing: Drawing {
+        get {
+            guard let frame = activeCell else { return layer }
+            return cells.wrappedValue[frame.id]?.drawing ?? Drawing()
+        }
+        nonmutating set {
+            guard let frame = activeCell else { layer = newValue; return }
+            var cell = cells.wrappedValue[frame.id] ?? DrawingCell.empty(width: Double(frame.width))
+            cell.drawing = newValue
+            cells.wrappedValue[frame.id] = cell
+        }
+    }
+
+    /// Into another space: whatever was held in the last one is let go — A
+    /// SELECTION LIVES IN ONE SPACE.
+    private func enter(_ id: CanvasSpaceID) {
+        guard id != active else { return }
+        active = id
+        selection = []; hovered = nil; cropping = nil; styling = nil; editingLabel = nil
+    }
+
+    /// The end of a gesture that may have changed the active cell: it grows
+    /// to keep what is in it.
+    private func cellChanged() {
+        if let frame = activeCell { onCellChanged?(frame.id) }
+    }
 
     private enum Interaction: Equatable {
         case drawing
@@ -94,6 +175,9 @@ struct DrawingCanvas: View {
         case marquee(start: CGPoint, additive: Bool, pick: UUID?)
         case connecting(from: CGPoint, node: UUID?)
         case placing(from: CGPoint)
+        /// A cursor-mode press on a cell's paper, not yet a stroke: it
+        /// becomes one once it travels, or is a click into the cell.
+        case paper(from: CGPoint)
         case idle
     }
 
@@ -136,6 +220,13 @@ struct DrawingCanvas: View {
     @State private var paneSize: CGSize = .zero
     @State private var labelSnapshot = false
     @FocusState private var labelFocused: Bool
+    /// The pointer is over a writable cell's paper, in cursor mode: the
+    /// pencil — the same way in as the open hand over an object.
+    @State private var overPaper = false
+    /// The stroke under way began on a cell's paper in cursor mode.
+    @State private var cursorInk = false
+    /// The cell's height when its grip was taken.
+    @State private var gripFrom: Double?
 
     var body: some View {
         GeometryReader { geo in
@@ -160,10 +251,13 @@ struct DrawingCanvas: View {
                 }
 
                 Canvas { context, size in render(&context, size: size) }
-                    .contentShape(CanvasHitShape(items: drawing.visibleItems,
+                    .contentShape(CanvasHitShape(items: layer.visibleItems,
                                                  everything: mode != .cursor || commandDown
                                                      || connectActive || placing != nil,
-                                                 offset: scrollOffset))
+                                                 offset: scrollOffset,
+                                                 // A cell's paper is the layer's in cursor
+                                                 // mode: a press there draws in it.
+                                                 paper: cellFrames.filter(\.writable).map(\.rect)))
                     .gesture(drag(in: geo.size))
                     .onContinuousHover(coordinateSpace: .local) { phase in
                         hover(phase, in: geo.size)
@@ -178,20 +272,27 @@ struct DrawingCanvas: View {
                 // "after drawing a rectangle dont exit rectangle mode..").
                 // The pane belongs to the tool until the tool is handed
                 // back, and Escape is how it is handed back.
-                if !penActive, placing == nil, let box = drawing.bounds(of: handleIDs, in: geo.size) {
-                    handles(box: box, in: geo.size)
+                if !penActive, placing == nil, let box = drawing.bounds(of: handleIDs, in: space.size) {
+                    handles(box: space.toDocument(box), in: space.size)
+                }
+
+                if let frame = gripFrame {
+                    Handle(systemImage: "arrow.up.and.down", help: "Drag to make the drawing taller or shorter",
+                           hovered: $hoveredHandles, name: "grip")
+                        .position(x: frame.rect.midX, y: frame.rect.maxY - scrollOffset)
+                        .gesture(gripDrag(frame))
                 }
 
                 if let styling, let item = drawing[id: styling], case .connector = item {
                     ConnectorStyleBar(connector: connectorBinding(styling)) { self.styling = nil }
-                        .position(screen(styleBarPosition(for: item, in: geo.size)))
+                        .position(screen(styleBarPosition(for: item, in: space.size)))
                 }
 
                 if let editingLabel, let item = drawing[id: editingLabel],
                    case .shape(let shape) = item, shape.kind.isNode {
-                    let box = item.bounds(in: geo.size)
+                    let box = space.toDocument(item.bounds(in: space.size))
                     if shape.kind == .text {
-                        textBoxEditor(shape, id: editingLabel, item: item, in: geo.size)
+                        textBoxEditor(shape, id: editingLabel, item: item, in: space.size)
                     } else {
                         TextField("Label", text: labelBinding(editingLabel), axis: .vertical)
                             .textFieldStyle(.roundedBorder)
@@ -220,11 +321,17 @@ struct DrawingCanvas: View {
                 // and a resized pane moves the nodes they run between.
                 // reconnect only writes back what actually changed, so this
                 // settles in one pass.
-                if size.width > 1, size.height > 1 { drawing.reconnect(in: size) }
+                if size.width > 1, size.height > 1 { layer.reconnect(in: size) }
             }
-            .onChange(of: drawing.images.map(\.file)) { _, _ in loadImages() }
+            .onChange(of: layer.images.map(\.file)) { _, _ in loadImages() }
             .onChange(of: documentID) { _, _ in
+                active = .floating
                 selection = []; hovered = nil; cropping = nil; styling = nil; editingLabel = nil
+            }
+            // The active cell folded away, or out of the note: the layer
+            // is the space again.
+            .onChange(of: cellFrames) { _, frames in
+                if case .cell(let id) = active, !frames.contains(where: { $0.id == id }) { enter(.floating) }
             }
             .onChange(of: deselectToken) { _, _ in selection = []; cropping = nil; styling = nil; editingLabel = nil }
             .onChange(of: selection) { _, picked in onSelectionChanged?(!picked.isEmpty) }
@@ -239,6 +346,8 @@ struct DrawingCanvas: View {
                 selection = []; hovered = nil; cropping = nil; styling = nil; editingLabel = nil
             }
             .onChange(of: pendingLabelEdit) { _, id in
+                // A text box is put on the floating layer.
+                if id != nil { enter(.floating) }
                 guard let id, drawing[id: id] != nil else { return }
                 beginLabel(id)
                 onLabelEditStarted?()
@@ -246,22 +355,32 @@ struct DrawingCanvas: View {
             .onChange(of: editingLabel) { old, new in
                 // A text box grows and shrinks to what was typed once the
                 // typing is over.
-                if let old, new == nil { fitTextBox(old, in: geo.size) }
+                if let old, new == nil { fitTextBox(old, in: space.size) }
             }
         }
     }
 
     // MARK: - Drawing the layer
 
-    private func render(_ context: inout GraphicsContext, size: CGSize) {
+    private func render(_ context: inout GraphicsContext, size pane: CGSize) {
         // Everything below is in the document's coordinates.
         context.translateBy(x: 0, y: -scrollOffset)
-        for item in drawing.visibleItems { draw(item, in: &context, size: size) }
+        for item in layer.visibleItems { draw(item, in: &context, size: pane) }
+        // What is being DONE in the active space — the stroke under way,
+        // the outlines, the marquee, a shape being dragged out, a crop —
+        // in that space's own points: in a cell, under its frame and
+        // inside it. The cell's objects themselves are the pane's to paint.
+        let space = self.space, size = space.size
+        if let clip = space.clip {
+            context.clip(to: Path(clip))
+            context.translateBy(x: space.origin.x, y: space.origin.y)
+            context.scaleBy(x: space.scale, y: space.scale)
+        }
         if let current { Self.paintLive(current, in: &context, size: size, paper: notePaper) }
         // The shape as it is being dragged out, before it is real.
         if let placing, let preview = placePreview,
            let ghost = placing.item(from: preview.from, to: preview.to, in: size,
-                                    colorHex: color.hexString, lineWidth: width) {
+                                    colorHex: color.hexString, lineWidth: width / space.scale) {
             var layer = context
             layer.opacity = 0.65
             draw(ghost, in: &layer, size: size)
@@ -489,6 +608,7 @@ struct DrawingCanvas: View {
         return []
     }
 
+    /// `box` in document points; `size` the active space's.
     @ViewBuilder
     private func handles(box: CGRect, in size: CGSize) -> some View {
         if let cropping, let item = drawing[id: cropping], case .image = item {
@@ -522,7 +642,7 @@ struct DrawingCanvas: View {
                 .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2))
                 .shadow(radius: 1.5, y: 0.5)
                 .contentShape(Circle().inset(by: -6))
-                .position(x: segment.point.x, y: segment.point.y - scrollOffset)
+                .position(screen(segment.point))
                 .help(segment.vertical ? "Drag left or right to move this part of the line"
                                        : "Drag up or down to move this part of the line")
                 .onHover { inside in
@@ -537,12 +657,10 @@ struct DrawingCanvas: View {
         // handles would otherwise have carried.
         Handle(systemImage: "slider.horizontal.3", help: "Heads and line style",
                hovered: $hoveredHandles, name: "style")
-            .position(x: min(max(path[0].x, 14), max(size.width - 14, 14)),
-                      y: min(max(path[0].y - scrollOffset - 16, 14), max(size.height - 14, 14)))
+            .position(onPane(path[0], dy: -16))
             .onTapGesture { selection = [connector.id]; styling = connector.id; styledOnce = false }
         Handle(systemImage: "trash", help: "Delete (⌫ does too)", hovered: $hoveredHandles, name: "trash")
-            .position(x: min(max(path[path.count - 1].x, 14), max(size.width - 14, 14)),
-                      y: min(max(path[path.count - 1].y - scrollOffset + 16, 14), max(size.height - 14, 14)))
+            .position(onPane(path[path.count - 1], dy: 16))
             .onTapGesture { deleteSelection() }
     }
 
@@ -563,6 +681,7 @@ struct DrawingCanvas: View {
             .onEnded { _ in
                 interaction = nil
                 snapshot = [:]
+                cellChanged()
             }
     }
 
@@ -589,25 +708,34 @@ struct DrawingCanvas: View {
                 .gesture(cropDrag(corner: corner, item: item, in: size))
         }
         Handle(systemImage: "checkmark", help: "Crop to the box (↩)", hovered: $hoveredHandles, name: "crop-confirm")
-            .position(clamp(CGPoint(x: box.minX + 10, y: box.maxY + 14), in: size))
+            .position(clamp(CGPoint(x: box.minX + 10, y: box.maxY + 14)))
             .onTapGesture { confirmCrop() }
         Handle(systemImage: "xmark", help: "Leave the picture as it is (esc)", hovered: $hoveredHandles,
                name: "crop-cancel")
-            .position(clamp(CGPoint(x: box.minX + 36, y: box.maxY + 14), in: size))
+            .position(clamp(CGPoint(x: box.minX + 36, y: box.maxY + 14)))
             .onTapGesture { cancelCrop() }
     }
 
     /// A handle's place on the pane for a point in the document, kept on
     /// the pane.
-    private func clamp(_ point: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(x: min(max(point.x, 14), max(size.width - 14, 14)),
-                y: min(max(point.y - scrollOffset, 14), max(size.height - 14, 14)))
+    private func clamp(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: min(max(point.x, 14), max(paneSize.width - 14, 14)),
+                y: min(max(point.y - scrollOffset, 14), max(paneSize.height - 14, 14)))
     }
 
+    /// A handle's place on the pane for a point in the ACTIVE SPACE, moved
+    /// by `dx`, `dy` points on screen and kept on the pane.
+    private func onPane(_ point: CGPoint, dx: CGFloat = 0, dy: CGFloat = 0) -> CGPoint {
+        let document = space.toDocument(point)
+        return clamp(CGPoint(x: document.x + dx, y: document.y + dy))
+    }
+
+    /// `box` in document points: the handles hang off it on screen, and
+    /// their drags work at the active space's `size`.
     @ViewBuilder
     private func objectHandles(box: CGRect, in size: CGSize) -> some View {
-        let x = { (value: CGFloat) in min(max(value, 14), max(size.width - 14, 14)) }
-        let y = { (value: CGFloat) in min(max(value - scrollOffset, 14), max(size.height - 14, 14)) }
+        let x = { (value: CGFloat) in min(max(value, 14), max(paneSize.width - 14, 14)) }
+        let y = { (value: CGFloat) in min(max(value - scrollOffset, 14), max(paneSize.height - 14, 14)) }
 
         Handle(systemImage: "arrow.clockwise", help: "Drag to rotate (hold ⇧ for 15° steps)",
                hovered: $hoveredHandles, name: "rotate")
@@ -696,6 +824,36 @@ struct DrawingCanvas: View {
         }
     }
 
+    // MARK: - The grip
+
+    /// The cell whose grip is shown: the caret's, while it can be drawn in,
+    /// in cursor mode with nothing picked and no tool armed — when a drag
+    /// at its foot can mean nothing else.
+    private var gripFrame: CellFrame? {
+        guard mode == .cursor, selection.isEmpty, placing == nil, !connectActive, interaction == nil,
+              let litCell else { return nil }
+        return cellFrames.first { $0.id == litCell && $0.writable }
+    }
+
+    /// THE GRIP, dragged: the cell taller or shorter, never under what is
+    /// drawn in it and never under two lines (`DrawingCell.resized`). One
+    /// step for the whole drag.
+    private func gripDrag(_ frame: CellFrame) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
+            .onChanged { value in
+                let cell = cells.wrappedValue[frame.id] ?? .empty(width: Double(frame.width))
+                if gripFrom == nil {
+                    onBeginChange?()
+                    gripFrom = cell.height
+                }
+                guard let from = gripFrom else { return }
+                let resized = cell.resized(toHeight: from + Double(value.translation.height / max(frame.scale, 0.01)),
+                                           lineHeight: Double(MarkdownTextView.lineHeight))
+                if resized != cells.wrappedValue[frame.id] { cells.wrappedValue[frame.id] = resized }
+            }
+            .onEnded { _ in gripFrom = nil }
+    }
+
     // MARK: - Cropping
 
     private func beginCrop(_ id: UUID) {
@@ -756,7 +914,7 @@ struct DrawingCanvas: View {
     @ViewBuilder
     private func textBoxEditor(_ shape: ShapeItem, id: UUID, item: CanvasItem, in size: CGSize) -> some View {
         let base = item.baseBounds(in: size)
-        let box = item.bounds(in: size)
+        let box = space.toDocument(item.bounds(in: size))
         let fill = shape.fillHex.flatMap { Color(hex: $0) }
         let inkHex = TextBoxStyle.readableInk(shape.colorHex, on: shape.fillHex)
         let width = max(TextBoxStyle.minimumWidth, base.width)
@@ -767,7 +925,7 @@ struct DrawingCanvas: View {
                 .fill(fill ?? Color(nsColor: .textBackgroundColor)))
             .overlay(RoundedRectangle(cornerRadius: TextBoxStyle.cornerRadius)
                 .strokeBorder(Color.accentColor, lineWidth: 1.5))
-            .scaleEffect(item.transform.scale)
+            .scaleEffect(item.transform.scale * space.scale)
             .rotationEffect(.radians(item.transform.rotation))
             .position(x: box.midX, y: box.midY - scrollOffset)
     }
@@ -780,7 +938,7 @@ struct DrawingCanvas: View {
                 if !labelSnapshot { onBeginChange?(); labelSnapshot = true }
                 shape.label = text
                 drawing[id: id] = .shape(shape)
-                if shape.kind == .text { fitTextBox(id, in: paneSize) }
+                if shape.kind == .text { fitTextBox(id, in: space.size) }
             })
     }
 
@@ -802,11 +960,24 @@ struct DrawingCanvas: View {
 
     // MARK: - Gestures
 
-    private func drag(in size: CGSize) -> some Gesture {
+    private func drag(in pane: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
-                if interaction == nil { begin(at: doc(value.startLocation), in: size) }
+                if interaction == nil { begin(at: value.startLocation, pane: pane) }
+                // The space the press began in, at its own size.
+                let size = space.size
                 switch interaction {
+                case .paper(let start):
+                    // A mouse on a cell's paper draws once it has moved,
+                    // so a click into the cell leaves no dot behind.
+                    let travelled = CGFloat(hypot(value.translation.width, value.translation.height))
+                    guard AppState.CanvasMode.paperStrokes(travelled: travelled, nib: false) else { break }
+                    let pen = PenSampleReader.shared.sample
+                    beginCursorInk()
+                    current = Stroke.starting(at: Self.normalise(start, in: size), colorHex: color.hexString,
+                                              width: width / space.scale, pen: pen, tool: tool)
+                    current?.append(Self.normalise(doc(value.location), in: size), pen: pen)
+                    interaction = .drawing
                 case .drawing:
                     DrawingCursors.pencil.set()
                     let point = Self.normalise(doc(value.location), in: size)
@@ -821,14 +992,17 @@ struct DrawingCanvas: View {
                     // notebook itself"), with the tool on the pen menu.
                     let pen = PenSampleReader.shared.sample
                     if current == nil {
-                        onBeginChange?()
-                        current = Stroke.starting(at: point, colorHex: color.hexString, width: width, pen: pen,
-                                                  tool: tool)
+                        if cursorInk { beginCursorInk() } else { onBeginChange?() }
+                        // As wide as the pen on screen, in a cell shown
+                        // smaller than it was drawn.
+                        current = Stroke.starting(at: point, colorHex: color.hexString, width: width / space.scale,
+                                                  pen: pen, tool: tool)
                     } else {
                         current?.append(point, pen: pen)
                     }
                 case .moving:
-                    apply(translate: CGVector(dx: value.translation.width, dy: value.translation.height),
+                    apply(translate: CGVector(dx: value.translation.width / space.scale,
+                                              dy: value.translation.height / space.scale),
                           in: size)
                 case .marquee(let start, _, _):
                     marquee = CanvasGeometry.rect(from: start, to: doc(value.location))
@@ -850,10 +1024,15 @@ struct DrawingCanvas: View {
                 }
             }
             .onEnded { value in
+                let size = space.size
                 switch interaction {
                 case .drawing:
                     if let finished = current { drawing.items.append(.stroke(finished)) }
                     current = nil
+                case .paper:
+                    // Never moved, no nib: a click into the cell, where the
+                    // caret goes — and where ⌘0, a key or Return then work.
+                    if let frame = activeCell { onCellTap?(frame.id) }
                 case .connecting(let start, let fromNode):
                     connectPreview = nil
                     let end = Self.dragEnd(doc(value.location), from: start)
@@ -866,7 +1045,7 @@ struct DrawingCanvas: View {
                                                       end: Self.normalise(end, in: size),
                                                       startNode: fromNode, endNode: toNode,
                                                       colorHex: color.hexString,
-                                                      lineWidth: min(max(width, 1.5), 6))
+                                                      lineWidth: min(max(width, 1.5), 6) / space.scale)
                         onBeginChange?()
                         drawing.items.append(.connector(connector))
                         drawing.reconnect(in: size)
@@ -914,10 +1093,29 @@ struct DrawingCanvas: View {
                 }
                 interaction = nil
                 snapshot = [:]
+                cursorInk = false
+                cellChanged()
             }
     }
 
-    private func begin(at point: CGPoint, in size: CGSize) {
+    /// A stroke going into a cell from its paper in cursor mode: ⌘Z is the
+    /// ink's until the next keystroke — told before the step is taken, so
+    /// the floor is where the drawing stood under it.
+    private func beginCursorInk() {
+        onCursorInk?()
+        onBeginChange?()
+    }
+
+    /// A press at `panePoint`: first WHICH SPACE it is in — the one its
+    /// first point is in decides everything it puts down, a stroke, a
+    /// shape, a mark, a text box, an arrow, and a marquee picks there —
+    /// and then what it does there.
+    private func begin(at panePoint: CGPoint, pane: CGSize) {
+        let found = CanvasSpace.at(CGPoint(x: panePoint.x, y: panePoint.y + scrollOffset), layer: layer,
+                                   pane: pane, frames: cellFrames, cells: cells.wrappedValue)
+        enter(found.space)
+        let point = doc(panePoint), size = space.size
+        let onPaper = found.item == nil && found.space != .floating
         // Something is armed: this drag is where it goes. And it is the
         // way out of a label being typed and an arrow's style bar, as any
         // press on the layer is: a shape stays armed now, so the next box
@@ -943,11 +1141,21 @@ struct DrawingCanvas: View {
         // whatever the answer here is: a modifier held down is asked for
         // by hand, and that is what overrides a mode.
         let flags = NSEvent.modifierFlags
-        let press = mode.press(with: flags)
+        let press = mode.press(with: flags, onCellPaper: onPaper)
         if press == .draw { interaction = .drawing; return }
-        if press == .objects, connectActive {
+        if press != .marquee, connectActive {
             interaction = .connecting(from: point, node: drawing.attachable(at: point, in: size))
             connectPreview = (point, point)
+            return
+        }
+        if press == .paper {
+            // A nib's touch is the start of ink; a mouse has to move first.
+            if case .pen = PenSampleReader.shared.sample {
+                cursorInk = true
+                interaction = .drawing
+            } else {
+                interaction = .paper(from: point)
+            }
             return
         }
         // A click anywhere but the crop's own handles is the way out of it —
@@ -995,6 +1203,9 @@ struct DrawingCanvas: View {
     /// on the layer takes. So ⌫ and the handles act on what it picked, as
     /// they do on a ⌘-drag's.
     private func pick(byTablet rect: CGRect) {
+        // The tablet's marquee is over the floating layer: the notes'
+        // own objects, as its rectangle is in the document's points.
+        enter(.floating)
         if cropping != nil { cancelCrop() }
         styling = nil
         editingLabel = nil
@@ -1025,13 +1236,15 @@ struct DrawingCanvas: View {
                                                    about: pivot),
                           in: size)
                 case .move:
-                    apply(translate: CGVector(dx: value.translation.width, dy: value.translation.height),
+                    apply(translate: CGVector(dx: value.translation.width / space.scale,
+                                              dy: value.translation.height / space.scale),
                           in: size)
                 }
             }
             .onEnded { _ in
                 interaction = nil
                 snapshot = [:]
+                cellChanged()
             }
     }
 
@@ -1226,7 +1439,7 @@ struct DrawingCanvas: View {
         placePreview = nil
         guard let placing,
               let item = placing.item(from: from, to: to, in: size,
-                                      colorHex: color.hexString, lineWidth: width)
+                                      colorHex: color.hexString, lineWidth: width / space.scale)
         else { return }
         onBeginChange?()
         drawing.items.append(item)
@@ -1273,7 +1486,7 @@ struct DrawingCanvas: View {
         penActive || !selection.isEmpty || placing != nil || connectActive
     }
 
-    private func hover(_ phase: HoverPhase, in size: CGSize) {
+    private func hover(_ phase: HoverPhase, in pane: CGSize) {
         switch phase {
         case .active(let point):
             commandDown = NSEvent.modifierFlags.contains(.command)
@@ -1287,8 +1500,19 @@ struct DrawingCanvas: View {
             // pane, so nothing is "under the pointer" to pick up, and
             // handles drawn round a hovered object would promise a drag
             // that starts a marquee instead.
-            guard mode == .cursor else { hovered = nil; return }
-            hovered = drawing.index(at: doc(point), in: size).map { drawing.items[$0].id }
+            guard mode == .cursor else { hovered = nil; overPaper = false; return }
+            let found = CanvasSpace.at(CGPoint(x: point.x, y: point.y + scrollOffset), layer: layer, pane: pane,
+                                       frames: cellFrames, cells: cells.wrappedValue)
+            // An object in another space is offered only while nothing is
+            // held or under way here: a selection lives in one space.
+            if found.space != active, selection.isEmpty, interaction == nil, editingLabel == nil,
+               cropping == nil, styling == nil {
+                enter(found.space)
+            }
+            hovered = found.space == active ? found.item : nil
+            // A cell's paper is drawn on by the pointer: the pencil over it.
+            let paper = found.space != .floating && found.item == nil && placing == nil && !connectActive
+            if overPaper != paper { overPaper = paper }
         case .ended:
             // Leaving the ink for a handle beside it must not take the handle
             // away before it can be grabbed.
@@ -1316,6 +1540,10 @@ struct DrawingCanvas: View {
         // rounds. The pen stays a pencil and the drag still selects.
         if commandDown, NSEvent.modifierFlags.contains(.command), !drawing.isEmpty { return .crosshair }
         if hovered != nil || !hoveredHandles.isEmpty { return .openHand }
+        // Over a cell's paper the pointer draws, so it is the pencil — by
+        // the same way in as the hand over an object: this layer mounted,
+        // the text view's moves asking it (`CursorRectView.claim`).
+        if overPaper { return DrawingCursors.pencil }
         return nil
     }
 
@@ -1339,7 +1567,7 @@ struct DrawingCanvas: View {
     private func loadImages() {
         guard let mediaDirectory else { return }
         var cache = images
-        for image in drawing.images where cache[image.file] == nil {
+        for image in layer.images where cache[image.file] == nil {
             if let loaded = DrawingStore.loadImage(image.file, in: mediaDirectory) {
                 cache[image.file] = Image(nsImage: loaded)
             }
@@ -1369,10 +1597,15 @@ struct CanvasHitShape: Shape {
     /// The scroll offset: the objects are in the document, the shape is on
     /// the pane.
     var offset: CGFloat = 0
+    /// The drawing cells' paper, in document points: drawn on in cursor
+    /// mode too, so the layer takes a press there.
+    var paper: [CGRect] = []
 
     func path(in rect: CGRect) -> Path {
         if everything { return Path(rect) }
-        return objects(in: rect).applying(CGAffineTransform(translationX: 0, y: -offset))
+        var path = objects(in: rect)
+        for cell in paper { path.addRect(cell) }
+        return path.applying(CGAffineTransform(translationX: 0, y: -offset))
     }
 
     private func objects(in rect: CGRect) -> Path {

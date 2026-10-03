@@ -91,6 +91,66 @@ CoreMind's `bin/report-status.sh`.
   removed when the drawing is cleared) so the notes folder stays a folder of
   markdown. `DrawingStore` follows a rename and a trash; a note file with no
   sidecar is the normal case.
+- **A DRAWING CELL IS ONE LINE IN THE NOTE AND ONE FILE BESIDE IT, AND THE
+  FILE IS VISIBLE.** Sean, 2026-10-02: "on drawing segments, add a dock
+  button which inserts it into the cell of the existing cursor, and a
+  create cell from drawing which has a new type of cell.. and drawing cell
+  which is cmd + 0"; asked hidden or visible, "visible data generally
+  speaking". The line is `![](_drawings/cells/<UUID>.png)` with a blank
+  line either side (`DrawingCells.line`), relative to the note and the
+  same at every depth, so a moved note never has its line rewritten; the
+  file is `_drawings/cells/<UUID>.png` in the NOTE'S OWN folder
+  (`DrawingCellStore`). It is the one exception to "the notes folder stays
+  a folder of markdown", by that decision — the floating layer's
+  `.drawings` sidecars stay hidden and are NOT moved (moving Sean's data
+  is its own decision). **`_drawings` IS NEVER A SECTION**
+  (`NoteTree.isSection`, any case): the tree skips it, `uniqueURL` never
+  hands out its name for a folder (a section called that would vanish),
+  and neither move takes it as a target. **THE LINE** is read by one
+  pattern (`DrawingCells.parse`): the whole trimmed line, an optional
+  `<a id="…"></a>` in front (what `/link` writes before any block that is
+  not a heading — without it a linked drawing turned back into a
+  paragraph), any alt text, the folder exactly, a UUID, `.png`. Anything
+  else is a paragraph, and inside a fence it is code. The parser emits
+  `.drawing(id:alt:)` with the range of its line, and THE BLOCK ABOVE KEEPS
+  ITS OWN RANGE (`openEnd`): a heading or a list right under a paragraph
+  does not, today — the paragraph's range runs over the next line — and a
+  paragraph edited on the rendered page would have written over the
+  image line. **THE FILE** is a PNG any reader shows — the cell's
+  picture, handed in by whoever writes it — with the cell's objects in an
+  `iTXt` chunk keyed `WriteMind` just before IEND, zlib-compressed
+  (`DrawingCellFile`: the CRC-32, the zlib header and the Adler-32 are
+  written here; Foundation's `.zlib` is RAW deflate). The payload is `{"aspect","items","version",
+  "width"}`, keys sorted, `items` the layer's own `CanvasItem` Codable,
+  and every fraction a fraction of W ON BOTH AXES, so growing a cell moves
+  no point. It is read WHOLE OR READ-ONLY: a newer version, one object
+  that will not decode, a bad CRC or a bad stream is `.unreadable(why)`,
+  shown and never written — never "the rest of it". **THREE RULES ABOUT
+  OTHER PEOPLE'S WORK**: a write goes only over the bytes last read or
+  written (`NoteWriting.mayWrite(dataOnDisk:known:)`), and never over a
+  file that is not a cell this build can read whoever asks; an iCloud
+  placeholder (`.<ID>.png.icloud`) is never created over; and NOTHING
+  UNDER `_drawings/cells` IS EVER DELETED — an emptied cell is written
+  empty, the media sweep never looks there (it reads `.drawings/media`
+  only, and `DrawingCellStoreTests` holds it to that). A note MOVED copies
+  its cells' files to the new folder and leaves the originals; RENAMED, it
+  needs nothing; TRASHED, its cells stay so the Trash can give it back;
+  DUPLICATED, the copy's lines get new ids (`DrawingCells.forked`) and
+  copies of the files, so two notes never share a drawing, and a note
+  with no cells is still copied byte for byte. **⌘0** (`EditorBridge.
+  drawingCell`, Insert ▸ Drawing Cell, and Drawing on the + — the only
+  kind there that OPENS AT ONCE, `Kind.opensAtOnce`, because its next
+  input is a stroke and a character would land on its image line) is ONE
+  TEXT EDIT through `CellTypes.open(.drawing, minting:)`: at a bar the
+  cell is made there, as every kind is; in a cell it goes UNDER THE
+  CARET'S OWN SOURCE LINE (`DrawingCells.landing` — a list or a paragraph
+  of several lines becomes two), except that a fence is never split and
+  nothing comes between an In and its Out; on the rendered page with
+  nothing open, at the seam nearest the middle of the screen
+  (`CellSeams.nearest`) — NEVER `caretCell()`, whose first-cell fallback
+  is how ⌘1 once titled the top of a note from its bottom. A drawing cell
+  the rendered page opens, by ⌘0 or the +, is never opened as its line in
+  a `BlockEditor`: an editor on the line is a way to break it.
 - **INK IS PERFECT-FREEHAND, AND A STROKE WITH NO TOOL IS THE LINE IT
   ALWAYS WAS.** Sean, 2026-10-02: "make the text strokes well implemented
   to feel natural for writing letters.. do the same for drawing mode in
@@ -1986,8 +2046,13 @@ WriteMind/
                           applies an Edit through the text view (undo-safe)
   Editor/MarkdownBlocks.swift
                           MarkdownParser (headings, paragraphs, bullets,
-                          numbered, quotes, fenced code, rules) and
-                          MarkdownInline (Foundation's inline markdown + <u>)
+                          numbered, quotes, fenced code, rules, drawing
+                          cells) and MarkdownInline (Foundation's inline
+                          markdown + <u>)
+  Editor/DrawingCells.swift
+                          a drawing cell's line: written, read, found in a
+                          note, forked for a copy; where ⌘0 lands under the
+                          caret. Pure, tested
   Editor/MarkdownPreview.swift
                           the rendered view, block by block — and the editor
                           on that side: click a block and it opens in a
@@ -2035,6 +2100,18 @@ WriteMind/
                           CanvasItem, Drawing, and DrawingStore — the sidecar,
                           the pictures, and the sweep of the ones no note
                           points at any more
+  Drawing/DrawingCell.swift
+                          what a drawing cell holds: the layer's objects in
+                          fractions of its width on both axes, its size, an
+                          empty one, room grown under ink, the grip's floor
+  Drawing/DrawingCellFile.swift
+                          the cell's file: a PNG with its objects in an
+                          iTXt chunk (CRC-32, zlib), read whole or
+                          read-only. Pure, tested
+  Drawing/DrawingCellStore.swift
+                          _drawings/cells beside the note: load, write only
+                          over what was read, copy for a move or a fork,
+                          never a placeholder, never a delete
   Drawing/Shapes.swift    ShapeItem (nodes and marks: unit outlines, paths)
                           and ConnectorItem (arrows: heads, line style,
                           attachments)
@@ -2255,6 +2332,8 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   (dots, dashes or numbers, whichever the chevron picked) · ⌃⌘Q quote ·
   ⌘[ ⌘] outdent/indent (⇥ and ⇧⇥ too) · ⌘1–⌘7 the heading ladder (title,
   chapter, author, section, subsection, subsubsection, body) · ⌘8 code
+  block · ⌘9 an evaluation cell · ⌘0 a drawing cell · ⌃⌘↑/↓ move section · ⌃G group/ungroup what is picked on the
+
   block · ⌘9 evaluation cell · ⌃⌘↑/↓ move section · ⌃G group/ungroup what is picked on the
   drawing layer · ⌥⌘Z / ⇧⌥⌘Z undo and redo the
   DRAWING (⌘Z does it too while the pen is up; ⌘Z and ⇧⌘Z are the
@@ -2417,6 +2496,15 @@ tools/                    build.sh run.sh test.sh (both source signing.sh)
   the outgoing note correctly and then re-loaded it instead of the new one.
   The sink uses the value the publisher hands it; `loadText(for:)` takes an
   id for exactly this reason.
+- **`insertText(_:replacementRange:)` INSIDE `shouldChangeText`/
+  `didChangeText` PUTS THE EDIT ON THE UNDO STACK TWICE.** NSTextView's
+  `insertText` does its own pair, so the wrapped insertion was registered
+  by both, and ⌘Z took the text out once and then threw `NSRangeException`
+  on the second, stale, copy (2026-10-02: a hosted editor, and a bare
+  NSTextView probe — the plain call and the storage edit both undo and
+  redo clean). `MarkdownTextView.openSeam` — every cell opened at a bar,
+  and ⌘0 — had it. An edit nobody typed goes INTO THE STORAGE between the
+  pair, as `EditorBridge.apply` does it.
 - **A SwiftUI patch that asserts its way through several files can leave the
   tree half-edited.** Two changes here were written into some files and not
   others because a later `assert old in s` failed and the earlier writes had
