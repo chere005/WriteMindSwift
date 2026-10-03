@@ -187,7 +187,11 @@ final class AppState: ObservableObject {
     /// shape you photograph pages in is a property of your notebook, not
     /// of this launch.
     /// What ⌘9 makes: the environment the last evaluation cell was, so a
-    /// notebook of Python cells takes one press each.
+    /// notebook of Python cells takes one press each (Sean, 2026-09-22:
+    /// "remember last used cell type when inserting") — Wolfram until one
+    /// has been picked ("default to wolfram"). Written by the badge on a
+    /// cell when an environment is chosen there (`EditorPane`), and by
+    /// nothing else.
     @Published var evaluator: Evaluator {
         didSet { defaults.set(evaluator.rawValue, forKey: Keys.evaluator) }
     }
@@ -545,7 +549,7 @@ final class AppState: ObservableObject {
         tabletTarget = TabletTarget(rawValue: defaults.string(forKey: Keys.tabletTarget) ?? "") ?? .page
         notebookScale = NotebookScale(rawValue: defaults.string(forKey: Keys.notebookScale) ?? "") ?? .fit
         cameraAspect = CameraAspect(rawValue: defaults.string(forKey: Keys.cameraAspect) ?? "") ?? .free
-        evaluator = Evaluator(rawValue: defaults.string(forKey: Keys.evaluator) ?? "") ?? .python
+        evaluator = Evaluator(rawValue: defaults.string(forKey: Keys.evaluator) ?? "") ?? .wolfram
         penColorHex = defaults.string(forKey: Keys.penColorHex) ?? Self.presetColors[0]
         // A tool this build does not know is the pen, as it is on a stroke.
         penTool = InkTool(rawValue: defaults.string(forKey: Keys.penTool) ?? "") ?? .pen

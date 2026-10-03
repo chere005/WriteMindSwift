@@ -228,8 +228,9 @@ is how the code is put together.
   kept; in a cell already running that way it does nothing and the footer
   says so, and in an answer it makes a new cell under the answer. ⇧↩ runs it,
   and nothing else does. At its far left is a badge saying which
-  environment it is — click it to pick another and the fence is rewritten
-  — and once the cell has been run that becomes `In[n]`, with `Out[n]`
+  environment it is — click it to pick another and the fence is rewritten,
+  and the next ⌘9 makes that kind (Wolfram until one has been picked) —
+  and once the cell has been run that becomes `In[n]`, with `Out[n]`
   beside the answer, the way a notebook marks a pair. The mark stays put
   while the cell is open for typing. The answer lands in an ```out
   cell underneath, and running again replaces that answer rather than

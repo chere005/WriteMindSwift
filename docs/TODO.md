@@ -28,14 +28,9 @@ had to say it. Verification is the job, not an item.
   (`CellSeams.nearest(toLine:)`). Pictures docked in a cell cannot yet be
   cropped or read into text (`NoteStore.cropImage` and `readText` only look at
   the layer).
-- **The evaluation cell's margin, four things.** Sean, 2026-09-22, in one
-  message; C and Rust landed from it, these did not.
-  - **A new evaluation cell is Wolfram** ("default to wolfram"). ⌘9 writes
-    whatever `AppState.evaluator` holds, which starts as Python.
-  - **And then it is whichever was used last** ("remember last used cell
-    type when inserting"). The choice would have to be remembered in the
-    defaults the way the pen's size and colour are, and written whenever a
-    cell is made or its environment picked.
+- **The evaluation cell's margin, two things left.** Sean, 2026-09-22, in one
+  message; C and Rust landed from it, "default to wolfram" and "remember last
+  used cell type" landed 2026-10-02, these did not.
   - **The marks sit further left, and the cells do not move**
     ("align further to the left but keep the cell start the same").
     `CellMark` is a 44-point column in front of the cell, so moving the

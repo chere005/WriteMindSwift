@@ -84,7 +84,7 @@ struct EditorPane: View {
                                         // expression: the two panes are
                                         // the same notebook.
                                         seamsEnabled: !appState.canvasOwnsPane,
-                                        onPickEvaluator: { store.setEnvironment($0, of: $1) },
+                                        onPickEvaluator: { appState.evaluator = $0; store.setEnvironment($0, of: $1) },
                                         runningCell: store.runningCell,
                                         drawingCells: drawingCells(of: note),
                                         onDrawingFrames: { told(drawingFrames: $0) },
