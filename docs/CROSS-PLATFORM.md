@@ -178,6 +178,134 @@ the markdown view and the rendered one:
 - **A drag from a bar** takes cells only — never the bracket round an
   evaluation pair as if it were one, which took the cell above the bar too.
 
+### Maths is an expression: type any formula, see it set, store plain WL
+Sean, 2026-10-03: "maths input should also just allow for an expression so i
+could insert a function or something and it would appear like the derivatives
+or integrals". The maths palette's main thing is a FREE FIELD; the shapes
+(integral, sum, derivative …) are ways of writing into it, and a shape is not
+a special case anywhere — the same typesetter sets a shape and a formula typed
+by hand, which is the point: what he types "appears like the derivatives or
+integrals".
+- **The palette.** Opens with the keyboard in the expression field and
+  nothing picked (empty; if it was opened over a selection that reads as
+  maths, the field holds that, and "On its own line" is off when the
+  selection sits inside a line of words). Under it a LIVE preview of what will
+  be inserted: set in two dimensions when "On its own line" is on, in the
+  line of type of a sentence when off; "Stored as …" under it when the note
+  will hold a different spelling from what was typed. **Return inserts,
+  Escape cancels**; Insert is disabled, and Return beeps, while the
+  expression does not read. The shapes sit below the field; picking one
+  writes its expression into the field, shows its parts to fill in, and the
+  parts drive the field until the field is typed in (then the parts go: they
+  no longer describe it). A shape wraps what is "the subject" — the
+  selection the palette opened over, or what was typed and reads as maths —
+  in its first part; the next shape REPLACES a shape's own output, it never
+  nests it, so browsing the shapes does not stack them.
+- **A clear error state.** Maths that does not read is never inserted, and
+  says why under the field (red text, red outline) with where: brackets are
+  checked first and on their own — `Missing "]" — the "[" at position 10 is
+  never closed.`, `The "[" at position 4 is closed by ")" at position 6 — it
+  needs "]".`, `Unexpected ")" at position 6 — nothing is open to close.` —
+  then `Expected an expression after "+".` / `before "*"`, an unterminated
+  string or comment or `\[Name]`, `|x|` with the hint that WL writes
+  `Abs[x]`. THE INSERTION REFUSES TOO, in every context (at a bar, in a
+  block, in a span, over a selection) with the footer line `That maths does
+  not read, so nothing was inserted: …`, because the palette is not the only
+  caller. Nothing is written and there is no undo step.
+- **What is stored is plain WL, in one spelling:** `` `wl:…` `` in a sentence,
+  a ```wl block on its own line. Spaces round `+ - == != < <= > >= -> :> = :=
+  && || /; /.` and `.`; none round `* / ^`; `; ` has one after; a comma is
+  followed by a space; brackets only where needed — `Sin[x]^2/(1+x)` is kept
+  as `Sin[x]^2/(1 + x)`, `f[x_]:=x^2` as `f[x_] := x^2`. Anything that
+  reads parses back to the same tree when printed (a property worth testing
+  with random trees).
+- **What a formula is written with** (the parser): numbers (`1.5`, `.5`),
+  names (letters, digits, `$`), `\[Alpha]`-style names, strings, lists,
+  calls `f[x]` (and `f[x][y]`), `m[[i, j]]` parts, `f'[x]` primes, `n!`
+  factorials, `!a` not, `#^2 &` pure functions with `#`, `##`, `#2`, patterns
+  `x_` `x__` `_Integer` `x_Real`, `(* comments *)` skipped, and two things
+  side by side as a product (`2 x`). Binding, loosest first: `;` · `=` `:=`
+  (right) · `&` · `/.` · `->` `:>` (right) · `/;` · `||` · `&&` · `!` ·
+  relations (`== != === =!= < <= > >=`) · `+ -` · `* /` and juxtaposition ·
+  `.` · `^` (right) · `!` and `'` after a thing. **A minus sign is looser
+  than a power and tighter than a sum: `-x^2` is -(x^2)** (the old reading
+  made the palette's own `Exp[-x^2]` mean `Exp[(-x)^2]`), `-a*b` is -(a*b),
+  and in an exponent the minus is the exponent's alone (`2^-x*3` is
+  (2^-x)·3); a negation used as a factor or a base keeps its brackets in the
+  printed form (`(-a)*b`, `(-x)^2`). Typography is put back before reading:
+  `− – —` are a minus, `× · ⋅` times, `÷` divide, `≤ ≥ ≠ →` their ASCII,
+  `∞` Infinity, `°` Degree, superscript digits `x²` are `x^2`, “curly”
+  quotes are quotes (a text field's smart quotes would otherwise break
+  `Direction -> "FromAbove"`). Limits: 2,000 tokens and 300 levels of
+  nesting are refused with a message; a long sum is a loop, not a recursion.
+- **How it is set** — one decision (a tree of parts: glyph runs, rows,
+  fractions, scripts, roots, fences, big operators, matrices) painted two
+  ways, so the two never disagree about WHAT is set:
+  - Fractions come from `/`, `Divide` and `Rational`: numerator over
+    denominator with the bar on the axis (a quarter em above the baseline,
+    where the cross of `+` sits), so `x + a/b` has the `x +` on the line of
+    the bar — a row has ONE baseline. A fraction inside a fraction is
+    smaller (82%); nothing is set under 5 pt.
+  - Powers are raised by how tall their base is (a power of a bracket is
+    higher than a power of an x); a power of a power is smaller again;
+    `Sin[x]^2` (and Cos, Tan, Log … with a plain number or symbol for the
+    power) is sin²(x) with the power on the name; `Exp[x]` is eˣ; a base
+    that is itself a power, a product or a sum is bracketed. `Sqrt[x]` is a
+    root with its roof over everything in it. Brackets are drawn to the
+    height of their content, centred on the axis (parentheses, | |, ‖ ‖,
+    ⌊ ⌋, ⌈ ⌉, ⟦ ⟧ for `m[[i]]`, braces for a list).
+  - A function applied is `f(x)`: a one-letter head and any Greek letter in
+    italic, a known function (sin, cos, ln, exp, max, det, Γ …) upright,
+    anything else upright by its name; a variable is one letter (optionally
+    with digits: `x1`) in italic, a capital Greek letter upright. Greek can
+    be spelled out: `Alpha`, `Theta`, `Pi` are α, θ, π with or without the
+    `\[ ]` (called as a function — `Gamma[x]` — they are the function).
+  - `Sum` and `Product` have a big sign with the limits centred over and
+    under (`i = 1` under, the end over; `{i, n}` runs from 1, `{i, {a, b}}`
+    is i ∈ the list, several iterators make several signs). `Integrate` has
+    a big sign (centred on the axis) with its limits BESIDE it — the end at
+    the top, the start at the foot — then the integrand (bracketed when it is
+    a sum) and `dx`; several iterators make a sign each and the
+    differentials come innermost-first (`dy dx` for `{x,…}, {y,…}`: WL's
+    order). `Limit` is `lim` with `x → a` under it, a `⁺` or `⁻` after the
+    approach for `Direction -> "FromAbove"`/`-1` and `"FromBelow"`/`1`.
+    `D` is ∂ᴺf over ∂x… in every form (`D[f, x]`, `{x, n}`, `D[f, x, y]`,
+    `{x, 2}, {y, 1}`; the order on the ∂ is the total), `Dt` the same with d,
+    `Grad`/`Div`/`Curl`/`Laplacian` ∇ f, ∇·F, ∇×F, ∇²f.
+  - A list of lists is a matrix: a grid of cells centred in their columns,
+    rows of at least a line's height, in tall parentheses (a ragged one is
+    padded; one row is a matrix too); any other list is `{a, b, c}`.
+  - Products: side by side with a small gap, except two numbers (`2*3` is
+    2 × 3, not 23) and a number second (`x*2` is x · 2). A sum is spaced
+    round `+` and `−` (U+2212). Relations: `== != <= >=` are `= ≠ ≤ ≥`, `->`
+    is `→`, `:>` `:→`, `&&` `∧`, `||` `∨`, `!` `¬`, `:=` stays `:=`, `.` `·`.
+    Anything else is `f(a, b)`; a pattern `x_` is shown as it is written.
+  - FullForm is set as what it stands for: `Plus[a, b]`, `Times[-1, x]`,
+    `Power`, `Divide`, `Subtract`, `Rational`, `Equal`, `Not`, `Factorial`,
+    `Element`, `Union` … and `MatrixForm[…]` is the matrix.
+  - **In a sentence** the same decision is written on one line: a fraction as
+    `a/b` (brackets where the parts hold together less tightly than that
+    needs), scripts as raised and lowered smaller text (a script of a script
+    raised higher again), ∑ and ∫ a little larger with their limits as
+    scripts, a matrix as `(a, b; c, d)`, a binomial as Cⁿₖ, `√(…)` with
+    brackets unless it is one thing.
+- **Round trip.** Clicking a typeset formula on the rendered page opens its
+  WL for editing — a maths block as its WL with the fences around it, the
+  caret at the end; a sentence as the whole sentence with the `wl:` span in
+  it — and what is typed is typeset again when it is left. A formula that
+  does not read is shown as typed, in the secondary colour, and the reason is
+  its tooltip.
+- **A selection that reads as maths** seeds the palette: now also `=`, `:=`,
+  `n!`, `x²`, `f'[x]`, `#^2 &`. Still not maths: a name with a bracket right
+  after it (`f(x) = 2x` — function notation WL does not write, and WL would
+  read it as f times x), an apostrophe that is not a prime (`I'm`),
+  `#hashtag`, `snake_case` (a pattern reads as maths only with a one-letter
+  name: `x_`, `x_Integer`, `a_1`), and anything with a word in it.
+- Port note: the parts that are easy to get wrong are the precedence of the
+  minus sign, the bracket check coming FIRST (so the message is the plain
+  one), the baseline rule for rows, and fences/roots/big operators being drawn
+  to measure rather than taken from a font's glyph.
+
 ### A code block, an evaluation cell or maths always lands as a cell of its own
 Sean, 2026-10-02: "make math and code block insertion sensible..". One rule
 for the code button / its key, the evaluation-cell key and the maths palette,

@@ -55,6 +55,15 @@ import Foundation
 ///   block is, and maths in one goes in as the bare WL; inline maths in any
 ///   other code span is refused, as it is in a code block.
 ///
+/// - MATHS THAT DOES NOT READ IS NEVER WRITTEN. The palette's WL goes
+///   through `WLParser.read` first and is written in its one spelling
+///   (`Sin[x]^2/(1+x)` is kept as `Sin[x]^2/(1 + x)`); one that does not
+///   read — a bracket never closed — is refused with the parser's reason in
+///   the footer, in every context here, because the palette is not the
+///   only caller and `WLPrinter.canonical` leaves what it cannot read as
+///   it was typed (Sean, 2026-10-03: "maths input should also just allow
+///   for an expression").
+///
 /// It answers with ONE edit over the note, so the source pane applies it
 /// as one step of undo, and the rendered page asks the same question with
 /// the same note and the same caret and gets the same answer. The cell's
@@ -80,6 +89,10 @@ enum Insertion {
         case alreadyEvaluates(Evaluator)
         case mathsInCode
         case fenceInSelection
+        /// Maths that does not read as Wolfram Language, and why — nothing
+        /// broken is ever written into a note (Sean, 2026-10-03: "maths
+        /// input should also just allow for an expression").
+        case mathsDoesNotParse(String)
 
         var message: String {
             switch self {
@@ -91,6 +104,8 @@ enum Insertion {
                 return "Maths goes in words or in a maths block — inside code it would only be typed as code."
             case .fenceInSelection:
                 return "That selection has a fenced block in it, and one block cannot go inside another."
+            case .mathsDoesNotParse(let why):
+                return "That maths does not read, so nothing was inserted: \(why)"
             }
         }
     }
@@ -105,7 +120,12 @@ enum Insertion {
     static func insert(_ thing: Thing, in text: String, at selection: NSRange, atBar: Bool) -> Outcome {
         let ns = text as NSString
         let selection = MarkdownFormatting.clamp(selection, to: ns.length)
-        let thing = canonical(thing)
+        let read: Thing
+        switch canonical(thing) {
+        case .failure(let error): return .refused(.mathsDoesNotParse(error.message))
+        case .success(let canonicalThing): read = canonicalThing
+        }
+        let thing = read
         if atBar { return made(thing, at: Spot(removing: NSRange(location: selection.location, length: 0)), in: text) }
 
         let blocks = MarkdownParser.positioned(from: text)
@@ -682,10 +702,13 @@ enum Insertion {
                                 selection: NSRange(location: range.location + (wl as NSString).length, length: 0))
     }
 
-    /// The palette's WL in its one spelling.
-    private static func canonical(_ thing: Thing) -> Thing {
-        guard case .maths(let wl, let onItsOwnLine) = thing else { return thing }
-        return .maths(WLPrinter.canonical(wl.trimmingCharacters(in: .whitespacesAndNewlines)), onItsOwnLine: onItsOwnLine)
+    /// The palette's WL in its one spelling — or why it has none. A thing
+    /// that is not maths is as it was.
+    private static func canonical(_ thing: Thing) -> Result<Thing, WLSyntaxError> {
+        guard case .maths(let wl, let onItsOwnLine) = thing else { return .success(thing) }
+        return WLParser.read(wl.trimmingCharacters(in: .whitespacesAndNewlines)).map {
+            .maths(WLPrinter.source($0), onItsOwnLine: onItsOwnLine)
+        }
     }
 
     /// The one edit that turns `old` into `new`: what they share at both

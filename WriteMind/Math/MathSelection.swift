@@ -30,21 +30,48 @@ enum MathSelection {
     /// The newline at an end is not part of it: a triple-click takes the
     /// line's own with it (the review of 2026-10-02 — the most common way
     /// to take a line read as words). One in the middle is two lines.
+    ///
+    /// A name with a bracket RIGHT AFTER IT — `f(x)`, `x(y + 1)` — is how a
+    /// page writes a function, and WL writes it `f[x]`: WL would read it as
+    /// f times x, and set it as that, so it is not offered as maths (the
+    /// 2026-10-03 expression field reads `=` and `:=` too, which let
+    /// `f(x) = 2x` parse where it had not).
     static func reading(_ text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(where: \.isNewline),
               let expression = WLParser.parse(trimmed)
         else { return nil }
         let tokens = WLParser.tokenize(trimmed)
+        let notWL = tokens.indices.contains { index in
+            let token = tokens[index]
+            let next = index + 1 < tokens.count ? tokens[index + 1] : nil
+            // An apostrophe is a prime only in f'[x]; anywhere else it is a
+            // word's ("I'm"), and a line of prose is not maths.
+            if token.kind == .op, token.value == "'" { return !(next?.kind == .punct && next?.value == "[") }
+            // `x_`, `_Integer`, `a_1` are patterns; `snake_case` is a word.
+            if token.kind == .pattern {
+                let name = token.value.prefix { $0 != "_" }
+                let head = token.value.drop { $0 != "_" }.drop { $0 == "_" }
+                return name.count > 1 || !(head.isEmpty || head.first!.isUppercase || head.allSatisfy(\.isNumber))
+            }
+            guard token.kind == .symbol, !token.value.hasPrefix("\\["), let next else { return false }
+            return next.kind == .punct && next.value == "(" && next.offset == token.end
+        }
         let words = tokens.indices.contains { index in
             let name = tokens[index].value
-            guard tokens[index].kind == .symbol, name.count >= 2, !name.hasPrefix("\\[") else { return false }
+            guard tokens[index].kind == .symbol, name.count >= 2, !name.hasPrefix("\\["), !isSlot(name)
+            else { return false }
             if index + 1 < tokens.count, tokens[index + 1].kind == .punct, tokens[index + 1].value == "[" {
                 return false
             }
             return MathSymbols.constants[name] == nil && MathSymbols.functions[name] == nil
         }
-        return words ? nil : WLPrinter.source(expression)
+        return words || notWL ? nil : WLPrinter.source(expression)
+    }
+
+    /// `#`, `#2`, `##`: the slot of a pure function, not a word.
+    private static func isSlot(_ name: String) -> Bool {
+        name.hasPrefix("#") && name.drop(while: { $0 == "#" }).allSatisfy { $0.isASCII && $0.isNumber }
     }
 
     /// Whether `wl` still holds the selected text — it IS it, or has it
@@ -62,9 +89,10 @@ enum MathSelection {
         switch whole {
         case .list(let items): return items.contains { contains($0, part) }
         case .call(let head, let arguments): return contains(head, part) || arguments.contains { contains($0, part) }
+        case .part(let base, let indices): return contains(base, part) || indices.contains { contains($0, part) }
         case .binary(_, let left, let right): return contains(left, part) || contains(right, part)
-        case .negate(let operand): return contains(operand, part)
-        case .number, .symbol, .text: return false
+        case .negate(let operand), .prefix(_, let operand), .postfix(_, let operand): return contains(operand, part)
+        case .number, .symbol, .text, .blank: return false
         }
     }
 
