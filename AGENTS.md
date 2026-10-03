@@ -1200,8 +1200,11 @@ CoreMind's `bin/report-status.sh`.
   drawing layer's part by the layer's own rules (`DrawingCanvas.strokesTouched`,
   extracted from `erase(byTablet:)` for this, and `marqueePicked`); `PenBench`
   feeds a script's EXACT frames to a bare `TabletPen`. Fixtures are recorded
-  sessions in `WriteMindTests/Fixtures`, each the bytes its recipe in
-  `PenFixtures` records and kept so by `PenFixtureFilesTests` — regenerate with
+  sessions in `WriteMindTests/Fixtures`: a file with a recipe in `PenFixtures` is
+  the bytes its recipe records, and a file with none — a session recorded on the
+  real tablet, which is the point of record — is allowed and held only to being a
+  whole recording that replays to its end (`PenFixtures.problems(in:)`,
+  `PenFixtureFilesTests`) — regenerate the recipes' with
   `TEST_RUNNER_WRITEMIND_REGENERATE_FIXTURES=1`. NEVER open, seize or send to the
   real tablet from any of it (`LiveTabletHID` still refuses under `TestHost`);
   the tests that hand-built samples were ported where the gesture reads

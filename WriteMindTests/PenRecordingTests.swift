@@ -580,10 +580,65 @@ final class PenFixtureFilesTests: XCTestCase {
         }
     }
 
-    func testEveryFixtureInTheFolderIsARecipe() throws {
-        let files = try FileManager.default.contentsOfDirectory(atPath: PenFixtures.folder.path)
-            .filter { $0.hasSuffix(".ndjson") }.sorted()
-        XCTAssertEqual(files, PenFixtures.recipes.map { "\($0.name).ndjson" }.sorted())
+    /// THE FOLDER, AS DOCUMENTED: every file in it is a whole recording that
+    /// replays to its end, the ones with a recipe are their recipe's bytes,
+    /// and a recipe with no file is missing one.
+    func testTheFolderIsAsItShouldBe() {
+        XCTAssertEqual(PenFixtures.problems(), [])
+    }
+
+    /// A SESSION RECORDED ON THE REAL TABLET IS JUST ANOTHER FILE IN THE
+    /// FOLDER (docs/WACOM-DEV.md): one with no recipe is allowed, and is held
+    /// only to being a whole recording that replays.
+    func testARecordingWithNoRecipeIsAllowedInTheFolder() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "WriteMindTests-fixtures-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for recipe in PenFixtures.recipes {
+            try FileManager.default.copyItem(at: PenFixtures.url(recipe.name), to: folder.appending(path: "\(recipe.name).ndjson"))
+        }
+        XCTAssertEqual(PenFixtures.problems(in: folder), [])
+
+        // What the app's Record button writes on the real tablet: the HID
+        // source, a date, no note, no recipe.
+        var recording = PenFixtures.record(PenFixtures.recipes[0])
+        recording.header.source = "hid"
+        recording.header.created = "2026-10-03T14:30:05Z"
+        recording.header.note = nil
+        try recording.write(to: folder.appending(path: "real-tablet-scribble.ndjson"))
+        XCTAssertEqual(PenFixtures.problems(in: folder), [], "the suite is not red because somebody added a recording")
+    }
+
+    func testAFileInTheFolderThatIsNotAWholeRecordingIsReportedWithItsLine() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "WriteMindTests-fixtures-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for recipe in PenFixtures.recipes {
+            try FileManager.default.copyItem(at: PenFixtures.url(recipe.name), to: folder.appending(path: "\(recipe.name).ndjson"))
+        }
+        try Data((#"{"format":"writemind-pen-stream","version":1}"# + "\n" + #"{"report":"02 zz","t":0}"# + "\n").utf8)
+            .write(to: folder.appending(path: "half-written.ndjson"))
+        try Data(#"{"format":"writemind-pen-stream","version":1}"#.utf8).write(to: folder.appending(path: "empty.ndjson"))
+        let problems = PenFixtures.problems(in: folder)
+        XCTAssertEqual(problems.count, 2, "\(problems)")
+        XCTAssertTrue(problems.contains { $0.hasPrefix("half-written.ndjson: line 2") }, "\(problems)")
+        XCTAssertTrue(problems.contains { $0.hasPrefix("empty.ndjson: no events") }, "\(problems)")
+    }
+
+    func testAFileWithARecipeThatHasDriftedFromItIsReported() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "WriteMindTests-fixtures-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        for recipe in PenFixtures.recipes {
+            try FileManager.default.copyItem(at: PenFixtures.url(recipe.name), to: folder.appending(path: "\(recipe.name).ndjson"))
+        }
+        let drifted = folder.appending(path: "stroke.ndjson")
+        let text = try String(contentsOf: drifted, encoding: .utf8)
+        try text.replacingOccurrences(of: #""t":0.008"#, with: #""t":0.009"#).write(to: drifted, atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: folder.appending(path: "pressure-ramp.ndjson"))
+        let problems = PenFixtures.problems(in: folder)
+        XCTAssertTrue(problems.contains { $0.hasPrefix("stroke.ndjson: not what its recipe records") }, "\(problems)")
+        XCTAssertTrue(problems.contains { $0.hasPrefix("pressure-ramp.ndjson: a recipe with no file") }, "\(problems)")
     }
 
     func testEveryFixtureIsSmall() throws {

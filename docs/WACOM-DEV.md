@@ -118,8 +118,12 @@ XCTAssertEqual(rig.page.strokes.count, 1)
 6. **A new pen feature, step by step**: write the gesture on the rig and watch it
    fail for the reason you expect; build the feature; try it by hand on the
    virtual tablet; record the session worth keeping; commit it under
-   `Fixtures/` with a recipe in `PenFixtures` (or as a plain recorded file) and
-   a replay test that asserts the document outcome.
+   `Fixtures/` — as a plain recorded file, which is what a session recorded on
+   the real tablet is, or with a recipe in `PenFixtures` — and a replay test that
+   asserts the document outcome. `PenFixtureFilesTests` holds the folder to this:
+   a file with a recipe is its recipe's bytes; any file at all must be a whole
+   recording that replays to its end (a file with no recipe is never "an extra
+   fixture" that turns the suite red).
 
 ## What it does not do
 

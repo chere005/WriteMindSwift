@@ -421,8 +421,9 @@ plugged in".
   fractions, through the whole path into the page and into the notebook. Six small
   recorded fixtures (a stroke, a box select, a lower-hold erase, a double press
   for undo, a double tap for redo, a pressure ramp) are in `WriteMindTests/
-  Fixtures` in this app: the files are plain NDJSON of raw reports, so the port
-  can replay the very same sessions and assert the same outcomes (one stroke of
+  Fixtures` in this app: the files are plain NDJSON of raw reports (and a
+  recording made on the real tablet is just another file there, held only to being
+  whole and replaying), so the port can replay the very same sessions and assert the same outcomes (one stroke of
   seven points; a box from (0.2, 0.2) to (0.7, 0.6); the stroke erased; undone;
   undone then redone; ten points with rising pressure).
 

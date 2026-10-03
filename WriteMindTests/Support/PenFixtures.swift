@@ -18,7 +18,11 @@ import XCTest
 //     TEST_RUNNER_WRITEMIND_REGENERATE_FIXTURES=1 sh tools/test.sh
 //
 // (or the same variable on a focused xcodebuild run). A fixture of a session
-// recorded on the real tablet is just another file in the folder.
+// recorded on the real tablet is just another file in the folder, with no
+// recipe: the point of record and replay is that a bug seen once on the real
+// tablet is a file to commit. `problems(in:)` is what the folder is held to —
+// a file with a recipe is its bytes, any other file is a whole recording that
+// replays to its end.
 @MainActor
 enum PenFixtures {
     struct Recipe {
@@ -80,6 +84,45 @@ enum PenFixtures {
     /// A fixture, read from its file.
     static func load(_ name: String) throws -> PenRecording {
         try PenRecording(contentsOf: url(name))
+    }
+
+    /// WHAT IS WRONG WITH THE FOLDER, in words; empty when it is as it should
+    /// be. Every `.ndjson` file is a whole recording (`PenRecording` refuses
+    /// what is not, with its line), has events in it, and REPLAYS THROUGH THE
+    /// DOOR TO ITS END; a file with a recipe is also the bytes the recipe
+    /// records, and every recipe has its file. A file with no recipe — a
+    /// session recorded on the real tablet — is checked for the rest and
+    /// otherwise left as it is.
+    static func problems(in folder: URL = PenFixtures.folder) -> [String] {
+        var problems: [String] = []
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+            .filter { $0.hasSuffix(".ndjson") }.sorted()
+        for name in names {
+            let url = folder.appending(path: name)
+            let recording: PenRecording
+            do {
+                recording = try PenRecording(contentsOf: url)
+            } catch {
+                problems.append("\(name): \((error as? PenRecording.Failure)?.description ?? "\(error)")")
+                continue
+            }
+            if recording.entries.isEmpty { problems.append("\(name): no events") }
+            if let recipe = recipes.first(where: { "\($0.name).ndjson" == name }), !regenerating {
+                let want = record(recipe).ndjson()
+                if (try? Data(contentsOf: url)) != want {
+                    problems.append("\(name): not what its recipe records — regenerate the fixtures")
+                }
+            }
+            let rig = TabletRig()
+            let replay = rig.play(recording, speed: PenReplay.asFastAsPossible)
+            if replay.state != .finished || replay.delivered != recording.entries.count {
+                problems.append("\(name): the replay stopped at event \(replay.delivered) of \(recording.entries.count)")
+            }
+        }
+        for recipe in recipes where !names.contains("\(recipe.name).ndjson") {
+            problems.append("\(recipe.name).ndjson: a recipe with no file")
+        }
+        return problems
     }
 
     static var regenerating: Bool {
