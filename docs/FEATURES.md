@@ -464,7 +464,8 @@ is how the code is put together.
   the upper one puts it back (the upper one only while the line at the bottom
   says "pen captured"). **Hold the lower button and touch the nib down to
   erase: every stroke the nib goes over is deleted whole, and one erasure is
-  one step back.** Hold the upper button and drag with the nib down — or drag
+  one step back.** (The marker says which: a red dashed ring for the eraser, a
+  dashed square for the box, as soon as the button is held.) Hold the upper button and drag with the nib down — or drag
   with the mouse or the trackpad — to
   box part of the page, and the camera's three buttons bring it into the
   note: **Image** (that part of the page as a picture, paper and all),

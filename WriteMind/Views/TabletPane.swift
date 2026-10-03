@@ -453,15 +453,47 @@ struct TabletHoverMarker: View {
     @ObservedObject var input: TabletInput
     let page: CGRect
 
+    /// WHAT THE PEN IS, as the marker shows it: ink, the lower switch's
+    /// eraser or the upper's box — held in the air (what the nib will be
+    /// when it goes down) or latched for the stroke under way (Sean,
+    /// 2026-10-03).
+    enum Mode: Equatable {
+        case ink, eraser, box
+    }
+
+    static func mode(of pen: TabletSample) -> Mode {
+        if pen.eraser || pen.holding == .lower { return .eraser }
+        if pen.sideSwitch || pen.holding == .upper { return .box }
+        return .ink
+    }
+
     var body: some View {
         if let pen = input.pen {
             let down = pen.phase == .down || pen.phase == .drag
-            Circle()
-                .strokeBorder(Color.accentColor, lineWidth: 1.5)
-                .background(Circle().fill(Color.accentColor.opacity(down ? 0.45 : 0)))
-                .frame(width: 12, height: 12)
-                .position(x: page.minX + pen.page.x * page.width, y: page.minY + pen.page.y * page.height)
-                .allowsHitTesting(false)
+            let mode = Self.mode(of: pen)
+            let at = CGPoint(x: page.minX + pen.page.x * page.width, y: page.minY + pen.page.y * page.height)
+            Group {
+                switch mode {
+                case .ink:
+                    Circle()
+                        .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                        .background(Circle().fill(Color.accentColor.opacity(down ? 0.45 : 0)))
+                        .frame(width: 12, height: 12)
+                case .eraser:
+                    // A bigger, dashed ring in red: what it touches goes.
+                    Circle()
+                        .strokeBorder(Color.red, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                        .background(Circle().fill(Color.red.opacity(down ? 0.3 : 0)))
+                        .frame(width: 20, height: 20)
+                case .box:
+                    Rectangle()
+                        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                        .background(Rectangle().fill(Color.accentColor.opacity(down ? 0.3 : 0)))
+                        .frame(width: 14, height: 14)
+                }
+            }
+            .position(at)
+            .allowsHitTesting(false)
         }
     }
 }

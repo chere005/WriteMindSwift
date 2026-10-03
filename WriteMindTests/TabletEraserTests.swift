@@ -128,3 +128,32 @@ final class TabletEraserTests: XCTestCase {
         if case .path = got.first {} else { XCTFail("the first is a path") }
     }
 }
+
+/// The marker says what the pen will be: held in the air, and for the stroke.
+final class TabletMarkerModeTests: XCTestCase {
+    private func hover(holding: PenSwitch? = nil, eraser: Bool = false, box: Bool = false) -> TabletSample {
+        TabletSample(page: .zero, pressure: 0, phase: holding == nil && !eraser && !box ? .hover : .drag,
+                     sideSwitch: box, inProximity: true, timestamp: 0, eraser: eraser, holding: holding)
+    }
+
+    func testTheMarkerSaysInkEraserOrBox() {
+        XCTAssertEqual(TabletHoverMarker.mode(of: hover()), .ink)
+        XCTAssertEqual(TabletHoverMarker.mode(of: hover(holding: .lower)), .eraser, "held in the air")
+        XCTAssertEqual(TabletHoverMarker.mode(of: hover(holding: .upper)), .box)
+        XCTAssertEqual(TabletHoverMarker.mode(of: hover(eraser: true)), .eraser, "latched for the stroke")
+        XCTAssertEqual(TabletHoverMarker.mode(of: hover(box: true)), .box)
+    }
+
+    func testAHoverCarriesTheSwitchHeldInTheAir() {
+        var pen = TabletPen()
+        var extent = TabletExtent(width: 15200, height: 9500)
+        func feed(_ lower: Bool, _ time: TimeInterval) -> [TabletSample] {
+            pen.consume(TabletReading(kind: .point(counts: CGPoint(x: 7600, y: 4750), tip: false,
+                                                   switches: lower ? [.lower] : [], pressure: 0, buttons: 0),
+                                      timestamp: time, native: false), extent: &extent, quarterTurns: 1)
+        }
+        XCTAssertNil(feed(false, 1).first?.holding)
+        XCTAssertEqual(feed(true, 2).first?.holding, .lower, "pressed in the air: the marker can say eraser")
+        XCTAssertNil(feed(false, 3).first?.holding, "let go")
+    }
+}

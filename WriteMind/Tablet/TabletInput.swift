@@ -347,6 +347,11 @@ struct TabletSample: Equatable {
     /// went down (Sean, 2026-10-03: "press and hold to make it an eraser that
     /// deletes entire strokes"). Latched like `sideSwitch`, and never both.
     var eraser = false
+    /// The switch pressed in the air and not yet let go, on a hover: what
+    /// the pen WILL be if the nib goes down now — the lower an eraser, the
+    /// upper a box — so the marker can say so before it does
+    /// (`TabletHoverMarker.mode`).
+    var holding: PenSwitch?
 }
 
 /// The pen's state from one reading to the next. A value, so a test can
@@ -528,7 +533,8 @@ struct TabletPen {
         TabletSample(page: page, pressure: pressure, phase: phase,
                      sideSwitch: phase == .hover ? false : selecting,
                      inProximity: inProximity, timestamp: timestamp,
-                     eraser: phase == .hover ? false : erasing)
+                     eraser: phase == .hover ? false : erasing,
+                     holding: phase == .hover ? armed : nil)
     }
 
     private func fresh(_ timestamp: TimeInterval, in recent: inout [TimeInterval]) -> Bool {
