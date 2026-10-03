@@ -636,6 +636,56 @@ final class VirtualTabletControllerTests: XCTestCase {
         XCTAssertTrue(input.policy.admits(.virtual))
     }
 
+    /// THE REAL PICK BEHIND THE STAND-IN STAYS: the developer's switch going
+    /// off with the virtual tablet the input turns the tablet off — and never
+    /// touches the real tablet picked before it, which the next launch comes
+    /// up on if it is plugged in.
+    func testSwitchingTheStandInOffNeverForgetsTheRealPickBehindIt() {
+        let tablets = controller()
+        tablets.plugged(oneByWacom, registryID: 1, settle: 0)
+        tablets.pick(oneByWacom)
+        tablets.unplugged(registryID: 1)
+        tablets.developer.virtualEnabled = true
+        tablets.pick(TabletDevice.virtual)
+        XCTAssertEqual(tablets.selectedTabletID, TabletDevice.virtual.id)
+
+        tablets.developer.virtualEnabled = false
+        XCTAssertNil(tablets.selectedTabletID, "the stand-in was the input and is gone")
+        XCTAssertEqual(defaults.string(forKey: "lastTabletID"), oneByWacom.id, "the real pick is not forgotten")
+        XCTAssertEqual(defaults.string(forKey: "lastTabletName"), oneByWacom.name)
+
+        let next = controller()
+        next.restoreRemembered()
+        XCTAssertEqual(next.selectedTabletID, oneByWacom.id, "a launch comes up on the real tablet")
+    }
+
+    /// "Turn Tablet Off" with the stand-in the input is the same: it was
+    /// never remembered, so nothing is forgotten — but a REAL tablet turned
+    /// off still is (nothing about that changes), and picking a camera says
+    /// it for the real tablet remembered whatever is the input.
+    func testTurningTheStandInOffForgetsNothingAndARealTabletStillIs() {
+        let tablets = controller()
+        tablets.plugged(oneByWacom, registryID: 1, settle: 0)
+        tablets.pick(oneByWacom)
+        tablets.turnOff()
+        XCTAssertNil(defaults.string(forKey: "lastTabletID"), "a real tablet turned off is forgotten")
+        XCTAssertNil(defaults.string(forKey: "lastTabletName"))
+
+        tablets.pick(oneByWacom)
+        tablets.unplugged(registryID: 1)
+        tablets.developer.virtualEnabled = true
+        tablets.pick(TabletDevice.virtual)
+        tablets.turnOff()
+        XCTAssertFalse(tablets.isSelected)
+        XCTAssertEqual(defaults.string(forKey: "lastTabletID"), oneByWacom.id, "the stand-in turned off forgets nothing")
+
+        tablets.pick(TabletDevice.virtual)
+        tablets.forgetRemembered()   // what picking a camera does first (`InputDevices.pick(cameraID:)`)
+        tablets.turnOff()
+        XCTAssertNil(defaults.string(forKey: "lastTabletID"), "a camera picked: no tablet comes back at launch")
+        XCTAssertNil(defaults.string(forKey: "lastTabletName"))
+    }
+
     func testSwitchingItOffWhileItIsTheInputTurnsTheTabletOff() {
         let tablets = controller()
         tablets.developer.virtualEnabled = true

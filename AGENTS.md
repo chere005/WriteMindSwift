@@ -1126,9 +1126,13 @@ CoreMind's `bin/report-status.sh`.
   admits it and a real one is not plugged in: picking it asks and opens nothing
   (`evaluate` returns before Input Monitoring), it is NEVER REMEMBERED
   (`lastTabletID` is not written, so a launch never comes up virtual and the real
-  pick before it stays), a real tablet plugged in while it is the input takes the
-  pen after `settle` (`plugged`), the switch turned off while it is the input turns
-  the tablet off, and leaving it lets go of its pen (`rawEnded` — raw readings
+  pick before it stays — and turning it off forgets nothing either: `turnOff`
+  forgets only a REAL pick, so the developer's switch going off or Turn Tablet Off
+  with the stand-in the input leaves the real pick in the defaults; picking a CAMERA
+  still says it for the real pick remembered behind it, `forgetRemembered`, the two
+  picks being exclusive — `VirtualTabletControllerTests`), a real tablet plugged in
+  while it is the input takes the pen after `settle` (`plugged`), the switch turned
+  off while it is the input turns the tablet off, and leaving it lets go of its pen (`rawEnded` — raw readings
   make the funnel swallow the driver's events, which the real tablet's fallback
   needs). `VirtualPen` is the pen: a `PenFrame` (where, tip, pressure, switches,
   near) turned into reports; STAMPS ONLY INCREASE (0.5 ms minimum — to `TabletPen` a

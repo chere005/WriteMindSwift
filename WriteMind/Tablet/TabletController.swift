@@ -213,19 +213,31 @@ final class TabletController: ObservableObject {
         select(tablet, picked: true)
     }
 
-    /// No tablet: the pane goes back to the camera's.
+    /// No tablet: the pane goes back to the camera's. A REAL tablet turned off
+    /// is forgotten (a launch no longer comes up on it); THE STAND-IN WAS
+    /// NEVER REMEMBERED, so turning it off — the developer's switch going
+    /// off, "Turn Tablet Off" — forgets nothing: what the defaults hold is
+    /// the real tablet picked before it, and that stays the pick.
     func turnOff() {
         guard selectedTabletID != nil else { return }
+        let wasVirtual = selectedTabletID == TabletDevice.virtual.id
         selectedTabletID = nil
         selectedName = nil
-        defaults.removeObject(forKey: Keys.lastTablet)
-        defaults.removeObject(forKey: Keys.lastTabletName)
+        if !wasVirtual { forgetRemembered() }
         extentTabletID = nil
         evaluate()
         // The virtual pen goes out of reach with its tablet, so it is not
         // left standing near a page that is no longer its.
         developer.virtual.penAway()
         input.stop()
+    }
+
+    /// A launch comes up on no tablet. Picking a camera says it for the real
+    /// tablet remembered whatever is the input now — the two picks are
+    /// exclusive — and a real tablet turned off says it for itself.
+    func forgetRemembered() {
+        defaults.removeObject(forKey: Keys.lastTablet)
+        defaults.removeObject(forKey: Keys.lastTabletName)
     }
 
     private func select(_ tablet: TabletDevice, picked: Bool) {
@@ -605,6 +617,9 @@ enum InputDevices {
 
     /// A camera: the pane goes back to video.
     static func pick(cameraID: String, cameras: CameraController, tablets: TabletController) {
+        // The camera is the pick now, so no tablet comes back at launch: not
+        // even the real one remembered behind the virtual tablet.
+        tablets.forgetRemembered()
         tablets.turnOff()
         cameras.select(deviceID: cameraID)
     }
