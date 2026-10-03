@@ -222,6 +222,20 @@ also be quick/easy to select a subgroup and include more with holding cmd".
   through another layout, a write per member is quadratic — it was 4.9 s a
   frame for a 210-member group.
 
+### The tablet over the notes: Fit or Real size
+Sean, 2026-10-02: "a toggle from scaling to real drawing size or the mapping
+to the entire visible screen". Only with a tablet writing in the notebook.
+- **Fit** (default): the whole tablet, turned the way it is held, as big as
+  fits the visible notes less a margin, centred, never stretched.
+- **Real size**: the tablet's active area in millimetres at 72/25.4 points
+  per millimetre (a point is 1/72 inch — use the platform's logical unit),
+  centred on the visible notes and NOT shrunk when the pane is smaller. The
+  pen over the part that is off the notes writes along the edge (clamp the
+  pane position), and the outline is clipped.
+- Two icons on the tablet bar where the page's pen and paper sit (reserve the
+  same width for both so the row does not change size between modes), a View
+  menu item, remembered.
+
 ### Drawing happens on the rendered page only
 Sean, 2026-10-02: "only allow drawing in wysiwyg mode, both from wacom and
 from the pen cursor tool". It reverses 2026-09-19's "drawing should be

@@ -38,7 +38,9 @@ struct NotebookTabletLayer: View {
             let turns = appState.tabletQuarterTurns
             let place = NotebookPlace(pane: geo.size, scroll: scrollOffset,
                                       aspect: TabletMapping.aspect(of: extent, quarterTurns: turns),
-                                      note: store.selectedNote?.id, quarterTurns: turns)
+                                      note: store.selectedNote?.id, quarterTurns: turns,
+                                      scale: appState.notebookScale,
+                                      millimetres: TabletMapping.millimetres(of: extent, quarterTurns: turns))
             ZStack(alignment: .topLeading) {
                 if appState.tabletWritesInNotebook {
                     NotebookLiveInk(scribe: scribe, scrollOffset: scrollOffset)
@@ -46,6 +48,9 @@ struct NotebookTabletLayer: View {
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+            // The outline of a tablet at real size can be bigger than the
+            // notes, and is cut off at their edge.
+            .clipped()
             .onChange(of: place, initial: true) { _, place in
                 measured = place
                 scribe.place = place

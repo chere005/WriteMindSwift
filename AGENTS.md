@@ -618,6 +618,18 @@ CoreMind's `bin/report-status.sh`.
   (fractions of the pane on BOTH axes) — the layer's own pen's point
   WITHOUT `DrawingCanvas.normalise`'s clamp, which pins a point a screen
   or more down a long note to the bottom of the first screen.
+  **FIT OR REAL SIZE** (Sean, 2026-10-02: "a toggle from scaling to real
+  drawing size or the mapping to the entire visible screen"):
+  `NotebookScale`, on `AppState.notebookScale` (remembered, default fit),
+  as two icons on the tablet bar in the place the page's pen and paper
+  keep (both are always measured, `TabletBar.controls`, so the row is the
+  same size in both modes) and in the View menu. Real size makes
+  `NotebookPlace.area` the tablet's millimetres (`TabletMapping.millimetres`,
+  turned as held) at `TabletMapping.pointsPerMillimetre` (72/25.4, a point
+  being how every size in the window is measured), centred on the pane and
+  NOT shrunk to it; `onPane` clamps to the pane at real size, so a pen over
+  the part of a big tablet that is off the notes writes along the edge, and
+  the layer clips the outline. `NotebookScaleTests`.
   `NotebookMappingTests` holds the fit, the centring and the four quarter
   turns through the funnel's own `TabletMapping`. **The nib writes the
   note's own strokes** (`NotebookWriting`, walked sample by sample;

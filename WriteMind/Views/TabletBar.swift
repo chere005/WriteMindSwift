@@ -48,23 +48,23 @@ struct TabletBar: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 6) {
                 TabletTargetSwitch(target: target, shape: .full, onPick: onTarget)
-                pageControls
+                controls
             }
             HStack(spacing: 6) {
                 TabletTargetSwitch(target: target, shape: .names, onPick: onTarget)
-                pageControls
+                controls
             }
             HStack(spacing: 6) {
                 TabletTargetSwitch(target: target, shape: .icons, onPick: onTarget)
-                pageControls
+                controls
             }
             VStack(alignment: .leading, spacing: 6) {
                 TabletTargetSwitch(target: target, shape: .names, onPick: onTarget)
-                HStack(spacing: 6) { pageControls }
+                HStack(spacing: 6) { controls }
             }
             VStack(alignment: .leading, spacing: 6) {
                 TabletTargetSwitch(target: target, shape: .icons, onPick: onTarget)
-                HStack(spacing: 6) { pageControls }
+                HStack(spacing: 6) { controls }
             }
         }
         // A popover left open on a control set aside would hang off nothing.
@@ -72,6 +72,24 @@ struct TabletBar: View {
             showPen = false
             showPaper = false
         }
+    }
+
+    /// THE ONE PLACE FOR WHAT FOLLOWS THE SWITCH: the page's pen and paper
+    /// while the pen writes on the page, how the tablet lands on the notes
+    /// while it writes in the notebook ("Fit | Real size", Sean, 2026-10-02).
+    /// Stacked, both always measured, so the row is the same size in both
+    /// modes and the switch does not move under the pointer that pressed it.
+    private var controls: some View {
+        ZStack(alignment: .leading) {
+            pageControls
+            scaleControls
+        }
+    }
+
+    /// FIT OR REAL SIZE — icons alone, the tips say which (`NotebookScale`).
+    private var scaleControls: some View {
+        TabletScaleSwitch(scale: appState.notebookScale, onPick: { appState.notebookScale = $0 })
+            .setAside(target != .notebook)
     }
 
     /// The page's own pen and paper — in play only while the pen writes on
@@ -176,6 +194,38 @@ struct TabletTargetSwitch: View {
                 .buttonStyle(.plain)
                 .paneTip(BarTip(title: "Write on the \(option.title)", detail: option.help))
                 .accessibilityLabel("Write on the \(option.title)")
+                .accessibilityAddTraits(lit ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+/// "FIT | REAL SIZE" — two buttons in one capsule, the one in use lit, as
+/// the target switch is built (and for the same reason not a segmented
+/// `Picker`: an NSSegmentedControl underneath). Icons alone: the row has to
+/// measure what the page's pen and paper do (`TabletBar.controls`).
+struct TabletScaleSwitch: View {
+    let scale: NotebookScale
+    let onPick: (NotebookScale) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(NotebookScale.allCases) { option in
+                let lit = option == scale
+                Button { onPick(option) } label: {
+                    Image(systemName: option.icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(lit ? Color.primary : Color.secondary)
+                        .padding(.horizontal, 7)
+                        .frame(height: 20)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(lit ? 0.18 : 0)))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .paneTip(BarTip(title: option.title, detail: option.help))
+                .accessibilityLabel(option.title)
                 .accessibilityAddTraits(lit ? .isSelected : [])
             }
         }

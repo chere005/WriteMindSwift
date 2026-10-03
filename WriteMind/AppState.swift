@@ -148,6 +148,12 @@ final class AppState: ObservableObject {
     @Published var tabletTarget: TabletTarget {
         didSet { defaults.set(tabletTarget.rawValue, forKey: Keys.tabletTarget) }
     }
+    /// How the tablet lands on the notes in Notebook mode: the whole of it
+    /// on the visible notes, or a millimetre for a millimetre (Sean,
+    /// 2026-10-02). Remembered, like the turn.
+    @Published var notebookScale: NotebookScale {
+        didSet { defaults.set(notebookScale.rawValue, forKey: Keys.notebookScale) }
+    }
     /// Which pane the input is — derived from the pick, so it has ONE
     /// writer (`follow(tabletPicked:)`, fed by the tablet controller) and
     /// is never stored: the pick is what is remembered.
@@ -471,6 +477,7 @@ final class AppState: ObservableObject {
         static let cameraRotation = "cameraRotation"
         static let tabletQuarterTurns = "tabletQuarterTurns"
         static let tabletTarget = "tabletTarget"
+        static let notebookScale = "notebookScale"
         static let penColorHex = "penColorHex"
         static let penTool = "penTool"
         static let pageInkTool = "pageInkTool"
@@ -507,6 +514,7 @@ final class AppState: ObservableObject {
         tabletQuarterTurns = TabletMapping.turns(defaults.object(forKey: Keys.tabletQuarterTurns) as? Int ?? 1)
         // A target this build does not know is the page.
         tabletTarget = TabletTarget(rawValue: defaults.string(forKey: Keys.tabletTarget) ?? "") ?? .page
+        notebookScale = NotebookScale(rawValue: defaults.string(forKey: Keys.notebookScale) ?? "") ?? .fit
         cameraAspect = CameraAspect(rawValue: defaults.string(forKey: Keys.cameraAspect) ?? "") ?? .free
         evaluator = Evaluator(rawValue: defaults.string(forKey: Keys.evaluator) ?? "") ?? .python
         penColorHex = defaults.string(forKey: Keys.penColorHex) ?? Self.presetColors[0]

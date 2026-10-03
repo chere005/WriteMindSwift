@@ -158,6 +158,14 @@ struct WriteMindApp: App {
                     appState.writeOn(appState.tabletTarget == .page ? .notebook : .page)
                 }
                 .disabled(appState.inputSource != .tablet)
+                // How the tablet lands on the notes, mirrored from its bar
+                // (Sean, 2026-10-02): the whole of it on what is visible, or
+                // a millimetre for a millimetre.
+                Button(appState.notebookScale == .fit ? "Tablet at Real Size on the Notebook"
+                                                      : "Fit the Tablet to the Notebook") {
+                    appState.notebookScale = appState.notebookScale == .fit ? .real : .fit
+                }
+                .disabled(appState.inputSource != .tablet || appState.tabletTarget != .notebook)
 
                 // NO KEY on these two (Sean, 2026-09-21: "get rid of
                 // ^cmd+e and opt+cmd+m"). The commands stay — the notes

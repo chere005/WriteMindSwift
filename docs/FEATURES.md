@@ -462,6 +462,11 @@ is how the code is put together.
   stretched, so handwriting keeps its proportions — and the nib writes
   ink straight into the note's drawing with the notebook's pen (the tool,
   colour and size on the pen menu), pressure and all; a tap is a dot.
+  **Fit | Real size** on the bar picks how it lands: Fit puts the whole
+  tablet over the notes you can see, Real size makes a millimetre on the
+  tablet a millimetre on the screen, the tablet's area in the middle of the
+  notes (and cut off at their edge when it is bigger than they are); also in
+  the View menu, and remembered.
   While the pen is near, a faint outline shows where the tablet lands and
   a ring follows the nib. **⌘Z** straight after takes the strokes back, one
   stroke at a time, and once they are all back it is the typing's again;

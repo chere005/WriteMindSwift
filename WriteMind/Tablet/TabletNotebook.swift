@@ -58,6 +58,41 @@ enum TabletTarget: String, CaseIterable, Identifiable {
     }
 }
 
+/// HOW THE TABLET LANDS ON THE NOTES (Sean, 2026-10-02: "a toggle from
+/// scaling to real drawing size or the mapping to the entire visible
+/// screen"). Fit maps the whole tablet onto the visible notes; Real size
+/// makes a millimetre on the tablet a millimetre of the screen — the
+/// tablet's area centred on the notes, clipped by the pane when it is
+/// bigger, never shrunk. Remembered (`AppState.notebookScale`), and on the
+/// tablet bar while the pen writes in the notebook.
+enum NotebookScale: String, CaseIterable, Identifiable {
+    case fit
+    case real
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .fit: return "Fit"
+        case .real: return "Real size"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .fit: return "arrow.up.left.and.arrow.down.right"
+        case .real: return "ruler"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .fit: return "The whole tablet covers the notes you can see"
+        case .real: return "A millimetre on the tablet is a millimetre on the screen — the tablet sits in the middle of the notes"
+        }
+    }
+}
+
 /// Where the notes are on screen, for the pen: the pane the drawing layer
 /// covers — below the tab bar and the formatting bar, above the footer, in
 /// the source pane and on the rendered page alike — how far the text under
@@ -78,6 +113,12 @@ struct NotebookPlace: Equatable {
     /// `aspect` was worked from. Not part of the mapping either, and for
     /// the same reason: a stroke under way is let go when it changes.
     var quarterTurns = 1
+    /// Fit, or the tablet at its real size (`NotebookScale`).
+    var scale: NotebookScale = .fit
+    /// The tablet's active area in millimetres, turned as it is held
+    /// (`TabletMapping.millimetres`). Zero is unmeasured, and Real size
+    /// then has nothing to be real to: it falls back to Fit.
+    var millimetres: CGSize = .zero
 
     /// Between the tablet's area and the edges of the notes, so its outline
     /// is never drawn on the edge of the pane.
@@ -88,7 +129,19 @@ struct NotebookPlace: Equatable {
     /// written on the tablet keeps its proportions in the note whatever
     /// shape the window is. On the PANE, not the document: the pen writes
     /// on the notes that can be seen, wherever the note is scrolled to.
-    var area: CGRect { TabletMapping.fit(aspect: aspect, in: pane, margin: Self.margin) }
+    ///
+    /// AT REAL SIZE the area is the tablet's millimetres at the screen's
+    /// points per millimetre, centred on the same pane — and left as big as
+    /// it is when the pane is smaller: what is off the notes is off.
+    var area: CGRect {
+        guard scale == .real, millimetres.width > 0, millimetres.height > 0 else {
+            return TabletMapping.fit(aspect: aspect, in: pane, margin: Self.margin)
+        }
+        let size = CGSize(width: millimetres.width * TabletMapping.pointsPerMillimetre,
+                          height: millimetres.height * TabletMapping.pointsPerMillimetre)
+        return CGRect(x: (pane.width - size.width) / 2, y: (pane.height - size.height) / 2,
+                      width: size.width, height: size.height)
+    }
 
     /// No notes on screen to write on — none open, or a pane too small to
     /// hold the area.
@@ -98,9 +151,15 @@ struct NotebookPlace: Equatable {
 
     /// A point on the turned tablet — page fractions, as the funnel gives
     /// it (`TabletSample.page`) — on the pane, in view points.
+    ///
+    /// AT REAL SIZE a tablet bigger than the pane has parts that land off
+    /// the notes, and the pen there writes along the edge rather than in
+    /// the air beyond it — the area is clipped, never shrunk.
     func onPane(_ page: CGPoint) -> CGPoint {
         let area = self.area
-        return CGPoint(x: area.minX + page.x * area.width, y: area.minY + page.y * area.height)
+        let point = CGPoint(x: area.minX + page.x * area.width, y: area.minY + page.y * area.height)
+        guard scale == .real else { return point }
+        return CGPoint(x: min(max(point.x, 0), pane.width), y: min(max(point.y, 0), pane.height))
     }
 
     /// The same point in the DOCUMENT: a scroll's worth further down, where

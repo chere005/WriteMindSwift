@@ -142,6 +142,11 @@ enum TabletMapping {
         return turns(quarterTurns) % 2 == 0 ? landscape : CGSize(width: landscape.height, height: landscape.width)
     }
 
+    /// Points to a millimetre: a point is 1/72 inch and an inch 25.4 mm. The
+    /// screen's real pixel pitch is not asked — a point is how every other
+    /// size in the window is measured.
+    static let pointsPerMillimetre: CGFloat = 72 / 25.4
+
     /// A sheet the shape of `size` whose long side is the assumed one.
     static func assumedMillimetres(for size: CGSize) -> CGSize {
         let long = max(size.width, size.height)
