@@ -49,17 +49,6 @@ final class StaticDrawingCellTests: XCTestCase {
         XCTAssertEqual(at(200, 330).item, floating.id, "a floating object over a static cell is still the layer's")
     }
 
-    /// And the layer takes no press on a static cell's paper: the clicks reach
-    /// the notebook, which selects, moves and inserts around a cell as it
-    /// always did.
-    func testTheLayerTakesNoPressOnAStaticCellsPaper() {
-        var readOnly = frame
-        readOnly.id = UUID()
-        readOnly.writable = false
-        XCTAssertEqual(CellDrawing.paperTaken(frames: [frame, readOnly], entered: nil), [],
-                       "the layer took the paper of a cell nobody entered")
-    }
-
     /// The tablet's nib in the notebook: a stroke begun over a static cell is
     /// floating ink over it, exactly as over any other part of the page. It
     /// used to go into the cell — "whatever the pen mode or tablet is doing,
@@ -80,5 +69,294 @@ final class StaticDrawingCellTests: XCTestCase {
         XCTAssertEqual(store.drawing.strokes.count, 1, "the stroke over a static cell did not float")
         XCTAssertTrue(store.cells.isEmpty, "and the cell was drawn in")
         XCTAssertEqual(store.drawingSteps, 1)
+    }
+}
+
+// MARK: - Cell drawing mode: the pure rules
+
+/// WHAT A PRESS ABOUT A DRAWING CELL IS (`CellDrawing.contact`). Nothing is
+/// drawn into a cell nobody entered; a CLICK on one — a press that never
+/// travelled — enters it; inside the entered cell every press is the cell's,
+/// and outside it every press is the way out.
+final class CellDrawingContactTests: XCTestCase {
+    private let inside = CGPoint(x: 150, y: 330)
+    private let outside = CGPoint(x: 600, y: 100)
+    private func contact(_ point: CGPoint, entered: UUID? = nil, frames: [CellFrame] = [frame],
+                         covered: Bool = false, tool: Bool = false,
+                         command: Bool = false) -> CellDrawing.Contact {
+        CellDrawing.contact(at: point, entered: entered, frames: frames, coveredByObject: covered, tool: tool,
+                            command: command)
+    }
+
+    func testAPressOnAStaticCellIsAClickThatMayEnterIt() {
+        XCTAssertEqual(contact(inside), .click(frame.id))
+        XCTAssertEqual(contact(outside), .none, "off every cell it is the page's press")
+    }
+
+    /// An object over the cell is what is clicked; an armed shape, mark or
+    /// arrow tool does its own thing where it is pressed (a tick goes down
+    /// ON the cell, floating); ⌘ is the marquee.
+    func testSomethingElseOnTheCellIsNotAClickIntoIt() {
+        XCTAssertEqual(contact(inside, covered: true), .none, "a floating object over the cell takes the click")
+        XCTAssertEqual(contact(inside, tool: true), .none, "an armed tool puts its thing down")
+        XCTAssertEqual(contact(inside, command: true), .none, "⌘ is the selector")
+        var readOnly = frame
+        readOnly.writable = false
+        XCTAssertEqual(contact(inside, frames: [readOnly]), .none, "a read-only cell is nothing to enter")
+    }
+
+    func testInTheEnteredCellEveryPressIsTheCellsWhateverIsOverIt() {
+        XCTAssertEqual(contact(inside, entered: frame.id), .drawing(frame.id))
+        XCTAssertEqual(contact(inside, entered: frame.id, covered: true), .drawing(frame.id),
+                       "nothing else on the page reacts: a floating object over the cell is not reached")
+        XCTAssertEqual(contact(inside, entered: frame.id, command: true), .drawing(frame.id),
+                       "⌘ is still the marquee, in the cell")
+    }
+
+    /// A press outside the entered cell — on the page, on another cell, on
+    /// nothing — is the way out; the canvas leaves the mode and asks again,
+    /// so another cell clicked is entered in its turn.
+    func testAPressOutsideTheEnteredCellIsTheWayOut() {
+        XCTAssertEqual(contact(outside, entered: frame.id), .leaving)
+        let other = CellFrame(id: UUID(), line: NSRange(location: 90, length: 59),
+                              rect: CGRect(x: 28, y: 420, width: 300, height: 90), scale: 0.75, width: 400,
+                              writable: true)
+        XCTAssertEqual(contact(CGPoint(x: 100, y: 450), entered: frame.id, frames: [frame, other]), .leaving)
+        XCTAssertEqual(contact(CGPoint(x: 100, y: 450), frames: [frame, other]), .click(other.id),
+                       "and asked again with nothing entered, it is a click into the other")
+        XCTAssertEqual(contact(inside, entered: UUID()), .leaving, "a cell that is gone holds nothing")
+    }
+
+    /// The layer takes a press on every writable cell's paper to see whether
+    /// it is a click — it never draws there — and none on a read-only one.
+    func testTheLayerTakesAPressOnEveryWritableCellsPaperToSeeIfItIsAClick() {
+        var readOnly = frame
+        readOnly.id = UUID()
+        readOnly.writable = false
+        XCTAssertEqual(CellDrawing.paperTaken(frames: [frame, readOnly]), [frame.rect])
+        XCTAssertEqual(CellDrawing.paperTaken(frames: []), [])
+    }
+
+    /// A CLICK IS A PRESS THAT NEVER TRAVELLED: under three points. A click
+    /// leaves no dot and no empty step; one that moves is whatever the
+    /// pen or the cursor makes of a drag.
+    func testAClickIsAPressUnderThreePoints() {
+        XCTAssertEqual(CellDrawing.clickTravel, 3)
+        XCTAssertTrue(CellDrawing.isClick(travelled: 0))
+        XCTAssertTrue(CellDrawing.isClick(travelled: 2.9))
+        XCTAssertFalse(CellDrawing.isClick(travelled: 3))
+    }
+
+    /// CLIPPED TO THE CELL: a point goes into the cell's own fractions held
+    /// inside it on every side — x in 0…1, y in 0…the cell's height over its
+    /// width (120 high at 400 wide: 0.3) — so a stroke dragged out of a cell
+    /// runs along its edge and nothing is left outside it.
+    func testAPointIsHeldInsideTheCellOnEverySide() {
+        func held(_ x: Double, _ y: Double) -> CGPoint { CellDrawing.hold(CGPoint(x: x, y: y), in: frame) }
+        XCTAssertEqual(held(0.5, 0.1), CGPoint(x: 0.5, y: 0.1), "inside is untouched")
+        XCTAssertEqual(held(-0.2, 0.1), CGPoint(x: 0, y: 0.1))
+        XCTAssertEqual(held(1.4, 0.1), CGPoint(x: 1, y: 0.1))
+        XCTAssertEqual(held(0.5, -0.3), CGPoint(x: 0.5, y: 0))
+        XCTAssertEqual(held(0.5, 0.9).x, 0.5)
+        XCTAssertEqual(held(0.5, 0.9).y, 0.3, accuracy: 1e-12, "the bottom edge: 90 ÷ 0.75 ÷ 400")
+        XCTAssertEqual(CellDrawing.hold(document: CGPoint(x: 5, y: 700), in: frame.rect),
+                       CGPoint(x: 28, y: 390), "and the same in the page's points")
+        XCTAssertEqual(CellDrawing.hold(document: CGPoint(x: 100, y: 350), in: frame.rect), CGPoint(x: 100, y: 350))
+    }
+
+    /// The mode ends when its cell goes: folded away, read-only, out of the
+    /// note.
+    func testACellCanBeEnteredOnlyWhileItHasAWritableFrame() {
+        XCTAssertTrue(CellDrawing.enterable(frame.id, in: [frame]))
+        XCTAssertFalse(CellDrawing.enterable(frame.id, in: []), "folded away: no frame")
+        var readOnly = frame
+        readOnly.writable = false
+        XCTAssertFalse(CellDrawing.enterable(frame.id, in: [readOnly]))
+        XCTAssertFalse(CellDrawing.enterable(UUID(), in: [frame]))
+    }
+
+    /// In a cell the press draws wherever it lands in it — the cursor never
+    /// did and still does not outside — and ⌘ is the marquee.
+    func testInAnEnteredCellAPressDrawsAndCommandIsStillTheMarquee() {
+        typealias Mode = AppState.CanvasMode
+        XCTAssertEqual(Mode.cursor.press(with: [], inEnteredCell: true), .draw)
+        XCTAssertEqual(Mode.cursor.press(with: [.command], inEnteredCell: true), .marquee)
+        XCTAssertEqual(Mode.cursor.press(with: [], inEnteredCell: false), .objects, "outside it is the cursor's")
+    }
+}
+
+// MARK: - Cell drawing mode: the state machine
+
+/// ENTERING IS EXPLICIT AND LEAVING IS GUARANTEED. A click into a cell
+/// enters it (`AppState.enterCell`); Esc, a click outside, another note, a
+/// pane or a mode switch, the Done control and another tool each leave it;
+/// nothing between strokes does.
+@MainActor
+final class CellDrawingStateTests: XCTestCase {
+    private var suite: String!
+    private var dir: URL!
+    private let cell = UUID()
+    private let other = UUID()
+
+    override func setUp() {
+        super.setUp()
+        suite = "WriteMindTests-\(UUID().uuidString)"
+        dir = FileManager.default.temporaryDirectory.appending(path: "WriteMindTests-cellmode-\(UUID().uuidString)")
+    }
+
+    override func tearDown() {
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: dir)
+        super.tearDown()
+    }
+
+    /// An app on the rendered page: cells are entered there and nowhere else.
+    private func state() -> AppState {
+        let app = AppState(defaults: UserDefaults(suiteName: suite)!)
+        app.mode = .preview
+        return app
+    }
+
+    func testClickingIntoACellEntersItAndTheNotebookKeepsEverythingElse() {
+        let app = state()
+        XCTAssertNil(app.cellDrawing, "nothing is entered by being there")
+        app.enterCell(cell)
+        XCTAssertEqual(app.cellDrawing, cell)
+        XCTAssertFalse(app.canvasOwnsPane, "the notebook still has the page round the cell: clicks, bars, brackets")
+        XCTAssertEqual(app.canvasMode, .cursor)
+        app.enterCell(other)
+        XCTAssertEqual(app.cellDrawing, other, "a click into another cell is that cell's mode")
+    }
+
+    /// The markdown view shows a cell as a picture and nothing is drawn
+    /// there: the rendered page owns the mode.
+    func testACellInTheMarkdownViewCannotBeEntered() {
+        let app = AppState(defaults: UserDefaults(suiteName: suite)!)
+        XCTAssertEqual(app.mode, .editor)
+        app.enterCell(cell)
+        XCTAssertNil(app.cellDrawing)
+    }
+
+    /// ONE TOOL AT A TIME, both ways round: entering puts the pen, the arrow
+    /// tool and an armed shape away, and picking any of them leaves the cell.
+    func testOneToolAtATimeTheCellIncluded() {
+        let tools: [(String, (AppState) -> Void)] = [
+            ("the pen", { $0.canvasMode = .pen }),
+            ("⌘P", { $0.togglePen() }),
+            ("the arrow tool", { $0.connectActive = true }),
+            ("an armed box", { $0.arm(.shape(.rectangle)) }),
+            ("an armed tick", { $0.arm(.shape(.check)) }),
+        ]
+        for (name, pick) in tools {
+            let app = state()
+            pick(app)
+            app.enterCell(cell)
+            XCTAssertEqual(app.cellDrawing, cell, "entering with \(name) in hand")
+            XCTAssertFalse(app.canvasOwnsPane, "\(name) was left in hand in the cell")
+            pick(app)
+            XCTAssertNil(app.cellDrawing, "\(name) was picked and the cell stayed entered")
+            XCTAssertTrue(app.canvasOwnsPane)
+        }
+    }
+
+    /// EVERY WAY OUT.
+    func testEveryWayOutLeavesTheCell() throws {
+        let doneControl: (String, (AppState) -> Void) = ("the Done control", { $0.endCellDrawing() })
+        let ways: [(String, (AppState) -> Void)] = [
+            ("Esc", { XCTAssertTrue($0.escapeTool(), "Esc was not taken while a cell was entered") }),
+            doneControl,
+            ("markdown", { $0.toggleMode() }),
+            ("the notes pane going", { $0.showEditor = false }),
+            ("the video pane going", { $0.showCamera = false }),
+            ("the window given to the picture", { $0.cameraFullWindow = true }),
+            ("a tablet picked", { $0.follow(tabletPicked: true) }),
+            ("a way onto the page", { $0.putToolsAway() }),
+        ]
+        for (name, leave) in ways {
+            let app = state()
+            app.enterCell(cell)
+            XCTAssertEqual(app.cellDrawing, cell)
+            leave(app)
+            XCTAssertNil(app.cellDrawing, "\(name) left the cell entered")
+            XCTAssertFalse(app.escapeTool(), "and a second Esc has nothing to take")
+        }
+        // Another note.
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("# One\n".utf8).write(to: dir.appending(path: "One.md"))
+        try Data("# Two\n".utf8).write(to: dir.appending(path: "Two.md"))
+        let store = NoteStore(directory: dir)
+        let app = state()
+        app.watchNotes(of: store)
+        app.enterCell(cell)
+        let next = try XCTUnwrap(store.notes.map(\.id).first { $0 != store.selection })
+        store.openTab(next)
+        XCTAssertNil(app.cellDrawing, "another note kept the cell entered")
+    }
+
+    /// IT DOES NOT END BY ITSELF BETWEEN STROKES: a stroke landing, the note
+    /// typed in, the drawing changing — the mode is Sean's until he leaves.
+    func testItDoesNotEndByItselfBetweenStrokes() {
+        let app = state()
+        app.enterCell(cell)
+        app.drawingChanged(steps: 1)
+        app.inkedNote(above: 0)
+        app.drawingChanged(steps: 2)
+        app.noteTyped()
+        app.pageWritten()
+        app.notebookChanged()
+        app.showSidebar.toggle()
+        app.follow(tabletPicked: false)
+        app.showCamera = true
+        XCTAssertEqual(app.cellDrawing, cell)
+    }
+
+    /// Undo and redo are the cell's own while it is entered, and are claimed
+    /// even with the keyboard in the note's text.
+    func testUndoIsTheCellsWhileItIsEntered() {
+        let app = state()
+        XCTAssertFalse(app.drawingOwnsUndo)
+        app.enterCell(cell)
+        XCTAssertTrue(app.drawingOwnsUndo)
+        XCTAssertTrue(app.drawingOwnsRedo)
+        app.endCellDrawing()
+        XCTAssertFalse(app.drawingOwnsUndo)
+    }
+
+    /// IT SHOWS: the footer says where the drawing goes and how to stop it.
+    func testTheFooterNamesTheCell() {
+        let app = state()
+        app.enterCell(cell)
+        XCTAssertEqual(app.toolLines.map(\.words), ["Drawing in a cell: Esc or Done to finish"])
+        for line in app.toolLines {
+            XCTAssertNotNil(NSImage(systemSymbolName: line.symbol, accessibilityDescription: nil), line.symbol)
+        }
+        app.endCellDrawing()
+        XCTAssertEqual(app.toolLines, [])
+    }
+
+    /// EXPLICIT: a cell is entered from a click on it — the layer's, or the
+    /// nib's tap through the tablet's notebook mode — and from nothing else,
+    /// read off the sources so a new way in fails here.
+    func testACellIsEnteredOnlyByAClickIntoIt() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "WriteMind", directoryHint: .isDirectory)
+        let sources = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" }) ?? []
+        var callers: [String] = []
+        for file in sources {
+            for (index, raw) in (try String(contentsOf: file, encoding: .utf8)).components(separatedBy: "\n").enumerated() {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                guard !line.hasPrefix("//"), line.contains("enterCell(") || line.contains(".cellDrawing =") else { continue }
+                callers.append("\(file.lastPathComponent):\(line)")
+            }
+        }
+        let allowed = ["AppState.swift", "EditorPane.swift", "TabletNotebook.swift"]
+        for caller in callers {
+            XCTAssertTrue(allowed.contains { caller.hasPrefix($0) }, "a cell is entered from \(caller)")
+        }
+        XCTAssertTrue(callers.contains { $0.hasPrefix("EditorPane.swift") }, "the layer's click enters one")
+        XCTAssertTrue(callers.contains { $0.hasPrefix("TabletNotebook.swift") }, "and so does the nib's tap")
     }
 }

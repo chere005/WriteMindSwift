@@ -111,6 +111,68 @@ the files should be hidden or visible, "visible data generally speaking".
   of a caret. The caret ends at the end of the new line; the mode is left
   alone; a drawing cell is never opened as its markdown text.
 
+### A drawing cell is static, and clicking into it is the one way to draw in it
+Sean, 2026-10-03: "drawing cells are static unless you enter click into it,
+which forces you into a drawing mode where you can only draw in that cell
+(mouse or wacom into cell (if wacom is in write on notebook mode)) otherwise
+you can select and insert like normal or page capture by selection from a
+document camera". It replaces the rule of 2026-10-02 that the cursor draws
+on a cell's paper: a drag meant to scroll or select left ink, and a pen used
+as a pointer drew at once (see the entry on drawing mode turning on only when
+asked for).
+
+- **Static.** A drawing cell shows its picture and nothing draws into it —
+  not the pen, not the cursor, not the tablet's pen — whatever the pen mode
+  or the tablet is doing. A pen stroke, a placed mark or a tablet stroke over
+  one is floating ink on the page, over the picture. The cell is still
+  selected by its bracket, moved, deleted, held with others, inserted round,
+  and receives pictures the normal way (an insert, a page captured by
+  selection from the document camera, Dock). In the markdown view it is the
+  static picture it always was and cannot be entered: the rendered page owns
+  the mode.
+- **Entering is a click.** A press on a writable cell's paper that never
+  travels (under 3 points), with the mouse in cursor mode or under the pen
+  (a pen click there is the way in, not a dot): the cell is entered and the
+  caret goes into it. Not with a shape, a mark or the arrow tool armed
+  (those do their own thing where pressed: a tick goes down on the cell,
+  floating), not with ⌘ held (the selector), and not through a floating
+  object lying over the cell, which takes the click. Under the pen a press
+  that does travel is an ordinary stroke from where it began; the click
+  leaves no dot and no empty undo step. A read-only cell, or one still
+  downloading, is never entered. With the tablet's target the notebook, the
+  pen TAPPING a cell (down and up under 3 points) enters it and leaves no
+  dot; a stroke that travels is floating ink from where the tip touched
+  down. With the target the tablet's own page the pen never touches a cell.
+- **In the mode** — shown by a tint and a firm outline on the cell (it does
+  not move), "Drawing in this cell" with a Done control on its corner, a line
+  in the status bar, and a pencil pointer over it — drawing goes ONLY into
+  that cell: a mouse drag, or the tablet's pen on the notebook. Every press
+  inside the cell is a stroke (⌘ is still the selector, inside the cell),
+  whatever floats over it; every point is held inside the cell, so a stroke
+  dragged out runs along its edge and nothing lands outside; the eraser and
+  the selection box work on that cell's strokes alone; the page's objects
+  show no hover handles. The cell grows to keep its ink, as it always did.
+- **Its own undo and redo.** Undo and redo in the mode — the keys, the menu,
+  the pen menu and the tablet pen's two buttons — take back and put back the
+  strokes made in that cell, newest first, and never touch the page or
+  another cell: a step counts as the cell's only when it changed that cell
+  alone, so at the first step that touched anything else the cell's undo
+  stops, and does nothing rather than reach past it. The tablet page's own
+  undo does not come first in a cell, and with nothing left to undo the key
+  goes nowhere (not to the typing either).
+- **It ends** on Esc, on the Done control, on a press outside the cell — and
+  one on another cell enters that one — on a click in the words, a bar or a
+  bracket, when the caret leaves the cell (an arrow key, a character typed
+  after it), when the cell folds away, goes read-only or leaves the note,
+  on another note, a pane coming or going or the markdown view, on picking
+  the pen, a shape, the arrow tool, and on every way onto the page (an
+  inserted picture or text box, a capture). A pen touch outside the cell
+  ends it and draws nothing. It does NOT end by itself between strokes.
+- **Why a press is decided in one pure place**: a drag gesture cannot be
+  driven from a test here, so what a press about a cell means is a function
+  of where it began, what is under it, what tool is armed and whether ⌘ is
+  down, and the port should keep it as one too.
+
 ### Return is a line break, and ⌫ at the start of a cell does nothing
 Sean, 2026-10-02: "return should be a newline, backspace at beginning does
 nothing..". Two decisions from the cell UX pass below, the same in the
@@ -437,7 +499,7 @@ these, which were all ways of finding a tool still on:
   nothing draws into a drawing cell because the pen is down or the pointer
   is over it, and the tablet's pen writing in the notebook floats its ink
   over a cell like over any other part of the page; the click that enters a
-  cell to draw in it is the next entry.
+  cell to draw in it is described in the entry on drawing cells being static.
 - **The footer names every tool in hand**, in the accent colour, each with
   how to put it away: "Pen: every drag draws, Esc to stop", the armed
   shape or mark as before, "Arrow tool: drag from one thing to another,

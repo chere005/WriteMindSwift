@@ -213,6 +213,11 @@ struct WriteMindApp: App {
             // this item does (`DrawingCanvas.takesUndo`).
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") {
+                    // IN A CELL (cell drawing mode) ⌘Z is the cell's own,
+                    // first and only: it steps through the strokes made in
+                    // it, and with none left does nothing — never the
+                    // page's, never the typing's (`NoteStore.undoDrawing(inCell:)`).
+                    if let cell = appState.cellDrawing { store.undoDrawing(inCell: cell); return }
                     // The tablet's page first, while it was written on
                     // last (`AppState.pageOwnsUndo`).
                     if appState.pageOwnsUndo, TabletPage.shared.undo() { return }
@@ -222,6 +227,7 @@ struct WriteMindApp: App {
                 .shortcut(.undo)
 
                 Button("Redo") {
+                    if let cell = appState.cellDrawing { store.redoDrawing(inCell: cell); return }
                     if appState.pageOwnsUndo, TabletPage.shared.redo() { return }
                     if appState.drawingOwnsRedo, store.redoDrawing() { return }
                     NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
@@ -234,12 +240,12 @@ struct WriteMindApp: App {
                 // In the SAME group as the other two, not a group of its
                 // own after them: `.commands` is a builder and takes ten
                 // children, and ⌘S made an eleventh (2026-09-21).
-                Button("Undo Drawing") { store.undoDrawing() }
+                Button("Undo Drawing") { store.undoDrawing(inCell: appState.cellDrawing) }
                     .shortcut(.undoDrawing)
-                    .disabled(!store.canUndoDrawing)
-                Button("Redo Drawing") { store.redoDrawing() }
+                    .disabled(!store.canUndoDrawing(inCell: appState.cellDrawing))
+                Button("Redo Drawing") { store.redoDrawing(inCell: appState.cellDrawing) }
                     .shortcut(.redoDrawing)
-                    .disabled(!store.canRedoDrawing)
+                    .disabled(!store.canRedoDrawing(inCell: appState.cellDrawing))
             }
 
             CommandGroup(after: .pasteboard) {

@@ -19,6 +19,11 @@ private final class Knobs: ObservableObject {
     @Published var mode: AppState.CanvasMode = .cursor
     @Published var placing: CanvasPlacement?
     @Published var connectActive = false
+    @Published var enteredCell: UUID?
+    @Published var pageOwnsUndo = false
+    var cellsLeft = 0
+    var undos = 0
+    var redos = 0
     var arrowToolsSwitchedOff = 0
     var pensPutDown = 0
     var placingsCalledOff = 0
@@ -30,6 +35,9 @@ private struct KnobbedCanvas: View {
     var body: some View {
         DrawingCanvas(layer: .constant(Drawing()), mode: knobs.mode, color: .black, width: 2,
                       connectActive: knobs.connectActive,
+                      onUndo: { knobs.undos += 1; return false },
+                      onRedo: { knobs.redos += 1; return false },
+                      pageOwnsUndo: { knobs.pageOwnsUndo },
                       placing: knobs.placing,
                       onDisarm: { knobs.placingsCalledOff += 1; knobs.placing = nil },
                       onDisconnect: { knobs.arrowToolsSwitchedOff += 1; knobs.connectActive = false },
@@ -38,7 +46,9 @@ private struct KnobbedCanvas: View {
                           knobs.pensPutDown += 1
                           knobs.mode = .cursor
                           return true
-                      })
+                      },
+                      enteredCell: knobs.enteredCell,
+                      onEndCell: { knobs.cellsLeft += 1; knobs.enteredCell = nil })
         .frame(width: 400, height: 300)
     }
 }
@@ -88,6 +98,18 @@ final class CanvasKeyTests: XCTestCase {
         settle()
     }
 
+    /// A ⌘Z (or ⇧⌘Z) for this window, through the application.
+    private func pressZ(shift: Bool = false) throws {
+        let z = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                                               modifierFlags: shift ? [.command, .shift] : [.command],
+                                               timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil,
+                                               characters: shift ? "Z" : "z", charactersIgnoringModifiers: "z",
+                                               isARepeat: false, keyCode: 6))
+        NSApp.sendEvent(z)
+        settle()
+    }
+
     /// The premise: a layer that came up with the pen already down hears
     /// Esc, so a key sent through the application reaches its monitor.
     func testEscPutsDownAPenThatWasUpWhenTheLayerCameUp() throws {
@@ -124,6 +146,42 @@ final class CanvasKeyTests: XCTestCase {
         XCTAssertFalse(knobs.connectActive)
         try pressEscape()
         XCTAssertEqual(knobs.arrowToolsSwitchedOff, 1, "a second Esc has no arrow tool to put away")
+    }
+
+    /// ESC LEAVES A CELL THAT WAS ENTERED (cell drawing mode, Sean,
+    /// 2026-10-03), after the layer came up with it or without, and is taken
+    /// only while one is.
+    func testEscLeavesTheEnteredCellAndOnlyTakesTheKeyWhileOneIs() throws {
+        let knobs = Knobs()
+        show(knobs)
+        knobs.enteredCell = UUID()
+        settle()
+        try pressEscape()
+        XCTAssertEqual(knobs.cellsLeft, 1, "the layer's keys did not hear Esc for the cell")
+        XCTAssertNil(knobs.enteredCell)
+        try pressEscape()
+        XCTAssertEqual(knobs.cellsLeft, 1, "a second Esc has no cell to leave")
+    }
+
+    /// IN A CELL ⌘Z IS THE CELL'S: asked of the layer even while the tablet's
+    /// page was written on last — the page is not what is being drawn on —
+    /// and ⇧⌘Z the same. Under the pen the page still comes first.
+    func testZInACellIsTheCellsEvenWhileThePageOwnsUndo() throws {
+        let knobs = Knobs()
+        show(knobs)
+        knobs.mode = .pen
+        knobs.pageOwnsUndo = true
+        settle()
+        try pressZ()
+        XCTAssertEqual(knobs.undos, 0, "under the pen the page's claim still comes first")
+
+        knobs.mode = .cursor
+        knobs.enteredCell = UUID()
+        settle()
+        try pressZ()
+        XCTAssertEqual(knobs.undos, 1, "⌘Z in a cell went to the page")
+        try pressZ(shift: true)
+        XCTAssertEqual(knobs.redos, 1)
     }
 
     func testEscPutsAwayAShapeArmedAfterTheLayerCameUp() throws {

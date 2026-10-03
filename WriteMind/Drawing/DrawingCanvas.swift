@@ -114,6 +114,13 @@ struct DrawingCanvas: View {
     /// A click into a cell: the caret goes into the cell
     /// (`EditorBridge.focusDrawingCell`).
     var onCellTap: ((UUID) -> Void)?
+    /// A CLICK INTO A STATIC CELL — a press on its paper that never travelled
+    /// — enters it (`AppState.enterCell`): the one way in.
+    var onEnterCell: ((UUID) -> Void)?
+    /// A way out of the entered cell the layer sees: Esc, a press outside it,
+    /// the Done control, the cell going, the caret leaving it
+    /// (`AppState.endCellDrawing`).
+    var onEndCell: (() -> Void)?
     /// DOCK AND MAKE CELL, from the two handles beside a selection of
     /// floating objects: the picked ones, for the pane to carry out
     /// (`EditorPane.dock`).
@@ -146,6 +153,12 @@ struct DrawingCanvas: View {
     private var activeCell: CellFrame? {
         guard case .cell(let id) = active else { return nil }
         return cellFrames.first { $0.id == id }
+    }
+
+    /// The entered cell, while it has a frame to be drawn in on the page.
+    private var enteredFrame: CellFrame? {
+        guard let enteredCell else { return nil }
+        return cellFrames.first { $0.id == enteredCell && $0.writable }
     }
 
     /// THE ACTIVE SPACE: where its objects are on the page and what they
@@ -241,6 +254,11 @@ struct DrawingCanvas: View {
     /// The tablet's eraser has taken its step: the rest of this erasure, nib
     /// down to nib up, is that one step.
     @State private var erasing = false
+    /// A press that began on a static cell and has not travelled: let go
+    /// under `CellDrawing.clickTravel` it is a click, and enters that cell.
+    @State private var cellClick: UUID?
+    /// The pointer is over the entered cell: the pencil.
+    @State private var overEntered = false
     /// The cell's height when its grip was taken.
     @State private var gripFrom: Double?
 
@@ -271,11 +289,11 @@ struct DrawingCanvas: View {
                                                  everything: mode != .cursor || commandDown
                                                      || connectActive || placing != nil,
                                                  offset: scrollOffset,
-                                                 // A cell's paper is the layer's only while
-                                                 // the cell is entered; a static cell is the
-                                                 // notebook's.
-                                                 paper: CellDrawing.paperTaken(frames: cellFrames,
-                                                                               entered: enteredCell)))
+                                                 // Every writable cell's paper is the layer's
+                                                 // to see whether a press is a click into it
+                                                 // (`CellDrawing`); it draws on none but the
+                                                 // one entered.
+                                                 paper: CellDrawing.paperTaken(frames: cellFrames)))
                     .gesture(drag(in: geo.size))
                     .onContinuousHover(coordinateSpace: .local) { phase in
                         hover(phase, in: geo.size)
@@ -292,6 +310,20 @@ struct DrawingCanvas: View {
                 // back, and Escape is how it is handed back.
                 if !penActive, placing == nil, let box = drawing.bounds(of: handleIDs, in: space.size) {
                     handles(box: space.toDocument(box), in: space.size)
+                }
+
+                // THE ENTERED CELL SAYS SO, on the cell: a tint and a line round
+                // it (drawn by `render`), and here the words and the Done
+                // control. SwiftUI shapes and text, no NSView.
+                if let frame = enteredFrame {
+                    Color.clear
+                        .frame(width: frame.rect.width, height: frame.rect.height)
+                        .allowsHitTesting(false)
+                        .overlay(alignment: .topTrailing) {
+                            CellDrawingBadge(compact: frame.rect.width < 240) { onEndCell?() }
+                                .padding(6)
+                        }
+                        .position(x: frame.rect.midX, y: frame.rect.midY - scrollOffset)
                 }
 
                 if let frame = gripFrame {
@@ -360,8 +392,36 @@ struct DrawingCanvas: View {
             // is the space again.
             .onChange(of: cellFrames) { _, frames in
                 if case .cell(let id) = active, !frames.contains(where: { $0.id == id }) { enter(.floating) }
+                // The entered cell folded away, went read-only or left the
+                // note: the mode goes with it.
+                if let enteredCell, !CellDrawing.enterable(enteredCell, in: frames) { onEndCell?() }
             }
-            .onChange(of: deselectToken) { _, _ in selection = []; cropping = nil; styling = nil; editingLabel = nil }
+            // A CLICK IN THE NOTES, outside the cell, is the way out (a click
+            // inside it is the layer's own and is never counted here).
+            .onChange(of: deselectToken) { _, _ in
+                selection = []; cropping = nil; styling = nil; editingLabel = nil
+                if enteredCell != nil { onEndCell?() }
+            }
+            // The caret leaving the cell — an arrow key, a character typed
+            // after it, a click in the words — leaves the mode with it.
+            .onChange(of: litCell) { old, new in
+                if let enteredCell, old == enteredCell, new != enteredCell { onEndCell?() }
+            }
+            // Entering or leaving a cell leaves nothing behind: not a
+            // selection, a half-typed label. NOT a pending click, and NOT
+            // what the press that LEFT it went on to pick: a press outside
+            // the entered cell leaves the mode and carries on as an ordinary
+            // press (`begin`), and this runs after it — clearing a selection
+            // that press had just made, or the click it was about to make
+            // into another cell.
+            .onChange(of: enteredCell) { _, entered in
+                if entered == nil {
+                    overEntered = false
+                    if case .cell = active { enter(.floating) }
+                } else {
+                    selection = []; hovered = nil; cropping = nil; styling = nil; editingLabel = nil
+                }
+            }
             .onChange(of: selection) { _, picked in onSelectionChanged?(!picked.isEmpty) }
             .onReceive(tabletPicks) { rect in pick(byTablet: rect) }
             .onReceive(tabletErases) { erase(byTablet: $0) }
@@ -394,6 +454,13 @@ struct DrawingCanvas: View {
     private func render(_ context: inout GraphicsContext, size pane: CGSize) {
         // Everything below is in the document's coordinates.
         context.translateBy(x: 0, y: -scrollOffset)
+        // THE ENTERED CELL: a tint over its picture and a firm line round it —
+        // the cell stays exactly where it is, and nothing else on the page
+        // is drawn for.
+        if let frame = enteredFrame {
+            context.fill(Path(frame.rect), with: .color(Color.accentColor.opacity(0.07)))
+            context.stroke(Path(frame.rect.insetBy(dx: 1, dy: 1)), with: .color(Color.accentColor), lineWidth: 2)
+        }
         for item in layer.visibleItems { draw(item, in: &context, size: pane) }
         // What is being DONE in the active space — the stroke under way,
         // the outlines, the marquee, a shape being dragged out, a crop —
@@ -1016,7 +1083,21 @@ struct DrawingCanvas: View {
                 switch interaction {
                 case .drawing:
                     DrawingCursors.pencil.set()
-                    let point = Self.normalise(doc(value.location), in: size)
+                    var point = Self.normalise(doc(value.location), in: size)
+                    // CLIPPED TO THE CELL: in a cell every point is held
+                    // inside it, so a stroke dragged out of it runs along its
+                    // edge and leaves nothing outside.
+                    if let frame = activeCell { point = CellDrawing.hold(point, in: frame) }
+                    // A press on a static cell is a CLICK until it travels:
+                    // it leaves no dot, and enters the cell when it ends. Once
+                    // it has travelled it is a stroke from where it began.
+                    var began = point
+                    if cellClick != nil {
+                        let travelled = CGFloat(hypot(value.translation.width, value.translation.height))
+                        guard !CellDrawing.isClick(travelled: travelled) else { break }
+                        cellClick = nil
+                        began = Self.normalise(doc(value.startLocation), in: size)
+                    }
                     // The nib's pressure for THIS event, read off the
                     // event by `PenSampleReader`'s monitor before the
                     // gesture saw it. A tablet's first event makes the
@@ -1031,8 +1112,9 @@ struct DrawingCanvas: View {
                         onBeginChange?()
                         // As wide as the pen on screen, in a cell shown
                         // smaller than it was drawn.
-                        current = Stroke.starting(at: point, colorHex: color.hexString, width: width / space.scale,
+                        current = Stroke.starting(at: began, colorHex: color.hexString, width: width / space.scale,
                                                   pen: pen, tool: tool)
+                        if began != point { current?.append(point, pen: pen) }
                     } else {
                         current?.append(point, pen: pen)
                     }
@@ -1123,6 +1205,20 @@ struct DrawingCanvas: View {
                 default:
                     break
                 }
+                // A CLICK ON A STATIC CELL — a press that never travelled —
+                // IS THE WAY INTO IT (Sean, 2026-10-03: "drawing cells are
+                // static unless you enter click into it"): whatever was
+                // picked on the layer is let go, the caret goes into the
+                // cell, and the cell is entered.
+                if let id = cellClick {
+                    cellClick = nil
+                    let travelled = CGFloat(hypot(value.translation.width, value.translation.height))
+                    if CellDrawing.isClick(travelled: travelled) {
+                        selection = []
+                        onCellTap?(id)
+                        onEnterCell?(id)
+                    }
+                }
                 interaction = nil
                 snapshot = [:]
                 cellChanged()
@@ -1134,9 +1230,29 @@ struct DrawingCanvas: View {
     /// shape, a mark, a text box, an arrow, and a marquee picks there —
     /// and then what it does there.
     private func begin(at panePoint: CGPoint, pane: CGSize) {
-        let found = CanvasSpace.at(CGPoint(x: panePoint.x, y: panePoint.y + scrollOffset), layer: layer,
-                                   pane: pane, frames: cellFrames, cells: cells.wrappedValue,
-                                   entered: enteredCell)
+        let documentPoint = CGPoint(x: panePoint.x, y: panePoint.y + scrollOffset)
+        let flags = NSEvent.modifierFlags
+        var entered = enteredCell
+        var found = CanvasSpace.at(documentPoint, layer: layer, pane: pane, frames: cellFrames,
+                                   cells: cells.wrappedValue, entered: entered)
+        func contact() -> CellDrawing.Contact {
+            CellDrawing.contact(at: documentPoint, entered: entered, frames: cellFrames,
+                                coveredByObject: found.item != nil, tool: placing != nil || connectActive,
+                                command: flags.contains(.command))
+        }
+        var about = contact()
+        if about == .leaving {
+            // A PRESS OUTSIDE THE ENTERED CELL IS THE WAY OUT, and the press
+            // goes on as an ordinary one — asked again with nothing entered,
+            // so it may be a click into another cell.
+            onEndCell?()
+            entered = nil
+            found = CanvasSpace.at(documentPoint, layer: layer, pane: pane, frames: cellFrames,
+                                   cells: cells.wrappedValue, entered: nil)
+            about = contact()
+        }
+        cellClick = nil
+        if case .click(let id) = about { cellClick = id }
         enter(found.space)
         let point = doc(panePoint), size = space.size
         // Something is armed: this drag is where it goes. And it is the
@@ -1163,8 +1279,7 @@ struct DrawingCanvas: View {
         // (`CanvasMode.press`). ⌥ from a node draws its line above
         // whatever the answer here is: a modifier held down is asked for
         // by hand, and that is what overrides a mode.
-        let flags = NSEvent.modifierFlags
-        let press = mode.press(with: flags)
+        let press = mode.press(with: flags, inEnteredCell: entered != nil)
         if press == .draw { interaction = .drawing; return }
         if press != .marquee, connectActive {
             interaction = .connecting(from: point, node: drawing.attachable(at: point, in: size))
@@ -1216,6 +1331,21 @@ struct DrawingCanvas: View {
     /// on the layer takes. So ⌫ and the handles act on what it picked, as
     /// they do on a ⌘-drag's.
     private func pick(byTablet rect: CGRect) {
+        // IN A CELL the marquee picks that cell's own objects — nothing else
+        // on the page reacts to the pen — its rectangle taken into the
+        // cell's space.
+        if let frame = enteredFrame {
+            enter(.cell(frame.id))
+            if cropping != nil { cancelCrop() }
+            styling = nil
+            editingLabel = nil
+            let space = CanvasSpace.cell(frame)
+            let local = CGRect(origin: space.fromDocument(rect.origin),
+                               size: CGSize(width: rect.width / space.scale, height: rect.height / space.scale))
+            let additive = NSEvent.modifierFlags.contains(.shift)
+            selection = Self.marqueePicked(local, in: drawing, size: space.size, adding: additive ? selection : nil)
+            return
+        }
         // The tablet's marquee is over the floating layer: the notes'
         // own objects, as its rectangle is in the document's points.
         enter(.floating)
@@ -1239,7 +1369,9 @@ struct DrawingCanvas: View {
         case .path(let a, let b):
             let radius = StrokeEraser.noteRadius
             let size = paneSize
-            let layerGone = Set(layer.items.compactMap { item -> UUID? in
+            // IN A CELL NOTHING ELSE ON THE PAGE REACTS: the eraser takes the
+            // entered cell's strokes and leaves the floating layer alone.
+            let layerGone = enteredCell != nil ? [] : Set(layer.items.compactMap { item -> UUID? in
                 guard case .stroke = item else { return nil }
                 let reach = radius + item.baseReach * item.transform.scale
                 return StrokeEraser.touches(item.outline(in: size), from: a, to: b, radius: reach) ? item.id : nil
@@ -1390,9 +1522,12 @@ struct DrawingCanvas: View {
         let mode: AppState.CanvasMode
         let placing: CanvasPlacement?
         let connectActive: Bool
+        let enteredCell: UUID?
     }
 
-    private var keyInputs: KeyInputs { KeyInputs(mode: mode, placing: placing, connectActive: connectActive) }
+    private var keyInputs: KeyInputs {
+        KeyInputs(mode: mode, placing: placing, connectActive: connectActive, enteredCell: enteredCell)
+    }
 
     private func unwatchKeys() {
         guard let keyMonitor else { return }
@@ -1434,6 +1569,13 @@ struct DrawingCanvas: View {
         // order they happened to be added, which every rebuild of the panes
         // changes.
         if event.keyCode == 53, onEscapeBox?(event) == true { return true }
+        // Esc leaves the cell that was entered (cell drawing mode): after a
+        // label, a style bar and the box have had it, since each is the
+        // nearer thing to call off.
+        if enteredCell != nil, event.keyCode == 53, flags.isSubset(of: [.function, .numericPad]) {
+            onEndCell?()
+            return true
+        }
         // Esc puts the pen down (Sean, 2026-10-02: "esc should exit pen
         // mode") — after a label, a style bar, an armed shape, a crop and
         // the page's box have had it, since each of those is the nearer
@@ -1451,10 +1593,15 @@ struct DrawingCanvas: View {
         // monitor sees ⌘Z BEFORE the Edit menu's key equivalent does, so
         // the menu's "the page first" is asked here too, or ⌘Z after a
         // stroke on the tablet undid whatever was picked on the layer.
+        // IN A CELL ⌘Z IS THE CELL'S, and the tablet's page does not come
+        // first: the page is not what is being drawn on.
         if event.charactersIgnoringModifiers?.lowercased() == "z",
-           Self.takesUndo(layerOwns: canvasOwnsUndo, pageOwns: pageOwnsUndo()) {
+           Self.takesUndo(layerOwns: canvasOwnsUndo, pageOwns: pageOwnsUndo() && enteredCell == nil) {
             if flags == .command, onUndo?() == true { return true }
             if flags == [.command, .shift], onRedo?() == true { return true }
+            // With nothing left to undo or redo in the cell the key goes
+            // nowhere: not to the page's drawing, not to the typing.
+            if enteredCell != nil, flags == .command || flags == [.command, .shift] { return true }
         }
         // ⌃G holds what is picked together, or takes it apart — one key,
         // both ways (Sean, 2026-09-20: "toggle grouping with the button on
@@ -1544,7 +1691,7 @@ struct DrawingCanvas: View {
 
     /// Whether ⌘Z is the layer's to take.
     private var canvasOwnsUndo: Bool {
-        penActive || !selection.isEmpty || placing != nil || connectActive
+        penActive || !selection.isEmpty || placing != nil || connectActive || enteredCell != nil
     }
 
     private func hover(_ phase: HoverPhase, in pane: CGSize) {
@@ -1557,6 +1704,17 @@ struct DrawingCanvas: View {
             // set here outlives them until the next entry, and the next move
             // sets it again (Sean, 2026-09-18: "still see a normal cursor").
             if penActive { DrawingCursors.pencil.set() }
+            // IN A CELL THE POINTER IS A PENCIL over the cell and the cell's
+            // own objects are not hovered: a press there draws, and handles
+            // drawn round a hovered stroke would promise a drag that moves
+            // it instead.
+            if let frame = enteredFrame {
+                let inside = frame.rect.contains(CGPoint(x: point.x, y: point.y + scrollOffset))
+                if overEntered != inside { overEntered = inside }
+                hovered = nil
+                return
+            }
+            if overEntered { overEntered = false }
             // Only the cursor mode hovers. The other two have the whole
             // pane, so nothing is "under the pointer" to pick up, and
             // handles drawn round a hovered object would promise a drag
@@ -1572,6 +1730,7 @@ struct DrawingCanvas: View {
             }
             hovered = found.space == active ? found.item : nil
         case .ended:
+            if overEntered { overEntered = false }
             // Leaving the ink for a handle beside it must not take the handle
             // away before it can be grabbed.
             let leaving = hovered
@@ -1588,6 +1747,10 @@ struct DrawingCanvas: View {
         if placing != nil { return .crosshair }
         if penActive { return DrawingCursors.pencil }
         if connectActive { return .crosshair }
+        // Over the entered cell the pointer draws, so it is the pencil — by
+        // the same way in as the hand over an object: this layer mounted,
+        // the text view's moves asking it (`CursorRectView.claim`).
+        if overEntered { return DrawingCursors.pencil }
         if interaction == .moving || (interaction == .handle && hoveredHandles.contains("move")) {
             return .closedHand
         }
@@ -1651,8 +1814,9 @@ struct CanvasHitShape: Shape {
     /// The scroll offset: the objects are in the document, the shape is on
     /// the pane.
     var offset: CGFloat = 0
-    /// The drawing cells' paper, in document points: drawn on in cursor
-    /// mode too, so the layer takes a press there.
+    /// The drawing cells' paper, in document points: the layer takes a press
+    /// there to see whether it is a click into the cell (`CellDrawing`),
+    /// and draws on it only once the cell is entered.
     var paper: [CGRect] = []
 
     func path(in rect: CGRect) -> Path {
@@ -1765,5 +1929,37 @@ final class HitPathCache {
         path = fresh
         valid = true
         return fresh
+    }
+}
+
+/// THE ENTERED CELL'S WORDS AND ITS WAY OUT, in the cell's top right corner:
+/// "Drawing in this cell" and Done (Esc and a click outside it do the same).
+/// Compact in a cell too narrow for both. SwiftUI shapes and text — a hosted
+/// control over the notes is handed every cursorUpdate there (AGENTS.md, the
+/// eighth cause) — with its own tap, as the layer's handles have.
+private struct CellDrawingBadge: View {
+    let compact: Bool
+    let done: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "pencil.tip").font(.system(size: 10, weight: .bold))
+            if !compact { Text("Drawing in this cell").font(.system(size: 11, weight: .semibold)) }
+            Text("Done")
+                .font(.system(size: 11, weight: .semibold))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(.white.opacity(0.28)))
+                .contentShape(Capsule())
+                .onTapGesture(perform: done)
+                .help("Leave the cell (esc, or a click outside it, does too)")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("Done drawing in this cell")
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(Color.accentColor))
+        .shadow(radius: 1.5, y: 0.5)
     }
 }

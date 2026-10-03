@@ -81,8 +81,13 @@ final class AppState: ObservableObject {
         /// drew at once (Sean, 2026-10-03: "drawing mode seems to keep
         /// turning itself on as i'm trying to navigate"). A drawing cell is
         /// static now and drawn in only once entered — `CellDrawing`.
-        func press(with modifiers: NSEvent.ModifierFlags) -> Press {
+        ///
+        /// INSIDE THE ENTERED CELL every press draws (`CellDrawing`): that is
+        /// what cell drawing mode is, and the cursor's own answer is for
+        /// everywhere else. ⌘ is still the marquee there.
+        func press(with modifiers: NSEvent.ModifierFlags, inEnteredCell: Bool = false) -> Press {
             if modifiers.contains(.command) { return .marquee }
+            if inEnteredCell { return .draw }
             return self == .pen ? .draw : .objects
         }
     }
@@ -287,6 +292,7 @@ final class AppState: ObservableObject {
             guard canvasMode != .cursor else { return }
             if connectActive { connectActive = false }
             if placing != nil { placing = nil }
+            endCellDrawing()
             showRenderedPage()
         }
     }
@@ -319,6 +325,7 @@ final class AppState: ObservableObject {
             guard connectActive else { return }
             if canvasMode != .cursor { canvasMode = .cursor }
             if placing != nil { placing = nil }
+            endCellDrawing()
             showRenderedPage()
         }
     }
@@ -331,6 +338,7 @@ final class AppState: ObservableObject {
             guard placing != nil else { return }
             canvasMode = .cursor
             connectActive = false
+            endCellDrawing()
             showRenderedPage()
         }
     }
@@ -357,7 +365,35 @@ final class AppState: ObservableObject {
         toggleMode()
     }
 
-    /// EVERY TOOL PUT AWAY — the pen, the arrow tool, an armed shape — for
+    /// THE DRAWING CELL IN CELL DRAWING MODE, nil when none (`CellDrawing`).
+    /// Not a CanvasMode and not a tool of the bar's: the pen, the arrow tool
+    /// and an armed shape take the whole pane, and this takes one cell of it
+    /// — the notebook still has every click round it. ONE TOOL AT A TIME all
+    /// the same: entering puts the others away and picking any of them
+    /// leaves the cell (each tool's setter, and `putToolsAway`).
+    @Published private(set) var cellDrawing: UUID?
+
+    /// CLICKING INTO A DRAWING CELL — or the pen's tip tapping it — is the
+    /// one way in (Sean, 2026-10-03: "drawing cells are static unless you
+    /// enter click into it"), and `testACellIsEnteredOnlyByAClickIntoIt`
+    /// reads the sources for every caller. The rendered page only: the
+    /// markdown view shows a cell as a picture and nothing is drawn there. A
+    /// click into another cell is that cell's mode.
+    func enterCell(_ id: UUID) {
+        guard mode == .preview else { return }
+        putToolsAway()
+        if cellDrawing != id { cellDrawing = id }
+    }
+
+    /// The way out, and every way out comes through here: Esc, the Done
+    /// control, a press outside the cell, another note, pane or mode,
+    /// another tool, and the cell going.
+    func endCellDrawing() {
+        if cellDrawing != nil { cellDrawing = nil }
+    }
+
+    /// EVERY TOOL PUT AWAY — the pen, the arrow tool, an armed shape, and a
+    /// drawing cell entered — for
     /// something dropped on the page to be typed in or picked up: a text
     /// box or a picture from the bar or the Insert menu, a capture from
     /// the camera or the tablet. Each of those put the pen down already;
@@ -369,6 +405,7 @@ final class AppState: ObservableObject {
         canvasMode = .cursor
         connectActive = false
         placing = nil
+        endCellDrawing()
     }
 
     /// ANOTHER NOTE TAKES NOTHING WITH IT. A pen, the arrow tool or a mark
@@ -410,6 +447,9 @@ final class AppState: ObservableObject {
                                   symbol: "arrow.right"))
         }
         if let placing { lines.append(ToolLine(words: placing.footer, symbol: placing.symbol)) }
+        if cellDrawing != nil {
+            lines.append(ToolLine(words: "Drawing in a cell: Esc or Done to finish", symbol: "pencil.tip.crop.circle"))
+        }
         // The nib writes ink in the note only while the rendered page is up
         // and the notes are on screen — everywhere else it is a pointer.
         if tabletWritesInNotebook, mode == .preview, notesInView {
@@ -423,7 +463,7 @@ final class AppState: ObservableObject {
     /// the arrow tool had no way out but its own switch). True when there
     /// was one, so with none up the key is the notebook's.
     func escapeTool() -> Bool {
-        guard canvasOwnsPane else { return false }
+        guard canvasOwnsPane || cellDrawing != nil else { return false }
         putToolsAway()
         return true
     }
@@ -480,8 +520,11 @@ final class AppState: ObservableObject {
     /// it took back (`inkOwnsRedo`).
     var drawingOwnsRedo: Bool { layerInHand || inkOwnsRedo }
 
-    /// The four that are the layer's own: something on it in hand.
-    private var layerInHand: Bool { penActive || connectActive || placing != nil || canvasSelection }
+    /// The five that are the layer's own: something on it in hand — or a cell
+    /// entered, whose undo and redo are its own (`NoteStore.undoDrawing(inCell:)`).
+    private var layerInHand: Bool {
+        penActive || connectActive || placing != nil || canvasSelection || cellDrawing != nil
+    }
 
     /// Where the drawing's undo stood under the FIRST stroke since the text
     /// was last typed in that went into the note with the keyboard still in

@@ -119,6 +119,10 @@ struct NotebookPlace: Equatable {
     /// (`TabletMapping.millimetres`). Zero is unmeasured, and Real size
     /// then has nothing to be real to: it falls back to Fit.
     var millimetres: CGSize = .zero
+    /// The drawing cells that can be drawn in, in document points.
+    var cells: [CellFrame] = []
+    /// The cell in cell drawing mode.
+    var entered: UUID? = nil
 
     /// Between the tablet's area and the edges of the notes, so its outline
     /// is never drawn on the edge of the pane.
@@ -174,14 +178,21 @@ struct NotebookPlace: Equatable {
     /// one pane's height (`DrawingCanvas.normalise` pins a point a screen
     /// or more down a long note to the bottom of the first screen; the area
     /// is always on the pane, so there is nothing here to clamp).
-    func strokePoint(_ page: CGPoint) -> CGPoint {
-        let point = inDocument(page)
+    ///
+    /// `rect`, when it is given, is the entered cell's frame in document
+    /// points: the point is HELD INSIDE it first, so a stroke written in a cell
+    /// runs along its edge and leaves nothing outside (`CellDrawing.hold`).
+    func strokePoint(_ page: CGPoint, heldIn rect: CGRect? = nil) -> CGPoint {
+        var point = inDocument(page)
+        if let rect { point = CellDrawing.hold(document: point, in: rect) }
         return CGPoint(x: point.x / pane.width, y: point.y / pane.height)
     }
 }
 
 /// The rule, sample by sample: the nib down is ink in the note, the nib
-/// down with a side switch held is the layer's marquee.
+/// down with a side switch held is the layer's marquee — and a DRAWING CELL
+/// is static: the nib TAPPING one enters it, and in cell drawing mode the
+/// nib writes into that cell and nowhere else.
 struct NotebookWriting {
     enum Outcome: Equatable {
         case none
@@ -202,21 +213,57 @@ struct NotebookWriting {
         case erasing(from: CGPoint, to: CGPoint)
         /// It came up: the erasure is one step.
         case erased
+        /// THE NIB TAPPED A STATIC DRAWING CELL — down and up under
+        /// `CellDrawing.clickTravel` over a writable cell nobody had
+        /// entered: the cell is entered, and the tap leaves no dot (the
+        /// click is the way in, as for the mouse).
+        case entered(UUID)
+        /// In cell drawing mode the nib went down OUTSIDE the entered cell:
+        /// the way out. Nothing of that touch is ink, a box or an erasure
+        /// (a tap of it on another cell enters that one, as a click does).
+        case left
+        /// The nib came up having written inside the entered cell: this stroke
+        /// goes into THAT CELL, held inside it, and nowhere else.
+        case finishedInCell(Stroke, UUID)
     }
 
     private(set) var stroke: Stroke?
     private var marqueeStart: CGPoint?
     private var eraseLast: CGPoint?
+    /// The entered cell this touch is writing into, with where it is on the
+    /// page (document points).
+    private var cell: (id: UUID, rect: CGRect)?
+    /// A touch that began over a static, writable cell: a tap if it never
+    /// travels (`CellDrawing.clickTravel`), else a stroke over it.
+    private var tapCell: UUID?
+    /// The touch is not ink: it began outside the entered cell.
+    private var inkless = false
+    private var downAt: CGPoint = .zero
+    private var travelled: CGFloat = 0
 
     mutating func consume(_ sample: TabletSample, at place: NotebookPlace, ink: TabletInk) -> Outcome {
         switch sample.phase {
         case .hover, .click:
             return .none
         case .down:
+            let at = place.inDocument(sample.page)
+            reset()
+            downAt = at
+            // IN A CELL a touch inside the entered cell is the cell's, and a
+            // touch anywhere else is the way out — the touch itself is
+            // nothing, and a tap of it on another cell enters that cell.
+            if let entered = place.entered {
+                guard let frame = place.cells.first(where: { $0.id == entered && $0.writable }),
+                      frame.rect.contains(at) else {
+                    inkless = true
+                    if !sample.eraser, !sample.sideSwitch {
+                        tapCell = place.cells.first { $0.writable && $0.rect.contains(at) }?.id
+                    }
+                    return .left
+                }
+                cell = (frame.id, frame.rect)
+            }
             if sample.eraser {
-                stroke = nil
-                marqueeStart = nil
-                let at = place.inDocument(sample.page)
                 eraseLast = at
                 return .erasing(from: at, to: at)
             }
@@ -224,45 +271,61 @@ struct NotebookWriting {
                 // A tap with the side switch held is a ⌘-click: the marquee
                 // of nothing picks what is under it, or lets go of what was
                 // picked.
-                stroke = nil
-                let start = place.inDocument(sample.page)
-                marqueeStart = start
-                return .selecting(CGRect(origin: start, size: .zero))
+                marqueeStart = at
+                return .selecting(CGRect(origin: at, size: .zero))
             }
-            marqueeStart = nil
             // EXACTLY AS THE LAYER'S OWN PEN BEGINS ONE (`DrawingCanvas`,
             // `.drawing`): `Stroke.starting` with the nib's own sample, so
             // the pen picked on the pen menu makes ink with a pressure a
             // point.
-            stroke = Stroke.starting(at: place.strokePoint(sample.page), colorHex: ink.colorHex, width: ink.width,
-                                     pen: .pen(pressure: sample.pressure), tool: ink.tool)
+            stroke = Stroke.starting(at: place.strokePoint(sample.page, heldIn: cell?.rect), colorHex: ink.colorHex,
+                                     width: ink.width, pen: .pen(pressure: sample.pressure), tool: ink.tool)
+            // A touch on a static cell may be a tap into it: it shows no ink
+            // until it has travelled.
+            if cell == nil, let over = place.cells.first(where: { $0.writable && $0.rect.contains(at) }) {
+                tapCell = over.id
+                return .none
+            }
             return .began
         case .drag:
+            let at = place.inDocument(sample.page)
+            travelled = max(travelled, hypot(at.x - downAt.x, at.y - downAt.y))
+            if inkless { return .none }
             if let last = eraseLast {
-                let at = place.inDocument(sample.page)
                 eraseLast = at
                 return .erasing(from: last, to: at)
             }
             if let start = marqueeStart {
-                return .selecting(CanvasGeometry.rect(from: start, to: place.inDocument(sample.page)))
+                return .selecting(CanvasGeometry.rect(from: start, to: at))
             }
             guard stroke != nil else { return .none }
-            stroke?.append(place.strokePoint(sample.page), pen: .pen(pressure: sample.pressure))
+            stroke?.append(place.strokePoint(sample.page, heldIn: cell?.rect), pen: .pen(pressure: sample.pressure))
+            if tapCell != nil {
+                // Still a tap: no ink yet. Once it has travelled it is a
+                // stroke over the cell, from where the nib went down.
+                guard !CellDrawing.isClick(travelled: travelled) else { return .none }
+                tapCell = nil
+                return .began
+            }
             return .grew
         case .up:
-            if eraseLast != nil {
-                eraseLast = nil
-                return .erased
+            let at = place.inDocument(sample.page)
+            travelled = max(travelled, hypot(at.x - downAt.x, at.y - downAt.y))
+            defer { reset() }
+            if inkless {
+                // A tap on another cell, outside the one that was entered,
+                // enters that one: a click does.
+                if let tap = tapCell, CellDrawing.isClick(travelled: travelled) { return .entered(tap) }
+                return .none
             }
-            if let start = marqueeStart {
-                marqueeStart = nil
-                return .selected(CanvasGeometry.rect(from: start, to: place.inDocument(sample.page)))
-            }
+            if eraseLast != nil { return .erased }
+            if let start = marqueeStart { return .selected(CanvasGeometry.rect(from: start, to: at)) }
             // The lift is not a point (it reports no pressure), as on the
             // page and as for the layer's own pen: a tap is one point, which
             // the ink draws as a dot.
             guard let finished = stroke else { return .none }
-            stroke = nil
+            if let tap = tapCell, CellDrawing.isClick(travelled: travelled) { return .entered(tap) }
+            if let cell { return .finishedInCell(finished, cell.id) }
             return .finished(finished)
         }
     }
@@ -272,6 +335,10 @@ struct NotebookWriting {
         stroke = nil
         marqueeStart = nil
         eraseLast = nil
+        cell = nil
+        tapCell = nil
+        inkless = false
+        travelled = 0
     }
 }
 
@@ -328,6 +395,14 @@ final class NotebookScribe: ObservableObject {
     /// switches (`takeBack`, `putBack`).
     var onUndo: (() -> Void)?
     var onRedo: (() -> Void)?
+    /// A stroke written in the ENTERED cell (cell drawing mode), the cell it
+    /// goes into: held inside it, one step on that cell's undo.
+    var onCellStroke: ((Stroke, UUID) -> Void)?
+    /// The nib TAPPED a static cell: it is entered (`AppState.enterCell`),
+    /// and the caret goes into it as a click's does.
+    var onEnterCell: ((UUID) -> Void)?
+    /// The nib went down outside the entered cell: the way out.
+    var onLeaveCell: (() -> Void)?
 
     private var writing = NotebookWriting()
 
@@ -347,8 +422,24 @@ final class NotebookScribe: ObservableObject {
             // the drawing stood under it.
             state?.inkedNote(above: floor)
         }
-        onUndo = { [weak store] in store?.undoDrawing() }
-        onRedo = { [weak store] in store?.redoDrawing() }
+        onCellStroke = { [weak store, weak state] stroke, cell in
+            guard let store else { return }
+            let floor = store.drawingSteps
+            guard store.inkFromTablet(stroke, intoCell: cell) else { return }
+            state?.inkedNote(above: floor)
+        }
+        // A TAP ON A STATIC CELL IS A CLICK INTO IT: the caret goes in, as a
+        // click's does, and the cell mode is entered — the one way in for the
+        // nib, as the layer's click is for the mouse.
+        onEnterCell = { [weak state] id in
+            state?.editor.focusDrawingCell(id)
+            state?.enterCell(id)
+        }
+        onLeaveCell = { [weak state] in state?.endCellDrawing() }
+        // IN A CELL the pen's buttons are the cell's own undo and redo
+        // (`NoteStore.undoDrawing(inCell:)`), as ⌘Z is.
+        onUndo = { [weak store, weak state] in store?.undoDrawing(inCell: state?.cellDrawing) }
+        onRedo = { [weak store, weak state] in store?.redoDrawing(inCell: state?.cellDrawing) }
     }
 
     /// The pen's lower switch clicked in Notebook mode: the note's drawing,
@@ -384,6 +475,17 @@ final class NotebookScribe: ObservableObject {
             erases.send(.path(from: from, to: to))
         case .erased:
             erases.send(.end)
+        case .entered(let id):
+            // The tap shows no ink and leaves none: the cell is entered.
+            stroke = nil
+            onEnterCell?(id)
+        case .left:
+            stroke = nil
+            marquee = nil
+            onLeaveCell?()
+        case .finishedInCell(let finished, let id):
+            stroke = nil
+            onCellStroke?(finished, id)
         }
     }
 

@@ -5,10 +5,26 @@ is how the code is put together.
 
 - **Notes are files.** `~/Documents/WriteMind/*.md`, one per note, readable
   by anything. The title is the note's first `# heading`, or its file name.
-- **A drawing cell is a cell you draw in.** ⌘0, or **Insert ▸ Drawing Cell**
-  (or the + between two cells), puts one in the note: a blank sheet of paper
-  in the flow of the text, which you draw on with the pen exactly as you do
-  over the page — and what is drawn belongs to that cell, so it moves with the
+- **A drawing cell is a cell you draw in — once you click into it.** ⌘0, or
+  **Insert ▸ Drawing Cell** (or the + between two cells), puts one in the
+  note: a blank sheet of paper in the flow of the text. It is STATIC until
+  you enter it: it shows its picture and nothing draws into it just because
+  the pen is down or the pointer is over it; you select it by its bracket,
+  move it, delete it, hold it with others, insert round it, and a picture
+  put on the page or a page captured by selection from the document camera
+  land as they always did. **Click into it** — or tap it with the Wacom's pen
+  while the tablet writes on the notebook — and you are in **cell drawing
+  mode** for that cell: it is tinted and outlined, says "Drawing in this
+  cell" with a **Done** button on it, the footer says so too, and the mouse
+  (or the pen) draws in that cell and nowhere else, clipped to it. Its ⌘Z and
+  ⇧⌘Z (and the pen's two buttons) are the cell's own: they take back the
+  strokes made in it and never reach the page; the eraser and the selection
+  box work on that cell alone, and nothing else on the page reacts. It ends
+  on Esc, on Done, on a click outside the cell (another cell clicked is
+  entered in turn), when the caret leaves it, on another note, pane or view,
+  or when you pick the pen, a shape or the arrow tool — and not between
+  strokes. With the tablet writing on its own page the pen never draws into
+  a cell. What is drawn belongs to that cell, so it moves with the
   words, folds with its section and comes out in the PDF. In the note it is
   one line, `![](_drawings/cells/<ID>.png)`, and the drawing is that file: a
   real PNG of it in the folder `_drawings/cells` beside the note (visible, and
@@ -376,7 +392,8 @@ is how the code is put together.
   whatever is in hand — the pen, the arrow tool, a shape or a mark, which
   still stays armed while you use it — and the footer names it, and how to
   stop it, for as long as it is on. A drawing cell is never drawn on just
-  because the pen is down or the pointer passes over it. **Drawing is
+  because the pen is down or the pointer passes over it — you click into it
+  first (the first entry). **Drawing is
   on the rendered page only**: picking the pen, a shape, a mark or the
   arrow tool while the markdown view shows brings the rendered page up
   under it, ⌘T back to markdown puts the tool down, and the tablet writes

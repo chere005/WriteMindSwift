@@ -129,8 +129,8 @@ struct EditorPane: View {
                                   pendingLabelEdit: store.pendingLabelEdit,
                                   onLabelEditStarted: { store.pendingLabelEdit = nil },
                                   onSelectionChanged: { appState.canvasSelection = $0 },
-                                  onUndo: { store.undoDrawing() },
-                                  onRedo: { store.redoDrawing() },
+                                  onUndo: { store.undoDrawing(inCell: appState.cellDrawing) },
+                                  onRedo: { store.redoDrawing(inCell: appState.cellDrawing) },
                                   pageOwnsUndo: { appState.pageOwnsUndo },
                                   placing: appState.placing,
                                   onDisarm: { appState.placing = nil },
@@ -146,7 +146,10 @@ struct EditorPane: View {
                                   cells: $store.cells,
                                   cellFrames: drawingFrames,
                                   litCell: caretDrawing,
+                                  enteredCell: appState.cellDrawing,
                                   onCellTap: { appState.editor.focusDrawingCell($0) },
+                                  onEnterCell: { appState.enterCell($0) },
+                                  onEndCell: { appState.endCellDrawing() },
                                   onDock: { dock($0) },
                                   onMakeCell: { makeCell($0) },
                                   onCellChanged: { store.fitCell($0) },
@@ -167,7 +170,7 @@ struct EditorPane: View {
                     // note on screen — the pen is a pointer, and the page
                     // says to bring the rendered one up (`TabletPane`).
                     if appState.mode == .preview {
-                        NotebookTabletLayer(scrollOffset: scrollOffset)
+                        NotebookTabletLayer(scrollOffset: scrollOffset, cellFrames: drawingFrames)
                     }
                 }
                 .onAppear {
