@@ -1137,7 +1137,13 @@ struct MarkdownTextView: NSViewRepresentable {
                 // characters inside one cell is not that and falls
                 // through to the ordinary delete.
                 if parent.bridge.deleteHeldCells() { return true }
-                return parent.bridge.outdentForBackspace()
+                if parent.bridge.outdentForBackspace() { return true }
+                // ⌫ AT THE VERY START OF A CELL DOES NOTHING (Sean,
+                // 2026-10-02: "backspace at beginning does nothing"). Left
+                // to NSTextView it took the blank line above and welded the
+                // cell onto the one over it — the merge, which is ⌃M's and
+                // nobody else's. True is "handled", and nothing was.
+                return NotebookCells.atTheStartOfACell(textView.selectedRange(), in: textView.string)
             case #selector(NSResponder.deleteForward(_:)):
                 // ⌦ the same, as the rendered page's column has it
                 // (`MarkdownPreview.cellKey`). Left to NSTextView it took

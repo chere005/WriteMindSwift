@@ -53,8 +53,12 @@ enum PreviewEditing {
         }
     }
 
-    /// Return in the middle of a block: what is behind the caret stays, what
-    /// is in front of it becomes the next block.
+    /// Return at the end of a block, or on an empty item that ends its
+    /// list: what is behind the caret stays, what is in front of it — the
+    /// rest of the list, nothing at the end of a cell — becomes the next
+    /// block, open. Not Return in the middle of a block: that is a line
+    /// break within it (Sean, 2026-10-02: "return should be a newline"),
+    /// and `BlockEditor.newline` never comes here for it.
     static func split(_ markdown: String, at range: NSRange,
                       head: String, tail: String) -> (markdown: String, editing: NSRange) {
         let ns = markdown as NSString

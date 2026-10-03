@@ -51,7 +51,12 @@ final class PreviewEditingTests: XCTestCase {
         XCTAssertEqual(caret, 0)
     }
 
-    func testReturnSplitsABlockAndEditsTheTail() {
+    func testTheNextBlockIsCutInAtTheCaretAndOpened() {
+        // What `BlockEditor` asks for at the end of a cell (an empty tail)
+        // and on an empty item that ends its list (the rest of the list).
+        // Return in the MIDDLE of a block is a line break in it and never
+        // comes here (Sean, 2026-10-02: "return should be a newline"); the
+        // cut itself is the same wherever it is asked for.
         let (markdown, editing) = PreviewEditing.split("Top\n\nHello world\n\nBottom",
                                                        at: NSRange(location: 5, length: 11),
                                                        head: "Hello", tail: "world")

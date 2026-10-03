@@ -38,6 +38,10 @@ is how the code is put together.
   at the cursor; ⌃M joins it to the one below (or, in the last cell, to the
   one above). Both work in the markdown and on the rendered page. A fence
   is never cut in half, and a heading will not swallow the cell under it.
+  They are the only two keys that do either: Return inside a cell is a
+  line break within it, and ⌫ at the very start of a cell does nothing
+  (Sean, 2026-10-02: "return should be a newline, backspace at beginning
+  does nothing").
 - **A cell is a thing you can hold.** Click its bracket and the whole
   cell is picked up, not a run of characters: type and it is replaced,
   ⌫ takes it away and the stack closes behind it, ⌃⇧D puts a copy under
@@ -95,7 +99,8 @@ is how the code is put together.
   waiting for its closing fence: the end of the note is in its code, and
   ↓ stays there). Return at the end of a cell
   leaves you on the line under it too, so what you type next is a cell
-  of its own. Getting there by arrow and getting there by click leave
+  of its own; anywhere inside a cell it is a line break within the cell,
+  never a split. Getting there by arrow and getting there by click leave
   the page in the same state — type and you get a new cell between the
   two, not a character that welds them into one.
 - **The same place, whichever mode.** Switching between the markdown and
@@ -130,8 +135,10 @@ is how the code is put together.
   its markdown styled as you type — the `**` fades, the word goes bold, a
   heading is heading-sized — and every button on the bar works on it: bold,
   the heading ladder, lists, quotes, indentation, text style, maths. Return
-  starts the next block (in a list it carries the list on), ⌫ in an empty
-  block takes it away, ↑ and ↓ move between blocks, and the line that appears
+  at the end of a block starts the next one and inside it is a line break
+  (in a list it carries the list on), ⌫ in an empty block takes it away
+  and at the start of a full one does nothing, ↑ and ↓ move between
+  blocks, and the line that appears
   between two blocks adds one there. Only the block you are in is ever
   rewritten; the rest of the file is never touched.
 - **A notebook page, off the camera.** With the camera on a dotted notebook,

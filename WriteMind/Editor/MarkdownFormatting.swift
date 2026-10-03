@@ -374,7 +374,10 @@ enum MarkdownFormatting {
         let selection = clamp(selection, to: ns.length)
         let line = ns.lineRange(for: selection)
         let column = selection.location - line.location
-        guard column > 0 else { return nil }   // at column 0, join with the line above
+        // At column 0 there is no prefix to be inside. Whether the key then
+        // joins the line above is the caller's: inside a cell it does, at
+        // the start of one it does nothing (`NotebookCells.atTheStartOfACell`).
+        guard column > 0 else { return nil }
         let body = ns.substring(with: line)
         guard column <= prefixLength(of: body), prefixLength(of: body) > 0 else { return nil }
         let edit = outdent(text: text, selection: selection)

@@ -15,6 +15,35 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### Return is a line break, and ⌫ at the start of a cell does nothing
+Sean, 2026-10-02: "return should be a newline, backspace at beginning does
+nothing..". Two decisions from the cell UX pass below, the same in the
+markdown view and the rendered one:
+- **Return anywhere inside a cell puts a line break in that cell.** It never
+  cuts the cell in two — splitting is a command of its own (⌃D here). The
+  rendered view used to split the block at the caret and open the tail; the
+  markdown view never did, and the two must leave the same bytes, at the very
+  start of a cell included (the newline goes in above the words, and the cells
+  are as they were). Return at the END of a cell still makes the next cell,
+  as the entry below says.
+- **⌫ with the caret at the first character of a cell does nothing.** It never
+  joins the cell to the one above — merging is a command of its own (⌃M
+  here). Inside a cell ⌫ is ordinary, a line break Return put in included. In
+  a markdown source view this means the key must be caught before the editor
+  takes the blank line above; an editor that holds one cell's own text has
+  nothing before offset zero and gets it for free.
+- **Lists, quotes and code keep their own rules**, unchanged: Return at the
+  end of an item makes the next item and on an empty item ends the list;
+  inside an item's words on the rendered view the rest of them become the
+  next item (one reminder of a checklist is one line, so its Return is always
+  that); a quote carries its marker on; a code cell's Return is a newline
+  anywhere in it, its end included; ⌫ inside a list marker's indentation
+  takes a level off; ⌫ in an empty cell removes it; ⌫ at the start of a
+  reminder's words joins them to the reminder above (one list, inside one
+  cell); ⌫ just behind a heading's hidden marker on the rendered view takes
+  the marker. A cell of empty lines is the note's own, and ⌫ in it takes a
+  line as it always has.
+
 ### Keys at the insertion bar, and cells held by their brackets
 Sean, 2026-10-02: "do a thorough test of cell selection and input insertion
 ux behavior...". What a test pass across both views settled, each the same in

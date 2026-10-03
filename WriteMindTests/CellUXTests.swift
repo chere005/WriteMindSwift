@@ -664,3 +664,268 @@ final class SeamDragTests: XCTestCase {
         XCTAssertEqual(drag.cells, [input, output, d])
     }
 }
+
+// MARK: - Return inside a cell, ⌫ at the start of one
+
+/// One cell open on the rendered page, as `BlockEditor.makeNSView` puts it
+/// together: the text view with the coordinator as its delegate and the
+/// bridge on it, so a key goes through `doCommand(by:)` and the delegate
+/// exactly as it does on screen. The page's own hooks — the next cell, an
+/// empty cell taken away, a reminder joined to the one above — are counted
+/// here rather than run: what they write is `MarkdownPreview`'s, and
+/// `PreviewEditing` and `ListEditing` carry their tests.
+private final class RenderedCell {
+    let tv = BlockTextView(usingTextLayoutManager: false)
+    let bridge = EditorBridge()
+    private(set) var coordinator: BlockEditor.Coordinator!
+    /// Return handed to the page: what is behind the caret, what is in
+    /// front of it.
+    private(set) var splits: [(head: String, tail: String)] = []
+    private(set) var removedEmpty = 0
+    private(set) var joinedPrevious = 0
+
+    /// `item` is one reminder of a checklist, which the page opens on one
+    /// line (`BlockView.words(of:at:)`); only a reminder has a line above
+    /// it to join.
+    init(_ text: String, keepsNewlines: Bool = false, language: CodeLanguage? = nil, item: Bool = false) {
+        let join: (() -> Void)? = item ? { [weak self] in self?.joinedPrevious += 1 } : nil
+        let editor = BlockEditor(text: .constant(text), font: .systemFont(ofSize: 15), bridge: bridge,
+                                 focusToken: 0, singleLine: item, keepsNewlines: keepsNewlines,
+                                 language: language,
+                                 onSplit: { [weak self] head, tail in self?.splits.append((head, tail)) },
+                                 onDeleteEmpty: { [weak self] in self?.removedEmpty += 1 },
+                                 onJoinPrevious: join)
+        coordinator = BlockEditor.Coordinator(editor)
+        tv.delegate = coordinator
+        tv.layoutManager?.delegate = coordinator.hiding
+        tv.isRichText = false
+        tv.baseFont = editor.font
+        tv.isCode = language != nil
+        tv.string = text
+        coordinator.language = language
+        coordinator.restyle(tv)
+        bridge.textView = tv
+    }
+
+    func caret(at offset: Int) { tv.setSelectedRange(NSRange(location: offset, length: 0)) }
+    func key(_ selector: Selector) { tv.doCommand(by: selector) }
+}
+
+private let returnKey = #selector(NSResponder.insertNewline(_:))
+private let backspace = #selector(NSResponder.deleteBackward(_:))
+
+/// Sean, 2026-10-02: "return should be a newline, backspace at beginning
+/// does nothing..". D3 of the cell UX pass, decided: Return inside a cell is
+/// a line break within it and never cuts it in two — ⌃D is the split. In
+/// both panes; Return at the END of a cell still makes the next one.
+final class ReturnInsideACellTests: XCTestCase {
+    func testOnTheRenderedPageReturnInsideACellIsALineBreakWithinIt() {
+        // It cut the cell in two, "Hello" and "world", and opened the tail
+        // — which the source pane never did.
+        let cell = RenderedCell("Hello world")
+        cell.caret(at: 5)
+        cell.key(returnKey)
+        XCTAssertEqual(cell.tv.string, "Hello\n world")
+        XCTAssertTrue(cell.splits.isEmpty, "no second cell")
+        XCTAssertEqual(cell.tv.selectedRange(), NSRange(location: 6, length: 0), "the caret after the break")
+    }
+
+    func testReturnAtTheEndOfACellStillMakesTheNextCell() {
+        // A GUARD: last round's rule. The page gets the whole cell and an
+        // empty tail, and opens an empty cell under it.
+        let cell = RenderedCell("Hello world")
+        cell.caret(at: 11)
+        cell.key(returnKey)
+        XCTAssertEqual(cell.splits.map(\.head), ["Hello world"])
+        XCTAssertEqual(cell.splits.map(\.tail), [""])
+        XCTAssertEqual(cell.tv.string, "Hello world", "nothing written into this one")
+        // An empty cell's end is its start.
+        let empty = RenderedCell("")
+        empty.key(returnKey)
+        XCTAssertEqual(empty.splits.count, 1)
+    }
+
+    func testInTheSourcePaneItAlwaysWasALineBreak() {
+        // A GUARD: NSTextView's own newline, and the caret lands on a line
+        // with words on it, so no bar comes up.
+        let pane = SourcePane(note)
+        pane.caret(at: 18)
+        pane.key(returnKey)
+        XCTAssertEqual(pane.tv.string, "First cell\n\nSecond\n cell\n\nThird cell")
+        XCTAssertEqual(pane.cells.count, 3, "still three cells")
+        XCTAssertNil(pane.tv.armedSeam)
+    }
+
+    func testTheTwoPanesWriteTheSameBytes() {
+        // A paragraph, a heading, and the very start of a cell — where the
+        // break goes in above the words, and the cells are as they were.
+        // The rendered page's editor holds the cell's own text and writes
+        // it back over the cell's range, which is what `written` does here.
+        let cases: [(note: String, cell: NSRange, inside: Int)] = [
+            (note, second, 6),
+            ("# Title\n\nBody", NSRange(location: 0, length: 7), 3),
+            (note, second, 0),
+        ]
+        for (note, cell, inside) in cases {
+            let pane = SourcePane(note)
+            pane.caret(at: cell.location + inside)
+            pane.key(returnKey)
+            let rendered = RenderedCell((note as NSString).substring(with: cell))
+            rendered.caret(at: inside)
+            rendered.key(returnKey)
+            let written = (note as NSString).replacingCharacters(in: cell, with: rendered.tv.string)
+            XCTAssertEqual(written, pane.tv.string, "\(note.debugDescription) at \(inside)")
+            XCTAssertTrue(rendered.splits.isEmpty, "\(note.debugDescription) at \(inside)")
+        }
+    }
+
+    func testAListAQuoteAndACodeCellKeepTheirOwnReturn() {
+        // A GUARD, all of it. The end of an item: the next item.
+        let list = RenderedCell("- one\n- two", keepsNewlines: true)
+        list.caret(at: 11)
+        list.key(returnKey)
+        XCTAssertEqual(list.tv.string, "- one\n- two\n- ")
+        // Inside an item's words: the rest of them are the next item,
+        // which is what every list does — not a break inside the item.
+        let inside = RenderedCell("- one two", keepsNewlines: true)
+        inside.caret(at: 5)
+        inside.key(returnKey)
+        let lines = inside.tv.string.components(separatedBy: "\n")
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertEqual(lines.first, "- one")
+        XCTAssertTrue(lines.last?.hasPrefix("- ") == true && lines.last?.hasSuffix("two") == true, "\(lines)")
+        XCTAssertTrue(inside.splits.isEmpty)
+        // An empty item ends the list: its line goes, and what follows is
+        // the next cell.
+        let empty = RenderedCell("- one\n- ", keepsNewlines: true)
+        empty.caret(at: 8)
+        empty.key(returnKey)
+        XCTAssertEqual(empty.tv.string, "- one\n")
+        XCTAssertEqual(empty.splits.count, 1)
+        // A quote carries its marker on.
+        let quote = RenderedCell("> said", keepsNewlines: true)
+        quote.caret(at: 6)
+        quote.key(returnKey)
+        XCTAssertEqual(quote.tv.string, "> said\n> ")
+        // Code is code: Return is a newline anywhere in it, its end
+        // included, and never a cell.
+        let code = RenderedCell("x = 1", keepsNewlines: true, language: .python)
+        code.caret(at: 5)
+        code.key(returnKey)
+        XCTAssertEqual(code.tv.string, "x = 1\n")
+        XCTAssertTrue(code.splits.isEmpty)
+        // One reminder of a checklist is one line, and Return in it is
+        // the list's rule wherever the caret is: the rest of the words
+        // are the next reminder (`ListEditing.split`).
+        let item = RenderedCell("not yet", item: true)
+        item.caret(at: 3)
+        item.key(returnKey)
+        XCTAssertEqual(item.splits.map(\.head), ["not"])
+        XCTAssertEqual(item.splits.map(\.tail), [" yet"])
+        XCTAssertEqual(item.tv.string, "not yet")
+        // And the source pane's list rule: the end of an item carries the
+        // list on, inside an item Return is a plain newline.
+        let source = SourcePane("- one\n- two")
+        source.caret(at: 11)
+        source.key(returnKey)
+        XCTAssertEqual(source.tv.string, "- one\n- two\n- ")
+    }
+}
+
+/// D2 of the cell UX pass, decided: ⌫ with the caret at the very first
+/// character of a cell does nothing — it never joins the cell to the one
+/// above. ⌃M is the merge, deliberately. In both panes; inside a cell ⌫ is
+/// ordinary.
+final class BackspaceAtTheStartOfACellTests: XCTestCase {
+    func testInTheMarkdownPaneItLeavesTheNoteAlone() {
+        // It took the blank line above and joined the cell to the one over
+        // it: "First cell\nSecond cell", one paragraph — the merge, from a
+        // key that is not ⌃M.
+        let pane = SourcePane(note)
+        pane.caret(at: second.location)
+        pane.key(backspace)
+        XCTAssertEqual(pane.tv.string, note)
+        XCTAssertEqual(pane.tv.selectedRange(), NSRange(location: second.location, length: 0), "and the caret stays")
+        XCTAssertNil(pane.tv.armedSeam)
+        // At the start of the last cell too.
+        let last = SourcePane(note)
+        last.caret(at: third.location)
+        last.key(backspace)
+        XCTAssertEqual(last.tv.string, note)
+        // And of a heading right under a paragraph, with no blank line to
+        // take: the newline before it is still the cells' boundary.
+        let tight = SourcePane("Words\n# Heading")
+        tight.caret(at: 6)
+        tight.key(backspace)
+        XCTAssertEqual(tight.tv.string, "Words\n# Heading")
+        // And at the very start of a list cell, before its marker.
+        let list = SourcePane("a\n\n- item")
+        list.caret(at: 3)
+        list.key(backspace)
+        XCTAssertEqual(list.tv.string, "a\n\n- item")
+    }
+
+    func testOnTheRenderedPageItAlwaysDidNothing() {
+        // A GUARD: the editor holds its cell's own text, and there is
+        // nothing before its first character for the key to take.
+        let cell = RenderedCell("Second cell")
+        cell.caret(at: 0)
+        cell.key(backspace)
+        XCTAssertEqual(cell.tv.string, "Second cell")
+        XCTAssertEqual(cell.removedEmpty, 0)
+        XCTAssertEqual(cell.joinedPrevious, 0)
+    }
+
+    func testInsideACellItIsOrdinary() {
+        // A GUARD: a character goes, and so does a line break Return put in.
+        let pane = SourcePane(note)
+        pane.caret(at: second.location + 1)
+        pane.key(backspace)
+        XCTAssertEqual(pane.tv.string, "First cell\n\necond cell\n\nThird cell")
+        let lines = SourcePane("one\ntwo")
+        lines.caret(at: 4)
+        lines.key(backspace)
+        XCTAssertEqual(lines.tv.string, "onetwo")
+        let cell = RenderedCell("one\ntwo")
+        cell.caret(at: 4)
+        cell.key(backspace)
+        XCTAssertEqual(cell.tv.string, "onetwo")
+    }
+
+    func testTheListsTheEmptyCellAndTheBlankCellKeepTheirOwnBackspace() {
+        // A GUARD, all of it. Inside a list marker's indentation ⌫ takes a
+        // level off — a level is `indentUnit`, four spaces (AGENTS.md,
+        // "structure keys")...
+        let nested = SourcePane("a\n\n    - item")
+        nested.caret(at: 7)
+        nested.key(backspace)
+        XCTAssertEqual(nested.tv.string, "a\n\n- item")
+        // ...a blank cell is the note's own empty lines, and ⌫ in one takes
+        // a line away as it always has (the line at 3 is the cell)...
+        let blank = SourcePane("a\n\n\n\nb")
+        XCTAssertEqual(blank.blocks, [.paragraph("a"), .blank(lines: 1), .paragraph("b")], "the premise")
+        blank.caret(at: 3)
+        blank.key(backspace)
+        XCTAssertEqual(blank.tv.string, "a\n\n\nb")
+        // ...on the rendered page ⌫ in an empty cell takes the cell away...
+        let empty = RenderedCell("")
+        empty.key(backspace)
+        XCTAssertEqual(empty.removedEmpty, 1)
+        // ...and at the start of a reminder's words joins them to the
+        // reminder above: one list, inside one cell (`ListEditing.joinPrevious`).
+        let item = RenderedCell("two", item: true)
+        item.caret(at: 0)
+        item.key(backspace)
+        XCTAssertEqual(item.joinedPrevious, 1)
+        XCTAssertEqual(item.tv.string, "two")
+    }
+
+    func testTheMergeIsStillControlM() {
+        // A GUARD: deliberately the one key that joins two cells — from the
+        // cell above, to the one below it (docs/FEATURES.md).
+        let pane = SourcePane(note)
+        pane.caret(at: 0)
+        pane.bridge.mergeCells()
+        XCTAssertEqual(pane.tv.string, "First cell\nSecond cell\n\nThird cell")
+    }
+}

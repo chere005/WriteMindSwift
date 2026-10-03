@@ -174,6 +174,26 @@ enum NotebookCells {
         return (out, min(max(moved, 0), (out as NSString).length))
     }
 
+    /// Whether an empty caret sits on the first character of a cell that
+    /// has words — where ⌫ does nothing (Sean, 2026-10-02: "backspace at
+    /// beginning does nothing"). Left to NSTextView the key took the blank
+    /// line above and welded the cell onto the one over it: the merge, from
+    /// a key that is not ⌃M. A blank cell is the note's own empty lines, and
+    /// ⌫ in one takes a line away as it always has; a selection is not a
+    /// caret, and deleting it is ordinary.
+    static func atTheStartOfACell(_ selection: NSRange, in text: String) -> Bool {
+        guard selection.length == 0 else { return false }
+        // Cheap first: this is asked on every ⌫, and a cell can only start
+        // where a line does, so the note is parsed only for a caret there.
+        let ns = text as NSString
+        let offset = selection.location
+        guard offset <= ns.length, offset == 0 || ns.character(at: offset - 1) == 10 else { return false }
+        return MarkdownParser.positioned(from: text).contains { cell in
+            if case .blank = cell.block { return false }
+            return cell.range.location == selection.location
+        }
+    }
+
     /// The block a character index falls in — the one it starts, when it
     /// sits exactly on a boundary.
     static func block(containing character: Int, in text: String) -> PositionedBlock? {

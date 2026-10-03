@@ -1595,8 +1595,43 @@ CoreMind's `bin/report-status.sh`.
   that it must stay an ordinary backspace or the note cannot be edited.
   They go through `textView(_:doCommandBy:)`, so one code path serves the
   keys and the ⌘[ / ⌘] buttons. Indent nests a quote (`> ` again) and shifts
-  anything else by two spaces; outdent takes spaces first, then a quote
-  marker, so Shift-Tab on a top-level quote unquotes it.
+  anything else by one `indentUnit`, four spaces; outdent takes a unit of
+  spaces first, then a quote marker, so Shift-Tab on a top-level quote
+  unquotes it.
+- **RETURN IS A LINE BREAK, ⌫ AT THE START OF A CELL IS NOTHING, AND ⌃D
+  AND ⌃M ARE THE ONLY SPLIT AND MERGE.** Sean, 2026-10-02: "return should
+  be a newline, backspace at beginning does nothing.." — D2 and D3 of that
+  day's cell UX pass, decided, and the same in both panes. Return anywhere
+  INSIDE a cell puts a line break in that cell and never cuts it in two:
+  the rendered page used to split the block at the caret and open the
+  tail (`PreviewEditing.split`), which the source pane never did;
+  `BlockEditor.newline` now writes "\n" into the open cell, and the two
+  panes leave the same bytes — at the very start of a cell included,
+  where the newline goes in above the words and the cells are as they
+  were. Return at the END of a cell still makes the next one (the rule
+  above: the bar under it in the source pane, an empty open cell on the
+  rendered page — `onSplit` with an empty tail, which is what
+  `PreviewEditing.split` is for now, with an item that ends its list).
+  ⌫ with the caret at the first character of a cell does nothing:
+  `NotebookCells.atTheStartOfACell`, asked LAST in the source pane's
+  `deleteBackward` — after held cells and the prefix outdent — where
+  NSTextView used to take the blank line above and weld the cell onto
+  the one over it; the rendered page's editor holds only its own cell's
+  text and never could. Inside a cell ⌫ is ordinary, a line break Return
+  put in included. What the lists, quotes and code keep, unchanged:
+  Return at the end of an item makes the next item and on an empty item
+  ends the list (`EditorBridge.continueList`,
+  `PreviewEditing.listContinuation`); on the rendered page Return inside
+  an item's words makes the rest of them the next item, and one
+  reminder's Return is `ListEditing.split` wherever the caret is, because
+  its editor is one line (`singleLine`); a quote carries its `> ` on; a
+  code cell's Return is a newline anywhere in it, its end included; ⌫
+  inside a list marker's prefix outdents (the rule above); ⌫ in an empty
+  cell takes it away; ⌫ at the start of a reminder's words joins them to
+  the reminder above (`ListEditing.joinPrevious` — one list, inside one
+  cell); ⌫ just behind a heading's furniture on the rendered page takes
+  the furniture (`MarkerHiding.furnitureBehind`). A blank cell is the
+  note's own empty lines, and ⌫ in one takes a line as it always has.
 - **The bar has to fit the pane it lives in.** It is inside the editor pane,
   so its width is whatever the split gives it, and an HStack that does not
   fit overflows in BOTH directions — the first cut pushed Bold out under the
@@ -1898,16 +1933,21 @@ WriteMind/
                           the rendered view, block by block — and the editor
                           on that side: click a block and it opens in a
                           BlockEditor; the gap between two blocks adds one;
-                          Return splits, ⌫ in an empty block removes it, the
-                          arrows walk between blocks. Every keystroke goes
-                          straight into the note at the block's own range
+                          Return at the end of a block makes the next one
+                          and inside it is a line break, ⌫ in an empty block
+                          removes it, the arrows walk between blocks. Every
+                          keystroke goes straight into the note at the
+                          block's own range
   Editor/BlockEditor.swift
                           one block in a real NSTextView, sized to its text,
                           handed to the EditorBridge so the whole bar works
-                          on it. Return in a list carries the list on
+                          on it. Return in a list carries the list on, and
+                          anywhere else is a line break until the end of the
+                          cell
   Editor/PreviewEditing.swift
-                          the document surgery — insert, split, remove, list
-                          continuation. Pure, tested
+                          the document surgery — insert, the next block at
+                          the end of one (split), remove, list continuation.
+                          Pure, tested
   Editor/Insertion.swift  where ⌘8's, ⌘9's and the maths palette's block
                           goes and what it holds, as one edit or a
                           refusal — both panes. Pure, tested

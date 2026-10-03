@@ -25,7 +25,9 @@ struct BlockEditor: NSViewRepresentable {
     /// because the `Text` it is drawn over has neither (Sean, 2026-09-21:
     /// "just the text part of the list becomes editable").
     var metrics: Metrics = .cell
-    /// One line only: a pasted newline becomes a space. An item of a list
+    /// One line only: a pasted newline becomes a space, and Return is the
+    /// list's rule wherever the caret is — the rest of the words become
+    /// the next item (`onSplit`), never a line break. An item of a list
     /// that gains a newline is no longer one item, and the block would be
     /// re-parsed out from under the caret mid-paste.
     var singleLine = false
@@ -36,11 +38,18 @@ struct BlockEditor: NSViewRepresentable {
     /// coloured for its language instead of being read as markdown (Sean,
     /// 2026-09-19: "i want to be able to type code in the code block").
     var language: CodeLanguage?
+    /// Return at the END of the cell, on an empty item that ends its list,
+    /// or anywhere in one reminder of a checklist: what is behind the caret
+    /// stays, what is in front of it is the next cell — or the next
+    /// reminder. Inside a cell Return is a line break and this is not
+    /// called (Sean, 2026-10-02: "return should be a newline").
     var onSplit: ((String, String) -> Void)?
     var onDeleteEmpty: (() -> Void)?
-    /// Backspace at the very start of something that is NOT empty: the
-    /// item joins the one above it, which is what every list does. Nil
-    /// leaves the key to AppKit, which at offset zero does nothing.
+    /// Backspace at the very start of ONE REMINDER'S words: they join the
+    /// reminder above, which is what every list does inside one cell. Nil
+    /// for a cell, where ⌫ at the start does nothing (Sean, 2026-10-02:
+    /// "backspace at beginning does nothing") — the editor holds the
+    /// cell's own text, and AppKit has nothing before offset zero to take.
     var onJoinPrevious: (() -> Void)?
     var onMove: ((Move) -> Void)?
 
@@ -353,8 +362,9 @@ struct BlockEditor: NSViewRepresentable {
             }
         }
 
-        /// Return: a new block, unless this block is a list — in which case it
-        /// is the next item, and an empty item ends the list instead.
+        /// Return: a line break inside the cell, the next cell at its end —
+        /// unless this block is a list, in which case it is the next item,
+        /// and an empty item ends the list instead.
         private func newline(in view: BlockTextView, text: String, caret: NSRange) -> Bool {
             if parent.keepsNewlines {
                 let lineRange = PreviewEditing.lineRange(in: text, at: caret.location)
@@ -371,7 +381,20 @@ struct BlockEditor: NSViewRepresentable {
                 return true
             }
             let ns = text as NSString
-            parent.onSplit?(ns.substring(to: caret.location), ns.substring(from: NSMaxRange(caret)))
+            // At the END of the cell the next cell is made under it; one
+            // reminder of a checklist is one line, and its Return is the
+            // list's rule wherever the caret is. Anywhere else RETURN IS A
+            // LINE BREAK WITHIN THE CELL, never a cut through it (Sean,
+            // 2026-10-02: "return should be a newline") — it used to split
+            // the block at the caret and open the tail, which the source
+            // pane never did, and ⌃D is the split. The newline goes in as
+            // typed, so the note holds the same bytes it would from the
+            // source pane: at the start of a cell, above the words.
+            if parent.singleLine || (caret.length == 0 && caret.location == ns.length) {
+                parent.onSplit?(ns.substring(to: caret.location), ns.substring(from: NSMaxRange(caret)))
+                return true
+            }
+            view.insertText("\n", replacementRange: caret)
             return true
         }
     }
