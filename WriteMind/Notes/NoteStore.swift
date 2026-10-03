@@ -644,20 +644,19 @@ final class NoteStore: ObservableObject {
     /// takes the stroke, and one given up half-way (the target changed, the
     /// notes went) leaves no empty step behind it. False with no note open.
     ///
-    /// BEGUN IN A DRAWING CELL, IT IS THE CELL'S: routed by its first point
-    /// against the cells' frames on the pane, moved into the cell's own
-    /// fractions point for point with every pressure kept
-    /// (`CanvasSpace.rehome`), and the cell grows to keep it — the same
-    /// step. Anywhere else it floats, as it always did.
+    /// A DRAWING CELL IS STATIC: a stroke goes into one only when it is told
+    /// which (`entered`, the cell in cell drawing mode — Sean, 2026-10-03:
+    /// "drawing cells are static unless you enter click into it"), moved
+    /// into the cell's own fractions point for point with every pressure
+    /// kept (`CanvasSpace.rehome`), the cell growing to keep it — the same
+    /// step. Every other stroke floats, whatever is under it, a cell's
+    /// picture included.
     @discardableResult
-    func inkFromTablet(_ stroke: Stroke) -> Bool {
+    func inkFromTablet(_ stroke: Stroke, intoCell entered: UUID? = nil) -> Bool {
         guard selectedNote != nil else { return false }
         beginDrawingChange()
         let pane = paneSize
-        if let first = stroke.points.first,
-           let frame = cellFrames.first(where: {
-               $0.writable && $0.rect.contains(CGPoint(x: first.x * pane.width, y: first.y * pane.height))
-           }) {
+        if let entered, let frame = cellFrames.first(where: { $0.id == entered && $0.writable }) {
             var cell = cells[frame.id] ?? .empty(width: Double(frame.width))
             cell.drawing.items.append(CanvasSpace.rehome(.stroke(stroke), from: .floating(pane: pane),
                                                          to: .cell(frame)))

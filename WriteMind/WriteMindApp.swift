@@ -46,6 +46,8 @@ struct WriteMindApp: App {
                 .task {
                     guard !didRestoreSession else { return }
                     didRestoreSession = true
+                    // Another note takes no tool with it (`AppState.watchNotes`).
+                    appState.watchNotes(of: store)
                     restoreSession()
                 }
                 .onReceive(NotificationCenter.default.publisher(

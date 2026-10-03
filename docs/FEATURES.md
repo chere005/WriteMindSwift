@@ -366,7 +366,17 @@ is how the code is put together.
   the pointer is a pencil over that pane and nowhere else. In either mode,
   hold **⌘ and drag** to pull a rectangle over the page: it takes
   everything it *touches*, whole or not. The mode is remembered between
-  launches and the footer names it whenever the pen is down. **Drawing is
+  launches and the footer names it whenever the pen is down. **Drawing mode
+  turns on only when you ask and is never left on behind you.** The pen, the
+  arrow tool, a shape or mark and the tablet's notebook mode are each put
+  on by a button or a key and by nothing else; none of them is remembered
+  across a launch, none goes with you to another note, and none stays when
+  a pane comes or goes (the notes pane put away, the video shown or hidden,
+  the window given to the picture) or the markdown view is up. Esc puts away
+  whatever is in hand — the pen, the arrow tool, a shape or a mark, which
+  still stays armed while you use it — and the footer names it, and how to
+  stop it, for as long as it is on. A drawing cell is never drawn on just
+  because the pen is down or the pointer passes over it. **Drawing is
   on the rendered page only**: picking the pen, a shape, a mark or the
   arrow tool while the markdown view shows brings the rendered page up
   under it, ⌘T back to markdown puts the tool down, and the tablet writes

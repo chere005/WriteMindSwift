@@ -18,6 +18,8 @@ import XCTest
 private final class Knobs: ObservableObject {
     @Published var mode: AppState.CanvasMode = .cursor
     @Published var placing: CanvasPlacement?
+    @Published var connectActive = false
+    var arrowToolsSwitchedOff = 0
     var pensPutDown = 0
     var placingsCalledOff = 0
 }
@@ -27,8 +29,10 @@ private struct KnobbedCanvas: View {
 
     var body: some View {
         DrawingCanvas(layer: .constant(Drawing()), mode: knobs.mode, color: .black, width: 2,
+                      connectActive: knobs.connectActive,
                       placing: knobs.placing,
                       onDisarm: { knobs.placingsCalledOff += 1; knobs.placing = nil },
+                      onDisconnect: { knobs.arrowToolsSwitchedOff += 1; knobs.connectActive = false },
                       onEscapePen: {
                           guard knobs.mode == .pen else { return false }
                           knobs.pensPutDown += 1
@@ -105,6 +109,21 @@ final class CanvasKeyTests: XCTestCase {
         XCTAssertEqual(knobs.mode, .cursor)
         try pressEscape()
         XCTAssertEqual(knobs.pensPutDown, 1, "a second Esc has no pen to put down")
+    }
+
+    /// The arrow tool had no way out but its own switch: Esc put the pen and
+    /// an armed shape away and left it on (Sean, 2026-10-03: "drawing mode
+    /// seems to keep turning itself on as i'm trying to navigate").
+    func testEscSwitchesOffTheArrowToolAndOnlyTakesTheKeyWhenItWasOn() throws {
+        let knobs = Knobs()
+        show(knobs)
+        knobs.connectActive = true
+        settle()
+        try pressEscape()
+        XCTAssertEqual(knobs.arrowToolsSwitchedOff, 1, "the layer's keys did not hear Esc for the arrow tool")
+        XCTAssertFalse(knobs.connectActive)
+        try pressEscape()
+        XCTAssertEqual(knobs.arrowToolsSwitchedOff, 1, "a second Esc has no arrow tool to put away")
     }
 
     func testEscPutsAwayAShapeArmedAfterTheLayerCameUp() throws {

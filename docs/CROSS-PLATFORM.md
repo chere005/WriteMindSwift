@@ -399,6 +399,52 @@ the existing hidden `.drawings` folders should move to a visible `_drawings`:
 - **A bracket click selects the cell on both views**, and Return opens a held
   cell (a checklist is entered as a whole that way).
 
+### Drawing mode turns on only when asked for, and is never left on behind you
+Sean, 2026-10-03: "drawing mode seems to keep turning itself on as i'm
+trying to navigate".
+
+Drawing mode is whatever makes a press on the notes into ink or an object:
+the pen, the arrow tool, an armed shape or mark, and the tablet's pen
+writing in the notebook. One rule: a tool goes ON only by an act of the
+user's — the pen button or its key, a palette tile, the arrow tool's
+switch, the tablet's Write on: Notebook switch — and goes away on each of
+these, which were all ways of finding a tool still on:
+
+- **A launch has no tool in hand.** The pen is not remembered across a
+  launch (it is a tool in hand, not a setting like the pen's size or
+  colour); neither is the tablet's notebook target, which is the page.
+  A launch is on the markdown view, in the notebook's own mode.
+- **Another note takes nothing with it.** The open note changing — a tab
+  picked or closed, a note opened from the list or by a link — puts every
+  tool away. The same note again, and typing or drawing in it, do not.
+- **A pane coming or going puts every tool away**: the notes pane put
+  away, the video or the tablet's page shown or hidden, the whole window
+  given to the picture, a tablet picked or let go. Only a change counts: a
+  pane set to what it already was does nothing. The note list is not one of
+  these. The markdown view puts every tool away as before, and going back
+  to the rendered page picks nothing up.
+- **Esc puts away whatever is in hand**: the pen, the arrow tool, an armed
+  shape or mark. It is taken only when something was in hand, so with
+  nothing up it belongs to the notes (an armed bar, a block being
+  edited). The arrow tool had no key out before.
+- **A mark or shape still stays armed while it is being used** — the
+  rule from 2026-10-02 is unchanged: putting one down does not hand the
+  tool back. Leaving, Esc, another tool, the same tile again or a way onto
+  the page ends it, as it did.
+- **The cursor never draws, and a drawing cell is static.** A drag with
+  the pen up, or a pen used as a pointer, over a drawing cell used to ink
+  in it, and the pointer was a pencil over every cell on the page. Now
+  nothing draws into a drawing cell because the pen is down or the pointer
+  is over it, and the tablet's pen writing in the notebook floats its ink
+  over a cell like over any other part of the page; the click that enters a
+  cell to draw in it is the next entry.
+- **The footer names every tool in hand**, in the accent colour, each with
+  how to put it away: "Pen: every drag draws, Esc to stop", the armed
+  shape or mark as before, "Arrow tool: drag from one thing to another,
+  Esc to stop", and "Tablet pen: writing on the notebook" while the tablet
+  is the input and the rendered page is up. The last two had no word on
+  screen at all before.
+
 ### Drawing happens on the rendered page only
 Sean, 2026-10-02: "only allow drawing in wysiwyg mode, both from wacom and
 from the pen cursor tool". It reverses 2026-09-19's "drawing should be

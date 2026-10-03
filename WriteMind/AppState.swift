@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// UI-only state: which pane is showing, whether the sidebar is out, and the pen.
@@ -38,6 +39,15 @@ final class AppState: ObservableObject {
             }
         }
 
+        /// The footer's words while the mode is on: what every drag does, and
+        /// how it is put away. Nothing for the cursor, which is the notebook's.
+        var footer: String {
+            switch self {
+            case .cursor: return ""
+            case .pen: return "Pen: every drag draws, Esc to stop"
+            }
+        }
+
         var help: String {
             switch self {
             case .cursor: return "The notebook takes the clicks — the words, the bars between the cells, the brackets. Objects on the page can still be dragged by hand."
@@ -55,10 +65,6 @@ final class AppState: ObservableObject {
             /// The objects on the layer: pick one up, or let the click
             /// through to the notebook.
             case objects
-            /// A drawing cell's PAPER, in cursor mode: a stroke into the
-            /// cell once the press has travelled (`paperStrokes`), or the
-            /// caret into the cell if it never does.
-            case paper
         }
 
         /// ⌘ IS THE SELECTOR, IN BOTH MODES (Sean, 2026-09-21: "in both
@@ -68,29 +74,17 @@ final class AppState: ObservableObject {
         /// what overrides a mode; under the pen a ⌘-drag used to draw a
         /// stroke over whatever it was meant to be picking up.
         ///
-        /// ON A DRAWING CELL'S PAPER the cursor draws (Sean, 2026-10-02:
-        /// "drawing cell which is cmd + 0"): the cell is for drawing in,
-        /// and making him pick the pen up for each one is the step that
-        /// the cell was made to save. An object under the point — on the
-        /// layer or in a cell — is asked before the paper, by the canvas,
-        /// and is picked up as it always was.
-        func press(with modifiers: NSEvent.ModifierFlags, onCellPaper: Bool = false) -> Press {
+        /// THE CURSOR NEVER DRAWS. On a drawing cell's paper it did, from
+        /// 2026-10-02 to 2026-10-03 (Sean: "drawing cell which is cmd + 0"),
+        /// and the pencil was the pointer over every cell on the page: a
+        /// drag meant to select or scroll left ink, a pen used as a pointer
+        /// drew at once (Sean, 2026-10-03: "drawing mode seems to keep
+        /// turning itself on as i'm trying to navigate"). A drawing cell is
+        /// static now and drawn in only once entered — `CellDrawing`.
+        func press(with modifiers: NSEvent.ModifierFlags) -> Press {
             if modifiers.contains(.command) { return .marquee }
-            if self == .pen { return .draw }
-            return onCellPaper ? .paper : .objects
+            return self == .pen ? .draw : .objects
         }
-
-        /// WHETHER A CURSOR-MODE PRESS ON A CELL'S PAPER HAS BECOME A
-        /// STROKE: at once for a nib, whose touch IS the start of ink, and
-        /// for a mouse or a trackpad once it has travelled `paperTravel`.
-        /// A click that never moves leaves no dot and no empty step behind
-        /// it — it puts the caret in the cell instead.
-        static func paperStrokes(travelled: CGFloat, nib: Bool) -> Bool {
-            nib || travelled >= paperTravel
-        }
-
-        /// How far a mouse press on a cell's paper goes before it draws.
-        static let paperTravel: CGFloat = 3
     }
 
     /// What the right-hand pane shows: the camera's picture, or the page
@@ -148,8 +142,26 @@ final class AppState: ObservableObject {
     }
 
     @Published var showSidebar: Bool { didSet { defaults.set(showSidebar, forKey: Keys.showSidebar) } }
-    @Published var showEditor: Bool { didSet { defaults.set(showEditor, forKey: Keys.showEditor) } }
-    @Published var showCamera: Bool { didSet { defaults.set(showCamera, forKey: Keys.showCamera) } }
+    /// THE NOTES PANE, THE VIDEO, THE WHOLE WINDOW GIVEN TO THE PICTURE and
+    /// the tablet picked or let go are PANES COMING AND GOING, and a pane
+    /// coming or going is a way off the page: a tool left armed through it
+    /// was there, waiting, for the first click when the notes came back
+    /// (Sean, 2026-10-03: "drawing mode seems to keep turning itself on as
+    /// i'm trying to navigate"). Every one puts the tools away
+    /// (`putToolsAway`); one that is set to what it already was is no
+    /// change.
+    @Published var showEditor: Bool {
+        didSet {
+            defaults.set(showEditor, forKey: Keys.showEditor)
+            if !showEditor, oldValue { putToolsAway() }
+        }
+    }
+    @Published var showCamera: Bool {
+        didSet {
+            defaults.set(showCamera, forKey: Keys.showCamera)
+            if showCamera != oldValue { putToolsAway() }
+        }
+    }
     @Published var penWidth: Double { didSet { defaults.set(penWidth, forKey: Keys.penWidth) } }
     /// Quarter turns of the video pane, kept because a camera that is mounted
     /// sideways stays mounted sideways.
@@ -165,13 +177,15 @@ final class AppState: ObservableObject {
     /// WHERE THE TABLET'S PEN WRITES: its own page, or straight into the
     /// note (Sean, 2026-10-02: "do the same for drawing mode in the notebook
     /// itself and let the wacom control that as well.. as a separate
-    /// mode"). The page unless the notebook is picked, and remembered — a
-    /// way of working, like the turn. Changed through `writeOn` (the
-    /// switch on the page's bar, and the View menu) and nothing else — no
-    /// key; the funnel is handed it from the app (`TabletInput.aim`).
-    @Published var tabletTarget: TabletTarget {
-        didSet { defaults.set(tabletTarget.rawValue, forKey: Keys.tabletTarget) }
-    }
+    /// mode"). The page unless the notebook is picked, and THE NOTEBOOK IS
+    /// NOT REMEMBERED: it is a drawing mode — every touch of the nib on the
+    /// rendered page is ink in it — and one that came back with a launch
+    /// made the pen write the first time ⌘T brought the page up, with
+    /// nothing picked that session (Sean, 2026-10-03: "drawing mode seems
+    /// to keep turning itself on"). Changed through `writeOn` (the switch
+    /// on the page's bar, and the View menu) and nothing else — no key; the
+    /// funnel is handed it from the app (`TabletInput.aim`).
+    @Published var tabletTarget: TabletTarget = .page
     /// How the tablet lands on the notes in Notebook mode: the whole of it
     /// on the visible notes, or a millimetre for a millimetre (Sean,
     /// 2026-10-02). Remembered, like the turn.
@@ -181,7 +195,9 @@ final class AppState: ObservableObject {
     /// Which pane the input is — derived from the pick, so it has ONE
     /// writer (`follow(tabletPicked:)`, fed by the tablet controller) and
     /// is never stored: the pick is what is remembered.
-    @Published private(set) var inputSource: InputSource = .camera
+    @Published private(set) var inputSource: InputSource = .camera {
+        didSet { if inputSource != oldValue { putToolsAway() } }
+    }
     /// What shape the viewfinder is (Sean, 2026-09-21: "add aspect ratio
     /// control"). Remembered, like the turn and the zoom beside it: the
     /// shape you photograph pages in is a property of your notebook, not
@@ -257,11 +273,14 @@ final class AppState: ObservableObject {
     /// Set while the user is picking what a `/link` should point at.
     @Published var pendingLink: PendingLink?
     @Published var mode: Mode = .editor
-    /// What the pane is for right now. Remembered like the pen's size and
-    /// colour: it is a tool that was picked, not a thing that happened.
+    /// What the pane is for right now. NOT REMEMBERED: the pen's size and
+    /// colour are settings, and this is a tool in hand — one remembered
+    /// across a launch came up with the pen down, on the rendered page it
+    /// had pulled the notes onto, with nothing picked that session (Sean,
+    /// 2026-10-03: "drawing mode seems to keep turning itself on as i'm
+    /// trying to navigate"). A launch comes up in the notebook's own mode.
     @Published var canvasMode: CanvasMode = .cursor {
         didSet {
-            defaults.set(canvasMode.rawValue, forKey: Keys.canvasMode)
             // The two tools that take the pane are not modes, and holding
             // one while a mode is on would be two answers to "what does
             // this drag do".
@@ -352,6 +371,63 @@ final class AppState: ObservableObject {
         placing = nil
     }
 
+    /// ANOTHER NOTE TAKES NOTHING WITH IT. A pen, the arrow tool or a mark
+    /// left armed went to the next note, where every click made to find
+    /// the place drew something (Sean, 2026-10-03: "drawing mode seems to
+    /// keep turning itself on as i'm trying to navigate"): the open note
+    /// changing — a tab picked, a tab closed, a note opened from the
+    /// sidebar — puts every tool away. The same note again is no change,
+    /// and nothing typed or drawn in it is one.
+    @MainActor
+    func watchNotes(of store: NoteStore) {
+        noteWatch = store.$selection
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in self?.putToolsAway() }
+    }
+
+    private var noteWatch: AnyCancellable?
+
+    /// One line of the footer: what is in hand and how to put it away.
+    struct ToolLine: Equatable, Identifiable {
+        let words: String
+        let symbol: String
+        var id: String { words }
+    }
+
+    /// WHAT IS IN HAND, IN WORDS — the footer's one place for it, so a pane
+    /// that takes every drag always says why (Sean, 2026-10-03: "drawing mode
+    /// seems to keep turning itself on as i'm trying to navigate"; "visibly
+    /// shows when it is on"). The pen and an armed shape were named before;
+    /// the arrow tool and the tablet's pen writing in the notebook were not,
+    /// and each takes the pane as completely. In the order the bar lights
+    /// them, and each names how it is put away.
+    var toolLines: [ToolLine] {
+        var lines: [ToolLine] = []
+        if penActive { lines.append(ToolLine(words: canvasMode.footer, symbol: canvasMode.icon)) }
+        if connectActive {
+            lines.append(ToolLine(words: "Arrow tool: drag from one thing to another, Esc to stop",
+                                  symbol: "arrow.right"))
+        }
+        if let placing { lines.append(ToolLine(words: placing.footer, symbol: placing.symbol)) }
+        // The nib writes ink in the note only while the rendered page is up
+        // and the notes are on screen — everywhere else it is a pointer.
+        if tabletWritesInNotebook, mode == .preview, notesInView {
+            lines.append(ToolLine(words: "Tablet pen: writing on the notebook", symbol: "pencil.tip.crop.circle"))
+        }
+        return lines
+    }
+
+    /// ESC PUTS AWAY WHATEVER TOOL IS IN HAND — the pen, the arrow tool, an
+    /// armed shape or mark (Sean, 2026-10-02: "esc should exit pen mode";
+    /// the arrow tool had no way out but its own switch). True when there
+    /// was one, so with none up the key is the notebook's.
+    func escapeTool() -> Bool {
+        guard canvasOwnsPane else { return false }
+        putToolsAway()
+        return true
+    }
+
     /// Whether anything on the drawing layer is picked. The canvas keeps
     /// its own selection; this is the part the menu bar needs to know, so
     /// ⌘Z can go to the drawing rather than the text.
@@ -409,8 +485,8 @@ final class AppState: ObservableObject {
 
     /// Where the drawing's undo stood under the FIRST stroke since the text
     /// was last typed in that went into the note with the keyboard still in
-    /// its text — the tablet's in Notebook mode, and a cursor-mode stroke
-    /// on a drawing cell's paper — as `NoteStore.drawingSteps`, which counts
+    /// its text — the tablet's in Notebook mode, and the tablet's eraser
+    /// — as `NoteStore.drawingSteps`, which counts
     /// every step taken and taken back; nil while no ink has a claim on
     /// ⌘Z. Not published: only the Undo and Redo items read it, when
     /// pressed.
@@ -419,8 +495,8 @@ final class AppState: ObservableObject {
     /// drawing (`drawingChanged`).
     private(set) var drawingSteps = 0
     /// Ink went into the note over a drawing that stood at `floor` steps —
-    /// a tablet stroke landing (`NoteStore.inkFromTablet`), or the layer
-    /// starting a cursor-mode stroke in a cell. The first since the typing
+    /// a tablet stroke landing (`NoteStore.inkFromTablet`), or the tablet's
+    /// eraser taking one out. The first since the typing
     /// sets the claim's floor; the rest are above it.
     func inkedNote(above floor: Int) {
         if inkFloor == nil { inkFloor = floor }
@@ -440,9 +516,8 @@ final class AppState: ObservableObject {
     }
 
     /// ⌘Z TAKES BACK INK PUT IN THE NOTE, straight after it: the tablet's
-    /// strokes — the pen is in one hand and ⌘Z under the other — and a
-    /// cursor-mode stroke on a drawing cell's paper, after which nothing is
-    /// picked and the pen is down. Either way the keyboard is still in the
+    /// strokes — the pen is in one hand and ⌘Z under the other — and the
+    /// erasures it makes. The keyboard is still in the
     /// note's text, and left to it ⌘Z after a stroke undid the TYPING. From
     /// the stroke until the text is typed in, and only while the notes can
     /// be seen — AND ONLY DOWN TO THE FLOOR: once the strokes are taken
@@ -509,14 +584,12 @@ final class AppState: ObservableObject {
         static let penWidth = "penWidth"
         static let cameraRotation = "cameraRotation"
         static let tabletQuarterTurns = "tabletQuarterTurns"
-        static let tabletTarget = "tabletTarget"
         static let notebookScale = "notebookScale"
         static let penColorHex = "penColorHex"
         static let penTool = "penTool"
         static let pageInkTool = "pageInkTool"
         static let pageInkHex = "pageInkHex"
         static let pageInkWidth = "pageInkWidth"
-        static let canvasMode = "canvasMode"
         static let cameraZoom = "cameraZoom"
         static let cameraAspect = "cameraAspect"
         static let evaluator = "evaluator"
@@ -545,8 +618,6 @@ final class AppState: ObservableObject {
         penWidth = defaults.object(forKey: Keys.penWidth) as? Double ?? 3
         cameraRotation = defaults.object(forKey: Keys.cameraRotation) as? Int ?? 0
         tabletQuarterTurns = TabletMapping.turns(defaults.object(forKey: Keys.tabletQuarterTurns) as? Int ?? 1)
-        // A target this build does not know is the page.
-        tabletTarget = TabletTarget(rawValue: defaults.string(forKey: Keys.tabletTarget) ?? "") ?? .page
         notebookScale = NotebookScale(rawValue: defaults.string(forKey: Keys.notebookScale) ?? "") ?? .fit
         cameraAspect = CameraAspect(rawValue: defaults.string(forKey: Keys.cameraAspect) ?? "") ?? .free
         evaluator = Evaluator(rawValue: defaults.string(forKey: Keys.evaluator) ?? "") ?? .wolfram
@@ -556,15 +627,10 @@ final class AppState: ObservableObject {
         pageInkTool = InkTool(rawValue: defaults.string(forKey: Keys.pageInkTool) ?? "") ?? .pen
         pageInkHex = defaults.string(forKey: Keys.pageInkHex) ?? PageTheme.plain.defaultInk
         pageInkWidth = defaults.object(forKey: Keys.pageInkWidth) as? Double ?? 3
-        // A launch comes up in whichever mode it was left in, and the
-        // footer says which one that is — a pane that swallows clicks
-        // with nothing on screen to say why is the trap the hidden video
-        // pane was (Sean, 2026-09-19).
-        let remembered = CanvasMode(rawValue: defaults.string(forKey: Keys.canvasMode) ?? "") ?? .cursor
-        canvasMode = remembered
-        // A launch starts on the markdown view and the pen is drawn on the
-        // rendered page only (`showRenderedPage`): the two may not disagree.
-        if remembered != .cursor { mode = .preview }
+        // A LAUNCH COMES UP IN THE NOTEBOOK'S OWN MODE and in the markdown
+        // view: no tool is in hand until one is picked (`canvasMode`), and
+        // neither the mode nor the tablet's target is read back from an
+        // older build's defaults.
         if let box = defaults.array(forKey: Keys.cameraZoom) as? [Double], box.count == 4 {
             cameraZoom = CGRect(x: box[0], y: box[1], width: box[2], height: box[3])
         } else {
@@ -689,7 +755,9 @@ final class AppState: ObservableObject {
     /// but a viewfinder is a window whose notes have vanished, and the
     /// answer being drawn on the picture is not good enough for the first
     /// second of a launch.
-    @Published var cameraFullWindow = false
+    @Published var cameraFullWindow = false {
+        didSet { if cameraFullWindow, !oldValue { putToolsAway() } }
+    }
 
     func toggleCameraFullWindow() {
         withAnimation(.easeInOut(duration: 0.18)) {

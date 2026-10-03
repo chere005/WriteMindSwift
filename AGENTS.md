@@ -665,8 +665,8 @@ CoreMind's `bin/report-status.sh`.
   notebook itself and let the wacom control that as well.. as a separate
   mode". **Write on: Page | Notebook** is a switch on the page's bar
   (`TabletBar`, `TabletTargetSwitch`) and nowhere else on screen;
-  `AppState.tabletTarget`, remembered, the page unless the notebook is
-  picked. The View menu mirrors it as it mirrors Draw — "Write on the
+  `AppState.tabletTarget`, the page unless the notebook is picked — and NOT
+  remembered across a launch (the drawing-mode bullet below). The View menu mirrors it as it mirrors Draw — "Write on the
   Notebook with the Tablet", no key, only while a tablet is the input —
   and both go through `AppState.writeOn`, which BRINGS THE NOTES INTO
   VIEW when the notebook is picked (leaving the whole-window page too): a
@@ -986,10 +986,11 @@ CoreMind's `bin/report-status.sh`.
   "drop the cursor and select buttons.. clicking the pen outside of the
   dropdown is the toggle between pen and cursor.. in both modes holding
   cmd is how to get the selector". `AppState.CanvasMode` is that switch —
-  `cursor` and `pen`, kept in the defaults like the pen's size and colour,
-  and named in the footer whenever it is not `cursor`, because a pane that
-  swallows every click and comes up that way after a launch needs
-  somewhere on screen that says why. `penActive` is a question about the
+  `cursor` and `pen`, NOT kept in the defaults (a tool in hand is not a
+  setting: a launch comes up in `cursor` — the drawing-mode bullet), and
+  named in the footer whenever it is not `cursor`, because a pane that
+  swallows every click needs somewhere on screen that says why and how to
+  stop it. `penActive` is a question about the
   mode and is stored nowhere. ONE BUTTON on the bar says which, and
   pressing it toggles; the cursor and the marquee each had one beside it,
   which was three buttons for two answers. A remembered `select` from
@@ -1100,7 +1101,7 @@ CoreMind's `bin/report-status.sh`.
   `endErasing` (one erasure = one history step, taken at the first deletion) via
   `TabletWriting.erasing`/`.erased`; over the notes `NotebookWriting` sends
   `NotebookErase` paths through `NotebookScribe.erases` and `DrawingCanvas.erase`
-  deletes the floating strokes and a writable cell's, whole, as one drawing step
+  deletes the floating strokes and the entered cell's, whole, as one drawing step
   with ⌘Z claimed (`onCursorInk`). `TabletEraserTests`, `TabletPenTests`.
 - **THE MARKDOWN VIEW HAS NO FLOATING DRAWING, BUT ITS DRAWING CELLS STAY.**
   Sean, 2026-10-02: "don't show or allow drawings in markdown mode on the
@@ -1131,9 +1132,9 @@ CoreMind's `bin/report-status.sh`.
   `placing` (a shape or a mark) and `writeOn(.notebook)` each call it, so
   no button or key has to remember to; it is `toggleMode`, and the place
   and the cursor go with it. `toggleMode` into markdown calls
-  `putToolsAway`, and going forward again picks nothing up. A launch with
-  the pen remembered comes up on the rendered page (the init sets `mode`;
-  an observer does not run in an init). `EditorPane` mounts
+  `putToolsAway`, and going forward again picks nothing up. A launch comes
+  up on the markdown view with no tool in hand (it used to remember the
+  pen and come up on the rendered page, which is gone with it). `EditorPane` mounts
   `NotebookTabletLayer` only when `mode == .preview`: with it away the
   funnel has no note on screen, the pen is a pointer, and the page's
   veil says to bring the rendered page up (`TabletPane.setAsideLine`).
@@ -1189,6 +1190,67 @@ CoreMind's `bin/report-status.sh`.
   ghost of a box over the node it is about to pick. A placement press
   ends a label being typed and an arrow's style bar, as any press on the
   layer does, so the next box follows the last label straight away.
+- **DRAWING MODE TURNS ON ONLY WHEN ASKED FOR, AND IS NEVER LEFT ON BEHIND
+  YOU.** Sean, 2026-10-03: "drawing mode seems to keep turning itself on as
+  i'm trying to navigate". Drawing mode is whatever makes a press on the
+  notes into ink or an object — the pen, the arrow tool, an armed shape or
+  mark, the tablet's nib in Notebook mode — and the way a tool goes ON is
+  an act of Sean's and nothing else: the pen button and ⌘P
+  (`AppState.togglePen`), a palette tile (`AppState.arm`), the arrow tool's
+  own switch in the shapes popover, and the Write on: Notebook switch.
+  `DrawingModeLifecycleTests.testNothingTurnsAToolOnButTheButtonsThatAskForIt`
+  reads every source and fails on a new line that writes a tool on, so the
+  list stays this short. What was found leaving one on, each with a test:
+  **(1) A LAUNCH CAME UP WITH THE PEN** — `canvasMode` was remembered like
+  the pen's size and `AppState.init` dragged the notes onto the rendered
+  page to show it; it is a tool in hand and not a setting, and is no
+  longer written down or read back (a launch is the notebook's mode on the
+  markdown view). **(2) THE TABLET'S NOTEBOOK TARGET WAS REMEMBERED TOO**,
+  so the first ⌘T onto the rendered page made every touch of the nib ink;
+  it holds for the session and a launch is the page. **(3) ANOTHER NOTE KEPT
+  THE TOOL**: a pen, the arrow tool or a mark left armed went with Sean to
+  the next note and drew on his first click there. `AppState.watchNotes(of:)`
+  (called from the app's `.task`, so the tests go through the same way)
+  puts every tool away when the open note changes — a tab picked or
+  closed, a note opened — and not for the same note again or a change in
+  it. **(4) A PANE COMING OR GOING** — the notes pane put away
+  (`showEditor`), the video shown or hidden (`showCamera`), the window
+  given to the picture (`cameraFullWindow`), a tablet picked or let go
+  (`inputSource`) — left the tool armed for the first click when the
+  notes came back; each setter puts the tools away (`putToolsAway`) and
+  only on a CHANGE: `@Published`'s `didSet` fires on a write of the value
+  it already had, and `toggleCameraFullWindow` writes `showCamera = true`
+  on its way in. The sidebar is not a pane the notes are drawn beside and
+  does not. The markdown view already did, both ways: ⌘T onto it puts
+  every tool down and ⌘T back picks nothing up. **(5) ESC LET GO OF THE
+  PEN AND A SHAPE BUT NOT THE ARROW TOOL**, which then had no way out but
+  its own switch: `AppState.escapeTool()` puts away whatever is in hand,
+  and the layer's chain asks it as a step of its own
+  (`DrawingCanvas.onDisconnect`, after a label, a style bar and an armed
+  shape, in `KeyInputs` with them — `CanvasKeyTests`). **(6) A DRAWING
+  CELL WAS A PEN OF ITS OWN**: in cursor mode a drag, or a nib touching,
+  on a cell's paper drew in it and the pointer was a pencil over every
+  cell on the page (Sean, 2026-10-02: "drawing cell which is cmd + 0"); a
+  drag meant to scroll or select left ink. The cursor never draws
+  (`CanvasMode.press` has no cell answer any more), a drawing cell is
+  STATIC and the only cell a press can be in is one that was entered
+  (`CanvasSpace.at(entered:)`, `CellDrawing.paperTaken` — the layer takes no
+  press on a static cell's paper, so the notebook has it), and the
+  tablet's nib floats over a cell like anywhere else
+  (`NoteStore.inkFromTablet(_:intoCell:)`); the cell mode that enters one
+  is the next bullet. **A MARK STILL STAYS ARMED while it is used** — the
+  rule above is as it was — and nothing a mark going down does lets go of
+  it (`testAMarkStaysArmedThroughEverythingItsOwnUseDoes`); only leaving,
+  Esc, another tool, the same tile again, or a way onto the page does.
+  **THE FOOTER NAMES EVERY TOOL IN HAND** (`AppState.toolLines`): the pen
+  ("Pen: every drag draws, Esc to stop"), an armed shape or mark, and the
+  two that took the pane with nothing on screen to say so — the arrow
+  tool, and the tablet's pen writing in the notebook ("Tablet pen:
+  writing on the notebook", only while the tablet is the input and the
+  rendered page is up, which is when the nib is ink). One list, one
+  `ForEach` in `EditorPane`'s footer, each line the accent colour and
+  naming how it is put away; the bar's lit buttons and the pointer are
+  as they were.
 - **A group is a shared id, and every rule about it is in `CanvasGroups`.**
   Sean, 2026-09-20: "toggle grouping with the button on the screen or
   ctrl+g". `group: UUID?` sits on `Stroke`, `ImageItem` and `ShapeItem`
@@ -1219,9 +1281,8 @@ CoreMind's `bin/report-status.sh`.
   cells (`PaneFrames.stored`, ~22 ms, then a cold `shown`, ~11 ms). It is
   `Drawing.manipulated` now — one copy, one write.
   The arrow tool and an armed placement are NOT modes: they take the pane
-  until they are put away — the arrow tool until it is switched off, a
-  node or a line until Esc or another tool, a mark for one click (the
-  rule above) — so picking either puts the mode back to `cursor`, picking
+  until they are put away — the arrow tool until Esc or it is switched off, a
+  node, a line or a mark until Esc or another tool (the rule above) — so picking either puts the mode back to `cursor`, picking
   a mode puts them away, and each puts the other away. TWO READERS, and
   everything else asks one of them rather than spelling the flags out
   again — `canvasOwnsPane` (do the clicks reach the notebook: the seams
@@ -2091,7 +2152,9 @@ WriteMind/
   AppState.swift          UI state: sidebar shown, editor/preview mode, pen
                           on/off, pen width, colour and tablet tool, the
                           tablet page's own pen, where the tablet writes
-                          (all persisted), and the EditorBridge the
+                          (all persisted but the pen on/off and where the
+                          tablet writes: those are tools in hand, and a
+                          launch has none), and the EditorBridge the
                           toolbar talks through
   TestHost.swift          the unit-test host keeps out of ~/Documents
                           and off the camera
