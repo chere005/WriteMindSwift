@@ -350,17 +350,31 @@ private struct ReplayControls: View {
 
 extension TabletDeveloper {
     /// Ask for a recording and play it — the menu's and the panel's
-    /// "Replay…". The panel starts in the recordings folder.
-    func chooseAndPlay(speed: Double = 1, stepping: Bool = false) {
+    /// "Replay…". The panel starts in the recordings folder. `choosing` is
+    /// how a file is asked for (a test hands in its own).
+    func chooseAndPlay(speed: Double = 1, stepping: Bool = false, choosing: (() -> URL?)? = nil) {
+        // A replay that would not be heard is said BEFORE a file is asked
+        // for: picking one and then finding nothing happened is the worst
+        // way to be told (`replayBlocker`, which `play` would say as well).
+        if let blocker = replayBlocker {
+            say(blocker)
+            return
+        }
+        // A chooser that gives nothing was cancelled; no chooser is the panel.
+        let chosen: URL? = choosing.map { $0() } ?? Self.askForRecording()
+        guard let url = chosen else { return }
+        play(contentsOf: url, speed: speed, stepping: stepping)
+    }
+
+    static func askForRecording() -> URL? {
         let panel = NSOpenPanel()
         panel.title = "Replay a Pen Session"
         panel.message = "Pick a pen recording (.ndjson)."
         panel.allowedContentTypes = [UTType(filenameExtension: "ndjson") ?? .json, .json, .plainText]
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.directoryURL = Self.recordingsDirectory
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        play(contentsOf: url, speed: speed, stepping: stepping)
+        panel.directoryURL = recordingsDirectory
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     /// The recordings folder, shown in Finder (made first, so there is one).

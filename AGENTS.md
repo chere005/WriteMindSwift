@@ -1179,8 +1179,16 @@ CoreMind's `bin/report-status.sh`.
   at a time; `stop` lifts the pen where it was (a half-played stroke must not stay
   down) and winds back; the base is the clock's now, so a second replay never
   repeats the stamps the pen has just seen. `TabletDeveloper.play` plays on the
-  recording's own field (`input.extent`) and refuses, in words
-  (`replayBlocker`), without the switch, a tablet picked and a target on screen.
+  recording's own field (`input.extent`, when the header's is a tablet's) and
+  refuses, in words (`replayBlocker`), without the switch, a tablet picked and a
+  target on screen — and the menu's and the panel's Replay… say it BEFORE the
+  chooser opens (`chooseAndPlay`). **EVERY DEVELOPER MESSAGE** (recording, saved,
+  nothing recorded, could not save, cannot be played with its line, replay
+  blocked, playing) is `TabletDeveloper.say`: kept in `status` — at the foot of
+  the panel and of the Tablet Developer menu (`TabletDeveloperMenuModel`, the menu's
+  state as a value) — and sent to the FOOTER (`say(in:)` → `NoteStore.notice`, the
+  line the camera's notices use), because the panel is up only while the virtual
+  tablet is the pick, which the real-tablet recording flow never has.
   Recordings are kept in Application Support/WriteMind/PenRecordings (the test
   host's own folder under test).
   **THE SCRIPT** (`WriteMindTests/Support/TabletScript.swift`): `TabletScript`

@@ -48,7 +48,13 @@ unless you switch them on.
   Session) writes down every report the page hears — from the virtual tablet, a
   replay, or the real tablet when you have one — until you stop. It saves
   `pen-<date>.ndjson` in `~/Library/Application Support/WriteMind/PenRecordings`
-  (**Show Pen Recordings in Finder**).
+  (**Show Pen Recordings in Finder**). What happened — recording, saved (and
+  where), nothing heard, a file that cannot be played and its line, a replay
+  that would not be heard and why — is said in the **footer** whatever is
+  picked (the window is up only while the virtual tablet is the pick, and
+  recording the real tablet is the whole point), kept at the foot of the Tablet
+  Developer menu, and shown in the window too. **Replay…** says why it cannot
+  before it asks for a file.
 - **Replay…** plays one back through the same door, on the field it was
   recorded on: at **real speed**, at **½×, 2×, 4× or Max**, or **one event at a
   time** (**Step**). The pen state machine reads the *recorded* times, so a

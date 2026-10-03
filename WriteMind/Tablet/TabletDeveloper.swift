@@ -33,13 +33,23 @@ final class TabletDeveloper: ObservableObject {
     let virtual: VirtualTablet
 
     /// Why the stand-ins are silent, in words — nil while they are heard
-    /// (`TabletSourcePolicy.silence`). Said in the virtual tablet's panel.
+    /// (`TabletSourcePolicy.silence`). Said in the virtual tablet's panel and
+    /// in the Tablet Developer menu.
     @Published var silence: String?
 
     @Published private(set) var isRecording = false
     /// A line about the last thing that was done or went wrong: where a
-    /// recording was saved, why one could not be played.
+    /// recording was saved, why one could not be played. It stays until the
+    /// next, in the virtual tablet's panel and at the head of the Tablet
+    /// Developer menu — and every one is ALSO said in the app's footer
+    /// (`onSay`), because the panel is only up while the virtual tablet is
+    /// the pick, which is never the case in the flow the tools are for: a
+    /// session recorded on the real tablet saves with the pane on the page
+    /// and no panel in sight.
     @Published private(set) var status: String?
+    /// Where a message goes besides `status` — the footer, once the app has
+    /// wired it (`say(in:)`).
+    var onSay: ((String) -> Void)?
     /// The last recording saved.
     @Published private(set) var lastRecording: URL?
     /// The replay in hand, running or held.
@@ -62,6 +72,18 @@ final class TabletDeveloper: ObservableObject {
         virtual = VirtualTablet(clock: clock)
     }
 
+    /// Say it: `status`, and the footer.
+    func say(_ text: String) {
+        status = text
+        onSay?(text)
+    }
+
+    /// The footer is the note store's notice line — the one the camera's
+    /// notices and a refused command go to — shown whatever the pick is.
+    func say(in store: NoteStore) {
+        onSay = { [weak store] text in store?.notice(text) }
+    }
+
     // MARK: - Recording
 
     /// Where recordings are kept: Application Support/WriteMind/PenRecordings
@@ -82,7 +104,7 @@ final class TabletDeveloper: ObservableObject {
         guard !isRecording else { return }
         input.recorder = PenRecorder()
         isRecording = true
-        status = "Recording the pen — every report the page hears is written down."
+        say("Recording the pen — every report the page hears is written down.")
     }
 
     /// Stop, and save what was heard as `pen-<date>.ndjson` in the
@@ -93,7 +115,7 @@ final class TabletDeveloper: ObservableObject {
         input.recorder = nil
         isRecording = false
         guard !recorder.isEmpty else {
-            status = "Nothing was recorded — the pen said nothing while it ran. A tablet has to be picked and the page (or a note) on screen."
+            say("Nothing was recorded — the pen said nothing while it ran. A tablet has to be picked and the page (or a note) on screen.")
             return nil
         }
         let recording = recorder.recording(extent: input.extent, productID: productID(),
@@ -102,11 +124,11 @@ final class TabletDeveloper: ObservableObject {
         do {
             try recording.write(to: url)
             lastRecording = url
-            status = "Saved \(url.lastPathComponent) — \(recording.entries.count) events, "
-                + String(format: "%.1f s.", recording.duration)
+            say("Saved \(url.lastPathComponent) — \(recording.entries.count) events, "
+                + String(format: "%.1f s.", recording.duration))
             return url
         } catch {
-            status = "Could not save the recording: \(error.localizedDescription)"
+            say("Could not save the recording: \(error.localizedDescription)")
             return nil
         }
     }
@@ -140,7 +162,7 @@ final class TabletDeveloper: ObservableObject {
     @discardableResult
     func play(_ recording: PenRecording, speed: Double = 1, stepping: Bool = false) -> PenReplay? {
         if let blocker = replayBlocker {
-            status = blocker
+            say(blocker)
             return nil
         }
         stopReplay()
@@ -153,8 +175,8 @@ final class TabletDeveloper: ObservableObject {
         } else {
             replay.play(speed: speed)
         }
-        status = stepping ? "Stepping through \(recording.entries.count) events."
-                          : "Playing \(recording.entries.count) events."
+        say(stepping ? "Stepping through \(recording.entries.count) events."
+                     : "Playing \(recording.entries.count) events.")
         return replay
     }
 
@@ -165,7 +187,8 @@ final class TabletDeveloper: ObservableObject {
         do {
             return play(try PenRecording(contentsOf: url), speed: speed, stepping: stepping)
         } catch {
-            status = "\(url.lastPathComponent) cannot be played: \(error)"
+            let why = (error as? PenRecording.Failure)?.description ?? error.localizedDescription
+            say("\(url.lastPathComponent) cannot be played: \(why)")
             return nil
         }
     }

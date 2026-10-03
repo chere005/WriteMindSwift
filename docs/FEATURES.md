@@ -528,8 +528,10 @@ is how the code is put together.
   unplugged. **Record Pen Session** writes down what the page hears
   (`pen-<date>.ndjson` in Application Support/WriteMind/PenRecordings) and
   **Replay Pen Session…** plays one back at real speed, at 2×, or one event at
-  a time — so a pen bug seen once is a file. `docs/WACOM-DEV.md` has the
-  step-by-step.
+  a time — so a pen bug seen once is a file. Whatever they did (saved, nothing
+  heard, a file that cannot be played, a replay that would not be heard) is said
+  in the footer and at the foot of that menu, whichever tablet is picked.
+  `docs/WACOM-DEV.md` has the step-by-step.
 - **A bar you can put away a piece at a time.** The toolbar is in
   sections — Style, Structure, Insert, Maths, Flow Chart, Capture — and the
   grip at the end of each one folds it down to a single icon; right-click
