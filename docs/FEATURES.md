@@ -531,8 +531,10 @@ is how the code is put together.
   **⇧⌘Z** puts them back. The pen's buttons do it here too: a double press of the
   lower one, nib off the tablet, undoes the last thing drawn on the note
   and a double tap of the upper one redoes it. Hold the lower button and
-  touch the nib down to erase — every stroke of the drawing (and of a drawing
-  cell) the nib goes over is deleted whole, as one step. Hold the upper button
+  touch the nib down to erase — every stroke of the drawing the nib goes over
+  is deleted whole, as one step (in a drawing cell you have clicked into, that
+  cell's strokes and nothing else; a cell you have not entered is never
+  touched). Hold the upper button
   and drag with the nib down to pick things
   up on the drawing, exactly as a ⌘-drag does — ⌫ and the handles then
   work on them. The page is set aside, dimmed, and kept as it was; the

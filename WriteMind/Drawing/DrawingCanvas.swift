@@ -1415,12 +1415,15 @@ struct DrawingCanvas: View {
         selection = Self.marqueePicked(rect, in: drawing, size: paneSize, adding: additive ? selection : nil)
     }
 
-    /// THE TABLET'S ERASER, a segment of its path at a time: every STROKE of
-    /// the floating layer, and of a writable drawing cell, the nib came within
-    /// reach of goes whole (`StrokeEraser`) — pictures, shapes and arrows are
-    /// left where they are. The whole erasure is one step back, taken at the
-    /// first deletion, and ⌘Z is the erasure's until the next keystroke
-    /// (`onCursorInk`).
+    /// THE TABLET'S ERASER, a segment of its path at a time: every STROKE the
+    /// nib came within reach of goes whole (`StrokeEraser`) — of the entered
+    /// drawing cell alone while one is entered ("nothing else on the page
+    /// reacts"), and of the floating layer otherwise; a static cell's strokes
+    /// are never touched — pictures, shapes and arrows are left where they
+    /// are. The whole erasure is one step back, taken at the first deletion,
+    /// and ⌘Z is the erasure's until the next keystroke (`onCursorInk`). An
+    /// erasure that began in a cell stops when the mode ends under it
+    /// (`NotebookScribe.place`).
     private func erase(byTablet erase: NotebookErase) {
         switch erase {
         case .end:

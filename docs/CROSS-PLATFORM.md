@@ -446,10 +446,12 @@ if clicking and dragging), and double tap to redo".
 - **Lower switch (nearer the nib, BTN_STYLUS 0x02)**: held as the nib goes down it
   is an ERASER, latched for the stroke; every stroke the nib's path comes within
   a small radius of is deleted WHOLE (page: ~0.014 of the page; over the notes:
-  7 points + the ink's reach, on the floating layer and in writable drawing
-  cells; pictures, shapes and arrows are left). One erasure — nib down to nib up
-  — is ONE undo step, taken at its first deletion. The switch held on after the
-  nib lifts is the eraser still.
+  7 points + the ink's reach; pictures, shapes and arrows are left). Over the
+  notes it takes the FLOATING layer's strokes only — a static drawing cell's
+  strokes are never touched — and in cell drawing mode (a cell entered) THAT
+  cell's strokes only, leaving the floating layer alone. One erasure — nib down
+  to nib up — is ONE undo step, taken at its first deletion. The switch held on
+  after the nib lifts is the eraser still.
 - **Upper switch (0x04)**: held as the nib goes down it is the selector box, as
   both switches were; both at once is the box.
 - **A tap** is a press let go in the air within 0.4 s with the nib up; **two taps
@@ -516,7 +518,8 @@ these, which were all ways of finding a tool still on:
   rule from 2026-10-02 is unchanged: putting one down does not hand the
   tool back. Leaving, Esc, another tool, the same tile again or a way onto
   the page ends it, as it did.
-- **The cursor never draws, and a drawing cell is static.** A drag with
+- **The cursor never draws outside an entered cell, and a drawing cell is
+  static.** A drag with
   the pen up, or a pen used as a pointer, over a drawing cell used to ink
   in it, and the pointer was a pencil over every cell on the page. Now
   nothing draws into a drawing cell because the pen is down or the pointer

@@ -997,9 +997,9 @@ CoreMind's `bin/report-status.sh`.
   stop it. `penActive` is a question about the
   mode and is stored nowhere. ONE BUTTON on the bar says which, and
   pressing it toggles; the cursor and the marquee each had one beside it,
-  which was three buttons for two answers. A remembered `select` from
-  before decodes to nothing and `CanvasMode(rawValue:) ?? .cursor` gives
-  the pane back to the notebook. **Esc puts the pen down** (Sean,
+  which was three buttons for two answers. Nothing reads the mode back from
+  the defaults any more, so an old build's `select` or `pen` is never seen.
+  **Esc puts the pen down** (Sean,
   2026-10-02: "esc should exit pen mode") — `AppState.escapePen()`, the
   one writer beside `togglePen`, asked from `DrawingCanvas.handleKey`
   AFTER a label, a style bar, an armed shape, a crop and the tablet
@@ -1105,7 +1105,8 @@ CoreMind's `bin/report-status.sh`.
   `endErasing` (one erasure = one history step, taken at the first deletion) via
   `TabletWriting.erasing`/`.erased`; over the notes `NotebookWriting` sends
   `NotebookErase` paths through `NotebookScribe.erases` and `DrawingCanvas.erase`
-  deletes the floating strokes and the entered cell's, whole, as one drawing step
+  deletes the floating layer's strokes — or, with a drawing cell entered, THAT
+  cell's alone (a static cell's are never touched) — whole, as one drawing step
   with ⌘Z claimed (`onCursorInk`). `TabletEraserTests`, `TabletPenTests`.
 - **THE MARKDOWN VIEW HAS NO FLOATING DRAWING, BUT ITS DRAWING CELLS STAY.**
   Sean, 2026-10-02: "don't show or allow drawings in markdown mode on the
@@ -1248,8 +1249,9 @@ CoreMind's `bin/report-status.sh`.
   CELL WAS A PEN OF ITS OWN**: in cursor mode a drag, or a nib touching,
   on a cell's paper drew in it and the pointer was a pencil over every
   cell on the page (Sean, 2026-10-02: "drawing cell which is cmd + 0"); a
-  drag meant to scroll or select left ink. The cursor never draws
-  (`CanvasMode.press` has no cell answer any more), a drawing cell is
+  drag meant to scroll or select left ink. The cursor never draws outside
+  an entered cell (`CanvasMode.press` has an answer for a cell only for the
+  one entered, `press(inEnteredCell:)`), a drawing cell is
   STATIC and the only cell a press can be in is one that was entered
   (`CanvasSpace.at(entered:)`), and the tablet's nib floats over a cell
   like anywhere else (`NoteStore.inkFromTablet(_:intoCell:)`); the cell
