@@ -198,6 +198,16 @@ for any editor that hides inline markers on the lines the caret is not on:
   typed in front of a span's own tick ("``foo`" is all text): a span has to
   hold something. "` `" holds a space and is a span.
 
+### ↑ and ↓ in a wrapped cell stay in it
+Sean, 2026-10-03: "cursor behavior around backticks is very weird, fix that" —
+found walking a wrapped code span; not specific to backticks.
+- **↑ and ↓ in the rendered page's cell editor go by the lines as laid out**:
+  the cell is left only from its first or last VISUAL line, to the cell above
+  or below. A paragraph that wraps is one line of text however tall, and the
+  editor, asking only whether the caret was on the first or last line of
+  text, took ↑ from the middle of it to the cell above. Everywhere else the
+  key moves the caret up or down a line as the platform does.
+
 ### Keys at the insertion bar, and cells held by their brackets
 Sean, 2026-10-02: "do a thorough test of cell selection and input insertion
 ux behavior...". What a test pass across both views settled, each the same in

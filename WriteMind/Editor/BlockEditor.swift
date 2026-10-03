@@ -370,14 +370,20 @@ struct BlockEditor: NSViewRepresentable {
                 parent.onMove?(.out)
                 return true
 
+            // ↑ AND ↓ LEAVE THE CELL FROM ITS FIRST AND LAST LINE AS LAID OUT,
+            // not its first and last line of text: a paragraph that wraps is
+            // one line of text however tall, and ↑ from the middle of it went
+            // to the cell above — a long code span's paragraph included
+            // (Sean, 2026-10-03: "cursor behavior around backticks is very
+            // weird"). The markdown pane has always asked the layout
+            // (`MarkdownTextView.isOnEndLine`).
             case #selector(NSResponder.moveUp(_:)):
-                guard PreviewEditing.lineRange(in: text, at: caret.location).location == 0 else { return false }
+                guard MarkdownTextView.isOnEndLine(of: view, top: true) else { return false }
                 parent.onMove?(.up)
                 return true
 
             case #selector(NSResponder.moveDown(_:)):
-                let line = PreviewEditing.lineRange(in: text, at: caret.location)
-                guard NSMaxRange(line) >= (text as NSString).length else { return false }
+                guard MarkdownTextView.isOnEndLine(of: view, top: false) else { return false }
                 parent.onMove?(.down)
                 return true
 

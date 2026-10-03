@@ -165,6 +165,9 @@ is how the code is put together.
   the first line of code, or ⌦ at the end of the fence line, does nothing,
   rather than making the first line of your program the language. Two
   backticks with nothing between them are text, not a span that hides.
+- **↑ and ↓ in a wrapped cell on the rendered page go up and down its own
+  lines** before they leave it for the cell above or below — they used to
+  leave from the middle of any paragraph that wrapped.
 - **Indentation that follows the structure.** ⌘] and ⌘[ — or Tab and
   Shift-Tab — move the lines you're on in and out; a quote gains another
   level, anything else gains two spaces. Backspace inside a line's

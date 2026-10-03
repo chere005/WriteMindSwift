@@ -1938,6 +1938,15 @@ CoreMind's `bin/report-status.sh`.
   backtick is a word of its own to AppKit, as in any editor); the rendered
   page's own typing of "```" in a paragraph cell was not driven (a SwiftUI
   view; nothing here hosts it).
+- **↑ AND ↓ IN THE RENDERED PAGE'S CELL EDITOR GO BY THE LINES AS LAID OUT.**
+  Found walking a wrapped code span, with the backtick rule above (Sean,
+  2026-10-03: "cursor behavior around backticks is very weird"); not
+  backtick-specific. `BlockEditor` left the cell from its first or last LINE
+  OF TEXT, and a paragraph that wraps is one line of text however tall, so ↑
+  from the middle of one went to the cell above and ↓ from its first visual
+  line to the cell below — every wrapped paragraph on the page, a long code
+  span's included. It asks the layout now, `MarkdownTextView.isOnEndLine`,
+  which the markdown pane always used (`WrappedCellArrowTests`).
 - **The bar has to fit the pane it lives in.** It is inside the editor pane,
   so its width is whatever the split gives it, and an HStack that does not
   fit overflows in BOTH directions — the first cut pushed Bold out under the

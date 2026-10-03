@@ -765,6 +765,57 @@ final class EmptyCodeSpanTests: XCTestCase {
     }
 }
 
+// MARK: - Up and down inside a wrapped cell
+
+/// ↑ and ↓ in the rendered page's editor went to the neighbouring cell
+/// whenever the caret was on the first or last LOGICAL line — a paragraph
+/// that wraps is one logical line however tall, so the arrows left a
+/// wrapped cell from anywhere in it, a long code span's line included.
+final class WrappedCellArrowTests: XCTestCase {
+    private let long = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen"
+
+    func testUpOnALaterVisualLineStaysInTheCell() {
+        let cell = TickCell(long, width: 180)
+        cell.caret(at: 60)
+        let before = cell.selection.location
+        cell.key(upKey)
+        XCTAssertTrue(cell.moves.isEmpty, "went to the cell above: \(cell.moves)")
+        XCTAssertLessThan(cell.selection.location, before, "and went up a line")
+    }
+
+    func testDownOnAnEarlierVisualLineStaysInTheCell() {
+        let cell = TickCell(long, width: 180)
+        cell.caret(at: 10)
+        cell.key(downKey)
+        XCTAssertTrue(cell.moves.isEmpty, "went to the cell below: \(cell.moves)")
+        XCTAssertGreaterThan(cell.selection.location, 10)
+    }
+
+    func testUpOnTheFirstVisualLineLeavesTheCell() {
+        // A GUARD.
+        let cell = TickCell(long, width: 180)
+        cell.caret(at: 10)
+        cell.key(upKey)
+        XCTAssertEqual(cell.moves, [.up])
+    }
+
+    func testDownOnTheLastVisualLineLeavesTheCell() {
+        // A GUARD.
+        let cell = TickCell(long, width: 180)
+        cell.caret(at: (long as NSString).length - 2)
+        cell.key(downKey)
+        XCTAssertEqual(cell.moves, [.down])
+    }
+
+    func testAWrappedCodeSpanIsWalkedLikeAnyOtherWords() {
+        let spanned = "one two three four five six `a code span that is long enough to wrap around the cell` end"
+        let cell = TickCell(spanned, width: 180)
+        cell.caret(at: 60)
+        cell.key(upKey)
+        XCTAssertTrue(cell.moves.isEmpty)
+    }
+}
+
 // MARK: - What was already right, pinned
 
 /// Walked on the way to the fixes above and found right, or pinned because
