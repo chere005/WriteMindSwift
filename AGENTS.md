@@ -953,18 +953,36 @@ CoreMind's `bin/report-status.sh`.
   moved puts down NOTHING and leaves the tool armed, where it used to
   put down a short horizontal line centred on the click — a different
   line from the one asked for, in a different place.
-- **A SHAPE STAYS ARMED; A MARK IS ONE CLICK.** Sean, 2026-10-02: "after
-  drawing a rectangle dont exit rectangle mode..". Until then every
-  placement went back to the palette once something was down, and only ⌘
-  held as it went down kept the tool. `CanvasPlacement.staysArmed` now
-  answers by the KIND: a node (the flow chart's six, wherever it was
-  picked — the Marks palette's box, circle and triangle are nodes) and a
-  line or an arrow are DRAWN, corner to corner or press to release, a
-  chart is several of them, and the next drag draws the next one with no
-  key held. A mark — tick, cross, query, star — is still one click and ⌘
-  still keeps it: Sean's words for it ("if i hold cmd, stay in adding
-  that marker mode") ask for ⌘ to KEEP a marker, which is a marker that
-  goes back without it, and a tick is a stamp beside one word. An armed
+- **DRAWING IS ON THE RENDERED PAGE ONLY.** Sean, 2026-10-02: "only allow
+  drawing in wysiwyg mode, both from wacom and from the pen cursor tool".
+  It reverses 2026-09-19's "drawing should be allowed in either wysiwyg
+  and markdown mode" for DRAWING; what is drawn still shows in both
+  (`PaneMapping`). `AppState.showRenderedPage` is the one call: the
+  setters of `canvasMode` (the pen), `connectActive` (the arrow tool) and
+  `placing` (a shape or a mark) and `writeOn(.notebook)` each call it, so
+  no button or key has to remember to; it is `toggleMode`, and the place
+  and the cursor go with it. `toggleMode` into markdown calls
+  `putToolsAway`, and going forward again picks nothing up. A launch with
+  the pen remembered comes up on the rendered page (the init sets `mode`;
+  an observer does not run in an init). `EditorPane` mounts
+  `NotebookTabletLayer` only when `mode == .preview`: with it away the
+  funnel has no note on screen, the pen is a pointer, and the page's
+  veil says to bring the rendered page up (`TabletPane.setAsideLine`).
+  `PenAcrossModesTests` holds it.
+- **A SHAPE STAYS ARMED, AND SO DOES A MARK.** Sean, 2026-10-02: "after
+  drawing a rectangle dont exit rectangle mode..", and then "after
+  placing mark like check mark, i shouldn't leave place mode similar to
+  drawing rectangles". Until then every placement went back to the
+  palette once something was down; the first cut kept a node and a line
+  and left a tick one click (⌘ held kept it, Sean's 2026-09-21 words),
+  and he corrected that the same day — so NOTHING PUT DOWN HANDS THE TOOL
+  BACK any more and `CanvasPlacement.staysArmed` is gone with the ⌘ rule
+  it carried (`DrawingCanvas.place` never calls `onDisarm`;
+  `PlacementModifierTests` reads it). A node (the flow chart's six,
+  wherever it was picked — the Marks palette's box, circle and triangle
+  are nodes), a line or an arrow, and a mark — tick, cross, query,
+  star — are each one tool, and the next press or drag puts down the
+  next one with no key held. An armed
   tool is put away by Esc (the layer's chain, as before); the same tile
   picked again (`AppState.arm`, the palettes' one writer, and the armed
   tile is lit); another tile; the arrow tool, which now puts an armed

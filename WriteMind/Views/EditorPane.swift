@@ -116,8 +116,16 @@ struct EditorPane: View {
                     // The tablet writing straight into the note: its live
                     // stroke, its marquee, and where it lands on the notes
                     // while the pen is near. Over the layer, taking no
-                    // clicks, and nothing in it an NSView.
-                    NotebookTabletLayer(scrollOffset: scrollOffset)
+                    // clicks, and nothing in it an NSView. Only over the
+                    // rendered page: the notes are drawn on there and
+                    // nowhere else (Sean, 2026-10-02: "only allow drawing in
+                    // wysiwyg mode, both from wacom and from the pen cursor
+                    // tool"), and with the layer away the funnel has no
+                    // note on screen — the pen is a pointer, and the page
+                    // says to bring the rendered one up (`TabletPane`).
+                    if appState.mode == .preview {
+                        NotebookTabletLayer(scrollOffset: scrollOffset)
+                    }
                 }
                 .onAppear {
                     appState.editor.pasteImage = { store.pasteImage(from: $0) }

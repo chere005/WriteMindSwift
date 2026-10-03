@@ -282,10 +282,10 @@ is how the code is put together.
   writing, a green tick, a red cross and a yellow query, and the handles
   move, size and turn it from there. Drag instead of clicking to size it as
   it goes down; a line or an arrow runs from the press to the release. A
-  tick, a cross, a query or a star goes back after one (hold ⌘ as it goes
-  down to keep it for a row of them); a box, a circle, a triangle, a line
-  or an arrow stays picked like a flow-chart shape, with the marks button
-  lit. A tick clicked onto a box goes down in it.
+  tick, a cross, a query, a star, a box, a circle, a triangle, a line or
+  an arrow all stay picked after one is down — a row of ticks is one trip
+  to the palette — with the marks button lit, until Esc, the same tile
+  again, or another tool. A tick clicked onto a box goes down in it.
 - **A folder can leave the project without leaving the disk.** Right-click
   a folder in the sidebar: *Remove Folder from Project* hides it (Folder ▸
   Hidden Folders brings it back); *Move to Trash* is the one that moves it.
@@ -335,7 +335,12 @@ is how the code is put together.
   the pointer is a pencil over that pane and nowhere else. In either mode,
   hold **⌘ and drag** to pull a rectangle over the page: it takes
   everything it *touches*, whole or not. The mode is remembered between
-  launches and the footer names it whenever the pen is down.
+  launches and the footer names it whenever the pen is down. **Drawing is
+  on the rendered page only**: picking the pen, a shape, a mark or the
+  arrow tool while the markdown view shows brings the rendered page up
+  under it, ⌘T back to markdown puts the tool down, and the tablet writes
+  on the notes only while the rendered page shows. What is drawn shows in
+  both views.
 - **Several things held as one.** Pick two or more — a marquee, or ⇧-click
   — and **⌃G** holds them together; the same key on a group you have picked
   takes it apart, and a button beside the selection says which it will do.

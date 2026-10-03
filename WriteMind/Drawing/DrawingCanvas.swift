@@ -61,10 +61,9 @@ struct DrawingCanvas: View {
     var pageOwnsUndo: () -> Bool = { false }
     /// A shape or a mark armed by the palette: the next drag puts it down,
     /// from where the drag starts to where it ends (Sean, 2026-09-19) — and
-    /// a node or a line stays armed for the drag after
-    /// (`CanvasPlacement.staysArmed`).
+    /// it stays armed for the drag after (`CanvasPlacement`).
     var placing: CanvasPlacement?
-    /// The tool is handed back: a mark put down with no ⌘ held, or Esc.
+    /// The tool is handed back: Esc.
     var onDisarm: (() -> Void)?
     /// Esc with the pen up: the pen goes down. True when it was taken.
     var onEscapePen: (() -> Bool)?
@@ -881,7 +880,7 @@ struct DrawingCanvas: View {
                     switch placing?.release(from: start, to: end, clicks: NSApp.currentEvent?.clickCount ?? 1,
                                             in: drawing, size: size) ?? .put {
                     case .put:
-                        place(from: start, to: end, in: size, modifiers: modifiers)
+                        place(from: start, to: end, in: size)
                     case .pick(let ids):
                         placePreview = nil
                         selection = ids
@@ -1195,24 +1194,16 @@ struct DrawingCanvas: View {
 
     // MARK: - Pointer
 
-    /// The armed object, where the drag put it — and whether the tool is
-    /// handed back afterwards.
-    ///
-    /// NOTHING PUT DOWN LEAVES THE TOOL ARMED. A press that never moved is
-    /// no line at all (`CanvasPlacement.connector`), and disarming there
-    /// sent the pointer back to the palette for a gesture that produced
-    /// nothing — the comment there had said so since it was written while
-    /// the `defer` disarmed on every path, this one included.
-    /// SOMETHING PUT DOWN leaves it armed too when it is a node or a line,
-    /// whatever is held (Sean, 2026-10-02: "after drawing a rectangle dont
-    /// exit rectangle mode.."), and when it is a mark put down with ⌘ held,
-    /// so a row of ticks is one trip to the palette (Sean, 2026-09-21:
-    /// "when placing a marker, if i hold cmd, stay in adding that marker
-    /// mode") — `CanvasPlacement.staysArmed`. What went down is the
-    /// selection, so ⌫ and ⌘Z take it back without disarming. Escape is
-    /// the way out of all of it, as it always was.
-    private func place(from: CGPoint, to: CGPoint, in size: CGSize,
-                       modifiers: NSEvent.ModifierFlags) {
+    /// The armed object, where the drag put it. NOTHING PUT DOWN HANDS THE
+    /// TOOL BACK: a node, a line and a mark all stay armed for the next
+    /// press (Sean, 2026-10-02: "after drawing a rectangle dont exit
+    /// rectangle mode.." and "after placing mark like check mark, i
+    /// shouldn't leave place mode similar to drawing rectangles") —
+    /// `CanvasPlacement`. A press that never moved is no line at all
+    /// (`CanvasPlacement.connector`) and puts nothing down. What went
+    /// down is the selection, so ⌫ and ⌘Z take it back without disarming.
+    /// Escape is the way out of all of it, as it always was.
+    private func place(from: CGPoint, to: CGPoint, in size: CGSize) {
         placePreview = nil
         guard let placing,
               let item = placing.item(from: from, to: to, in: size,
@@ -1223,7 +1214,6 @@ struct DrawingCanvas: View {
         selection = [item.id]
         // A text box is put down to be typed in.
         if case .shape(let shape) = item, shape.kind == .text { beginLabel(item.id) }
-        if !placing.staysArmed(modifiers) { onDisarm?() }
     }
 
     /// Where a connector's far end is, ⇧ taken into account. The arrow tool

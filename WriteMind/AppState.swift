@@ -234,6 +234,7 @@ final class AppState: ObservableObject {
             guard canvasMode != .cursor else { return }
             if connectActive { connectActive = false }
             if placing != nil { placing = nil }
+            showRenderedPage()
         }
     }
     /// The pen, which is a question about the mode and not a flag of its
@@ -265,17 +266,19 @@ final class AppState: ObservableObject {
             guard connectActive else { return }
             if canvasMode != .cursor { canvasMode = .cursor }
             if placing != nil { placing = nil }
+            showRenderedPage()
         }
     }
     /// The shape or mark armed by the palette, waiting for the drag that
     /// says where it goes (Sean, 2026-09-19). One tool at a time. A node
-    /// or a line stays here after it is drawn, for the next one; a mark
-    /// goes after one click unless ⌘ is held (`CanvasPlacement.staysArmed`).
+    /// a line or a mark stays here after it is put down, for the next one,
+    /// until it is put away (`CanvasPlacement`).
     @Published var placing: CanvasPlacement? {
         didSet {
             guard placing != nil else { return }
             canvasMode = .cursor
             connectActive = false
+            showRenderedPage()
         }
     }
     /// THE PALETTE'S ONE WRITER. A shape stays armed after it is drawn
@@ -285,6 +288,20 @@ final class AppState: ObservableObject {
     /// another tool.
     func arm(_ placement: CanvasPlacement) {
         placing = placing == placement ? nil : placement
+    }
+
+    /// DRAWING IS ON THE RENDERED PAGE ONLY. Sean, 2026-10-02: "only allow
+    /// drawing in wysiwyg mode, both from wacom and from the pen cursor
+    /// tool" — the pen, the arrow tool, an armed shape or mark, and the
+    /// tablet writing in the notebook. What is drawn still SHOWS in both
+    /// views (`PaneMapping`); picking any tool of drawing in the markdown
+    /// view brings the rendered page up under it, through the same switch
+    /// ⌘T is (`toggleMode`: the place and the cursor go with it), and
+    /// going back to markdown puts the tools down. Called by every tool's
+    /// own setter, so no button or key has to remember it.
+    func showRenderedPage() {
+        guard mode == .editor else { return }
+        toggleMode()
     }
 
     /// EVERY TOOL PUT AWAY — the pen, the arrow tool, an armed shape — for
@@ -502,7 +519,11 @@ final class AppState: ObservableObject {
         // footer says which one that is — a pane that swallows clicks
         // with nothing on screen to say why is the trap the hidden video
         // pane was (Sean, 2026-09-19).
-        canvasMode = CanvasMode(rawValue: defaults.string(forKey: Keys.canvasMode) ?? "") ?? .cursor
+        let remembered = CanvasMode(rawValue: defaults.string(forKey: Keys.canvasMode) ?? "") ?? .cursor
+        canvasMode = remembered
+        // A launch starts on the markdown view and the pen is drawn on the
+        // rendered page only (`showRenderedPage`): the two may not disagree.
+        if remembered != .cursor { mode = .preview }
         if let box = defaults.array(forKey: Keys.cameraZoom) as? [Double], box.count == 4 {
             cameraZoom = CGRect(x: box[0], y: box[1], width: box[2], height: box[3])
         } else {
@@ -569,6 +590,8 @@ final class AppState: ObservableObject {
     /// writing there. Going back to the page puts nothing away.
     func writeOn(_ target: TabletTarget) {
         if tabletTarget != target { tabletTarget = target }
+        // The notebook is drawn on the rendered page only (`showRenderedPage`).
+        if target == .notebook { showRenderedPage() }
         guard target == .notebook, !showEditor || cameraFullWindow else { return }
         withAnimation(.easeInOut(duration: 0.18)) {
             showEditor = true
@@ -643,9 +666,13 @@ final class AppState: ObservableObject {
         withAnimation(.easeInOut(duration: 0.15)) {
             mode = (mode == .editor) ? .preview : .editor
         }
-        // The pen stays up across the switch: a drawing belongs to the
-        // note, not to one way of looking at it (Sean, 2026-09-19:
-        // "drawing should be allowed in either wysiwyg and markdown mode").
-        if mode == .editor { blockEditing = false }
+        // The drawing belongs to the note and shows in both views, but it
+        // is drawn on the rendered page only (`showRenderedPage`): coming
+        // back to markdown puts every tool down, and going forward again
+        // does not pick one up.
+        if mode == .editor {
+            blockEditing = false
+            putToolsAway()
+        }
     }
 }

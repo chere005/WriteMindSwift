@@ -190,17 +190,34 @@ share (a cell is known by the character offset it starts at):
   and a command on the rendered view opens that cell — never the end or
   the start of the note, which nobody is looking at.
 
-### A drawn shape stays armed; a mark is one click
-Sean, 2026-10-02: "after drawing a rectangle dont exit rectangle mode..".
-- **What stays**: anything DRAWN — a flow-chart node (dragged corner to
-  corner, or clicked for one at its own size) and a line or an arrow
-  (press to release). Once one is down the tool is still armed and the
-  next drag draws the next one, with no key held. Decide it by the KIND,
-  not by which palette it came from: a box, a circle or a triangle on the
-  marks palette is a node and stays.
-- **What does not**: a mark — tick, cross, query, star — goes back after
-  one, and ⌘ held as it goes down keeps it (the older entry below). A
-  stamp beside a word is put down once; a chart is several boxes.
+### Drawing happens on the rendered page only
+Sean, 2026-10-02: "only allow drawing in wysiwyg mode, both from wacom and
+from the pen cursor tool". It reverses 2026-09-19's "drawing should be
+allowed in either wysiwyg and markdown mode" — for DRAWING; what is drawn
+still shows in both views (the drawing goes through the two panes' cells).
+- **Picking a tool brings the rendered page up.** The pen (button or ⌘P), the
+  arrow tool, an armed shape or mark, and the tablet's Write-on-Notebook all
+  go through one call that does what the ⌘T switch does when the markdown
+  view is up (the place and the cursor travel with it). Put it in each
+  tool's own setter, so no button or key has to remember it.
+- **⌘T back to markdown puts every tool down**; going forward again picks
+  none up. Putting a tool down on the rendered page switches nothing.
+- **A pen remembered from last time comes up on the rendered page** — a
+  launch starts on markdown, and the two may not disagree.
+- **The tablet's notebook layer is mounted only over the rendered page.** With
+  it away the pen has no note to write on and is a pointer, and the page
+  says "Show the rendered page (⌘T) to write on the notes".
+
+### A drawn shape stays armed, and so does a mark
+Sean, 2026-10-02: "after drawing a rectangle dont exit rectangle mode.."
+and then "after placing mark like check mark, i shouldn't leave place mode
+similar to drawing rectangles".
+- **What stays**: everything armed — a flow-chart node (dragged corner to
+  corner, or clicked for one at its own size), a line or an arrow (press
+  to release), and a mark: tick, cross, query, star. Once one is down the
+  tool is still armed and the next press puts down the next one, with no
+  key held. There is no per-kind rule and no ⌘ rule to port: the ⌘-keeps-a-
+  mark entry below is superseded the same day.
 - **The ways out**: Esc; the same palette tile again (light the armed
   tile, so it can be found); another tile; the arrow tool — the arrow tool
   and an armed shape each put the other away, since an armed shape is
@@ -963,11 +980,9 @@ drawing tool owns the pane. (Sean, 2026-09-21.)
 ### Two keys held while a mark or an arrow is placed
 - **⌘ keeps the tool.** Placing a mark hands the tool back and sends the
   pointer to the palette for the next one; holding ⌘ as it goes down leaves
-  it armed, so a row of ticks is one trip. (Since 2026-10-02 that is true
-  of a MARK only: a node or a line stays armed with no key held — the
-  entry at the top.) Read the modifier when the thing
-  goes DOWN, not when it was picked, so the choice is made per mark. Escape
-  is the way out. Hide the selection handles while a tool is armed — they are
+  it armed, so a row of ticks is one trip. (SUPERSEDED 2026-10-02: every
+  armed tool stays with no key held — the entry at the top — and there is
+  no modifier to read.) Escape is the way out. Hide the selection handles while a tool is armed — they are
   views over the canvas and the one round the mark just placed swallows the
   click that would have placed the next.
 - **⇧ holds a line to an axis.** Only for what HAS a direction (lines and

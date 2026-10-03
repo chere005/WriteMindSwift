@@ -82,22 +82,109 @@ final class CursorOutsideTheNoteTests: XCTestCase {
     }
 }
 
-/// The pen is not the source editor's (Sean, 2026-09-19: "drawing should be
-/// allowed in either wysiwyg and markdown mode"). It lived beside the ink
-/// bands until they went; it never had anything to do with them.
+/// DRAWING IS ON THE RENDERED PAGE ONLY (Sean, 2026-10-02: "only allow
+/// drawing in wysiwyg mode, both from wacom and from the pen cursor
+/// tool"). It was the other way for a day — "drawing should be allowed in
+/// either wysiwyg and markdown mode", 2026-09-19 — and what was drawn
+/// still shows in both; it is DRAWING that has one place. Picking a tool
+/// in the markdown view brings the rendered page up under it, and coming
+/// back to markdown puts the tools down.
 @MainActor
 final class PenAcrossModesTests: XCTestCase {
-    private func state() -> AppState {
-        AppState(defaults: UserDefaults(suiteName: "WriteMindTests-\(UUID().uuidString)")!)
+    private var suite: String!
+
+    override func setUp() {
+        super.setUp()
+        suite = "WriteMindTests-\(UUID().uuidString)"
     }
 
-    func testThePenStaysUpWhenTheRenderedPageComesUp() {
+    override func tearDown() {
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        super.tearDown()
+    }
+
+    private func state() -> AppState { AppState(defaults: UserDefaults(suiteName: suite)!) }
+
+    private let mark = ShapeItem.Kind.check
+    private let box = ShapeItem.Kind.rectangle
+
+    func testEveryDrawingToolPickedInMarkdownBringsTheRenderedPageUp() {
+        let picks: [(String, (AppState) -> Void)] = [
+            ("the pen", { $0.canvasMode = .pen }),
+            ("⌘P", { $0.togglePen() }),
+            ("a box", { $0.arm(.shape(self.box)) }),
+            ("a mark", { $0.arm(.shape(self.mark)) }),
+            ("a line", { $0.arm(.line(start: .none, end: .arrow)) }),
+            ("the arrow tool", { $0.connectActive = true }),
+        ]
+        for (name, pick) in picks {
+            // The pen is remembered between launches: a fresh start each.
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+            let app = state()
+            XCTAssertEqual(app.mode, .editor)
+            pick(app)
+            XCTAssertEqual(app.mode, .preview, "\(name) was picked and the markdown view stayed up")
+            XCTAssertTrue(app.canvasOwnsPane, "\(name) lost its tool to the switch")
+        }
+    }
+
+    func testThePenStaysUpWhileTheRenderedPageIsUpAndGoesDownWhenMarkdownReturns() {
         let app = state()
         app.canvasMode = .pen
         app.toggleMode()
-        XCTAssertEqual(app.mode, .preview)
-        XCTAssertTrue(app.penActive, "the pen used to be put down by the switch")
+        XCTAssertEqual(app.mode, .editor)
+        XCTAssertFalse(app.penActive, "the pen was left up over a view it cannot draw on")
+        XCTAssertFalse(app.canvasOwnsPane, "the notes have the pane back")
         app.toggleMode()
+        XCTAssertEqual(app.mode, .preview)
+        XCTAssertFalse(app.penActive, "the pen does not come back by itself")
+    }
+
+    func testEveryToolIsPutAwayOnTheWayBackToMarkdown() {
+        let app = state()
+        app.arm(.shape(mark))
+        app.toggleMode()
+        XCTAssertNil(app.placing)
+        app.connectActive = true
+        app.toggleMode()
+        app.toggleMode()
+        XCTAssertFalse(app.connectActive)
+        XCTAssertFalse(app.canvasOwnsPane)
+    }
+
+    func testPuttingTheToolDownLeavesTheRenderedPageUp() {
+        let app = state()
+        app.canvasMode = .pen
+        app.canvasMode = .cursor
+        XCTAssertEqual(app.mode, .preview, "putting a tool away is not a reason to switch views")
+    }
+
+    /// The pen's mode is remembered across a launch, and a launch always
+    /// starts on the markdown view: the two are not allowed to disagree.
+    func testAPenRememberedFromLastTimeComesUpOnTheRenderedPage() {
+        let last = state()
+        last.canvasMode = .pen
+        let app = state()
         XCTAssertTrue(app.penActive)
+        XCTAssertEqual(app.mode, .preview, "a launch came up with the pen over the markdown view")
+    }
+
+    /// The tablet writing in the notebook is drawing too.
+    func testWritingOnTheNotebookFromTheTabletBringsTheRenderedPageUp() {
+        let app = state()
+        app.writeOn(.page)
+        XCTAssertEqual(app.mode, .editor, "the tablet's own page is not the notes")
+        app.writeOn(.notebook)
+        XCTAssertEqual(app.mode, .preview)
+    }
+
+    /// The pen's line on the tablet's page says why it is not writing.
+    func testTheTabletSaysWhyItIsNotWritingWhileTheNotesShowMarkdown() {
+        XCTAssertEqual(TabletPane.setAsideLine(notesShowing: false, rendered: false),
+                       "Show the rendered page (⌘T) to write on the notes — the pen is a pointer until then")
+        XCTAssertEqual(TabletPane.setAsideLine(notesShowing: false, rendered: true),
+                       "No note on screen to write in — the pen is a pointer until there is")
+        XCTAssertEqual(TabletPane.setAsideLine(notesShowing: true, rendered: true),
+                       "The pen is writing on the notebook")
     }
 }

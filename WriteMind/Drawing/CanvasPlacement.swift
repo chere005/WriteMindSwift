@@ -2,8 +2,8 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-/// What the next gesture on the pane puts down — and for a node or a line
-/// every one after it, until it is put away (`staysArmed`). Picking a
+/// What the next gesture on the pane puts down — and every one after it,
+/// until it is put away. Picking a
 /// shape or a mark from the palette arms this; the drag that follows says
 /// where the thing starts and where it ends (Sean, 2026-09-19: "when
 /// selecting a mark when i click i start the mark and drag and release
@@ -44,36 +44,24 @@ enum CanvasPlacement: Equatable {
                               locked: hasDirection && modifiers.contains(.shift))
     }
 
-    /// WHAT IS DRAWN STAYS ARMED; WHAT IS STAMPED IS ONE CLICK. Sean,
-    /// 2026-10-02: "after drawing a rectangle dont exit rectangle mode..".
-    /// A node is dragged corner to corner and a line press to release —
-    /// drawn, as a rectangle tool draws anywhere — and a chart is several
-    /// of them, so the next drag draws the next one with no key held,
-    /// until the tool is put away: Esc, the same tile again, another tool,
-    /// a mode, the pen.
-    ///
-    /// A MARK IS STILL ONE CLICK, and ⌘ held as it goes down keeps it, so
-    /// a row of ticks is one trip to the palette (Sean, 2026-09-21: "when
-    /// placing a marker, if i hold cmd, stay in adding that marker mode").
-    /// Those words ask for ⌘ to KEEP a marker, which is a marker that goes
-    /// back without it — and a tick is a stamp beside one word, where a
-    /// box is one of a chart's several. It is read at the moment the
-    /// thing goes down, not when it was picked, so the choice is made per
-    /// mark. The rule follows the KIND, not the palette it was picked
-    /// from: the Marks palette's box, circle and triangle are nodes, and
-    /// stay.
-    ///
-    /// ⌘ is the selector everywhere else on this pane, and that is not a
-    /// clash: an armed placement takes the press before any mode or
-    /// modifier is asked (`DrawingCanvas.begin`), so while a tool is armed
-    /// there is no marquee for it to collide with.
-    func staysArmed(_ modifiers: NSEvent.ModifierFlags) -> Bool {
-        isDrawn || modifiers.contains(.command)
-    }
+    /// EVERYTHING ARMED STAYS ARMED until it is put away. Sean, 2026-10-02:
+    /// "after drawing a rectangle dont exit rectangle mode..", and then of
+    /// the marks the same: "after placing mark like check mark, i shouldn't
+    /// leave place mode similar to drawing rectangles". A node, a line and
+    /// a tick are one tool each, and the next press puts down the next one
+    /// with no key held, until the tool is put away: Esc, the same tile
+    /// again, another tool, a mode, the pen. (It was a mark that went back
+    /// after one click unless ⌘ was held — Sean, 2026-09-21: "when placing
+    /// a marker, if i hold cmd, stay in adding that marker mode" — and the
+    /// ⌘ rule went with this: a tool that always stays has nothing for it
+    /// to keep. ⌘ is the selector everywhere else on this pane, and an
+    /// armed placement takes the press before any mode or modifier is
+    /// asked, `DrawingCanvas.begin`, so there is no marquee for it to
+    /// collide with.)
 
     /// DRAWN rather than stamped: a node, corner to corner, or a line,
-    /// press to release. What is drawn stays armed (`staysArmed`), and a
-    /// click on a node is then the node's (`release`).
+    /// press to release. A click on a node is then the node's (`release`) —
+    /// a stamp, a tick, goes down in it instead.
     var isDrawn: Bool {
         switch self {
         case .line: return true
@@ -147,10 +135,11 @@ enum CanvasPlacement: Equatable {
 
     /// What the footer says while this is armed. A pane that takes every
     /// drag needs somewhere on screen that says why — the pen is named
-    /// there for the same reason — and a tool that no longer goes back on
-    /// its own says how it is put away.
+    /// there for the same reason — and a tool that never goes back on its
+    /// own says how it is put away. A mark is put where it is clicked.
     var footer: String {
-        isDrawn ? "\(title): every drag draws one, Esc to stop" : "\(title): click where it goes"
+        isDrawn ? "\(title): every drag draws one, Esc to stop"
+                : "\(title): every click puts one down, Esc to stop"
     }
 
     /// Under this, the drag was a click.

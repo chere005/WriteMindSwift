@@ -67,14 +67,17 @@ struct TabletPane: View {
     /// The pen writes on this page, not in the notebook.
     private var writesOnPage: Bool { appState.tabletTarget == .page }
 
-    /// The line on the page while it is set aside.
     /// The line on the page while it is set aside: where the pen is
     /// writing — and with no note on screen it is writing nowhere and is a
     /// pointer again (`TabletInput.targetIsShowing`), so the page says THAT,
-    /// not that it is writing on the notebook.
-    nonisolated static func setAsideLine(notesShowing: Bool) -> String {
-        notesShowing ? "The pen is writing on the notebook"
-                     : "No note on screen to write in — the pen is a pointer until there is"
+    /// not that it is writing on the notebook. A note that shows as
+    /// markdown is no place to write either (Sean, 2026-10-02: "only allow
+    /// drawing in wysiwyg mode, both from wacom and from the pen cursor
+    /// tool"), and the line says to bring the rendered page up, and how.
+    nonisolated static func setAsideLine(notesShowing: Bool, rendered: Bool = true) -> String {
+        if notesShowing { return "The pen is writing on the notebook" }
+        return rendered ? "No note on screen to write in — the pen is a pointer until there is"
+                        : "Show the rendered page (⌘T) to write on the notes — the pen is a pointer until then"
     }
 
     /// The bar on the left and the corner's buttons on the right, IN ONE
@@ -131,7 +134,8 @@ struct TabletPane: View {
                 if writesOnPage {
                     TabletHoverMarker(input: input, page: frame)
                 } else {
-                    PageSetAside(frame: frame, notesShowing: notesShowing)
+                    PageSetAside(frame: frame, notesShowing: notesShowing,
+                                 rendered: appState.mode == .preview || store.selectedNote == nil)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
@@ -465,12 +469,14 @@ struct TabletHoverMarker: View {
 private struct PageSetAside: View {
     let frame: CGRect
     let notesShowing: Bool
+    /// The view is not what stops the pen (`setAsideLine`).
+    let rendered: Bool
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 3)
                 .fill(Color.black.opacity(0.62))
-            Label(TabletPane.setAsideLine(notesShowing: notesShowing),
+            Label(TabletPane.setAsideLine(notesShowing: notesShowing, rendered: rendered),
                   systemImage: notesShowing ? TabletTarget.notebook.icon : "cursorarrow")
                 .font(.callout)
                 .multilineTextAlignment(.center)
