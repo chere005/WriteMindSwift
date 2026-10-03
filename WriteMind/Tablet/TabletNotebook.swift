@@ -196,16 +196,30 @@ struct NotebookWriting {
         case selecting(CGRect)
         /// It came up: the layer picks what this touches.
         case selected(CGRect)
+        /// The ERASER — begun by the nib with the lower switch held — went
+        /// from `from` to `to`, in the document's points (one point at the
+        /// start): the layer deletes the strokes it touched, whole.
+        case erasing(from: CGPoint, to: CGPoint)
+        /// It came up: the erasure is one step.
+        case erased
     }
 
     private(set) var stroke: Stroke?
     private var marqueeStart: CGPoint?
+    private var eraseLast: CGPoint?
 
     mutating func consume(_ sample: TabletSample, at place: NotebookPlace, ink: TabletInk) -> Outcome {
         switch sample.phase {
         case .hover, .click:
             return .none
         case .down:
+            if sample.eraser {
+                stroke = nil
+                marqueeStart = nil
+                let at = place.inDocument(sample.page)
+                eraseLast = at
+                return .erasing(from: at, to: at)
+            }
             if sample.sideSwitch {
                 // A tap with the side switch held is a ⌘-click: the marquee
                 // of nothing picks what is under it, or lets go of what was
@@ -224,6 +238,11 @@ struct NotebookWriting {
                                      pen: .pen(pressure: sample.pressure), tool: ink.tool)
             return .began
         case .drag:
+            if let last = eraseLast {
+                let at = place.inDocument(sample.page)
+                eraseLast = at
+                return .erasing(from: last, to: at)
+            }
             if let start = marqueeStart {
                 return .selecting(CanvasGeometry.rect(from: start, to: place.inDocument(sample.page)))
             }
@@ -231,6 +250,10 @@ struct NotebookWriting {
             stroke?.append(place.strokePoint(sample.page), pen: .pen(pressure: sample.pressure))
             return .grew
         case .up:
+            if eraseLast != nil {
+                eraseLast = nil
+                return .erased
+            }
             if let start = marqueeStart {
                 marqueeStart = nil
                 return .selected(CanvasGeometry.rect(from: start, to: place.inDocument(sample.page)))
@@ -248,6 +271,7 @@ struct NotebookWriting {
     mutating func reset() {
         stroke = nil
         marqueeStart = nil
+        eraseLast = nil
     }
 }
 
@@ -264,12 +288,15 @@ final class NotebookScribe: ObservableObject {
     /// one layer that draws it and nothing else (`NotebookLiveInk`), so a
     /// note full of drawing is not redrawn under every sample.
     @Published private(set) var stroke: Stroke?
-    /// The marquee while it is dragged — begun by the nib with a side
+    /// The marquee while it is dragged — begun by the nib with the UPPER side
     /// switch held — in document points.
     @Published private(set) var marquee: CGRect?
     /// A marquee let go, in document points: the drawing layer picks what
     /// it touches, as at the end of a ⌘-drag (`DrawingCanvas.marqueePicked`).
     let picks = PassthroughSubject<CGRect, Never>()
+    /// What the ERASER did over the notes, in document points: the drawing
+    /// layer deletes the strokes it touched, whole (`DrawingCanvas.erase`).
+    let erases = PassthroughSubject<NotebookErase, Never>()
 
     /// Where the notes are — kept up to date by the notes pane while a note
     /// is on screen, nil while none is (`NotebookTabletLayer`).
@@ -353,6 +380,10 @@ final class NotebookScribe: ObservableObject {
         case .selected(let rect):
             marquee = nil
             picks.send(rect)
+        case .erasing(let from, let to):
+            erases.send(.path(from: from, to: to))
+        case .erased:
+            erases.send(.end)
         }
     }
 

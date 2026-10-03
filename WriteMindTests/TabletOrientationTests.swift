@@ -479,11 +479,15 @@ final class PageTurnTests: XCTestCase {
 final class TabletScribeTurnTests: XCTestCase {
     private let extent = TabletExtent(width: 15200, height: 9500)
 
-    private func point(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false, pressure: Double = 0.5,
-                       at time: TimeInterval) -> TabletReading {
-        TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, switches: side ? [.lower] : [], pressure: pressure,
-                                   buttons: (tip ? 1 : 0) | (side ? 2 : 0)),
-                      timestamp: time, native: false)
+    private func point(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false, upper: Bool = false,
+                       pressure: Double = 0.5, at time: TimeInterval) -> TabletReading {
+        var switches: Set<PenSwitch> = []
+        if side { switches.insert(.lower) }
+        if upper { switches.insert(.upper) }
+        return TabletReading(kind: .point(counts: CGPoint(x: x, y: y), tip: tip, switches: switches,
+                                          pressure: pressure,
+                                          buttons: (tip ? 1 : 0) | (side ? 2 : 0) | (upper ? 4 : 0)),
+                             timestamp: time, native: false)
     }
 
     private func rig() -> (TabletInput, TabletPage, TabletScribe) {
@@ -536,11 +540,11 @@ final class TabletScribeTurnTests: XCTestCase {
     /// And a box being drawn with the side switch held and the nib down.
     func testABoxUnderWayTurnsAndTheRestJoinsOn() {
         let (input, _, scribe) = rig()
-        input.feed(point(1000, 1000, tip: true, side: true, at: 1))
-        input.feed(point(4000, 3000, tip: true, side: true, at: 2))
+        input.feed(point(1000, 1000, tip: true, upper: true, at: 1))
+        input.feed(point(4000, 3000, tip: true, upper: true, at: 2))
         turn(input, scribe, to: 2)
-        input.feed(point(6000, 5000, tip: true, side: true, at: 3))
-        input.feed(point(6000, 5000, tip: false, side: false, at: 4))
+        input.feed(point(6000, 5000, tip: true, upper: true, at: 3))
+        input.feed(point(6000, 5000, tip: false, upper: false, at: 4))
         let start = TabletMapping.page(CGPoint(x: 1000, y: 1000), extent: extent, quarterTurns: 2)
         let end = TabletMapping.page(CGPoint(x: 6000, y: 5000), extent: extent, quarterTurns: 2)
         assertRect(scribe.box.rect, TabletWriting.box(from: start, to: end))

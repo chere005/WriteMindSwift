@@ -155,6 +155,13 @@ extension CanvasItem {
         bounds(in: size).insetBy(dx: -slack, dy: -slack)
     }
 
+    /// How far a stroke's ink reaches from its points, before the transform —
+    /// what the eraser is allowed on top of its own radius.
+    var baseReach: CGFloat {
+        if case .stroke(let stroke) = self { return CGFloat(stroke.reach) }
+        return 0
+    }
+
     /// How far past the outline a click still hits: the line's own width.
     private var lineSlack: CGFloat {
         switch self {

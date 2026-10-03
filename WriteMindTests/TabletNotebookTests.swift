@@ -181,9 +181,14 @@ private func penPoint(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false,
 }
 
 /// A switch pressed and let go in the air, the nib never touching.
+///
+/// A DOUBLE PRESS now (Sean, 2026-10-03: "a double press of that same button is
+/// undo", "double tap to redo"): one tap alone is nothing.
 private func penClick(_ input: TabletInput, upper: Bool = false, at time: TimeInterval) {
     input.feed(penPoint(5000, 5000, tip: false, at: time))
-    input.feed(penPoint(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.1))
+    input.feed(penPoint(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.05))
+    input.feed(penPoint(5000, 5000, tip: false, at: time + 0.1))
+    input.feed(penPoint(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.15))
     input.feed(penPoint(5200, 5100, tip: false, at: time + 0.2))
 }
 
@@ -191,9 +196,9 @@ private func penClick(_ input: TabletInput, upper: Bool = false, at time: TimeIn
 /// the samples' one consumer, which chooses the target.
 @MainActor
 final class NotebookScribeTests: XCTestCase {
-    private func point(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false, pressure: Double = 0.5,
-                       at time: TimeInterval) -> TabletReading {
-        penPoint(x, y, tip: tip, side: side, pressure: pressure, at: time)
+    private func point(_ x: CGFloat, _ y: CGFloat, tip: Bool, side: Bool = false, upper: Bool = false,
+                       pressure: Double = 0.5, at time: TimeInterval) -> TabletReading {
+        penPoint(x, y, tip: tip, side: side, upper: upper, pressure: pressure, at: time)
     }
 
     private func rig(_ target: TabletTarget = .notebook) -> (TabletInput, TabletPage, TabletScribe, NotebookScribe) {
@@ -323,12 +328,12 @@ final class NotebookScribeTests: XCTestCase {
         defer { watching.cancel() }
         var landed = 0
         notebook.onStroke = { _ in landed += 1 }
-        input.feed(point(3000, 3000, tip: false, side: true, at: 0.5))
+        input.feed(point(3000, 3000, tip: false, upper: true, at: 0.5))
         XCTAssertNil(notebook.marquee, "the switch alone, in the air, began a marquee")
-        input.feed(point(0, 0, tip: true, side: true, at: 1))
-        input.feed(point(7600, 4750, tip: true, side: true, at: 2))
+        input.feed(point(0, 0, tip: true, upper: true, at: 1))
+        input.feed(point(7600, 4750, tip: true, upper: true, at: 2))
         XCTAssertNotNil(notebook.marquee, "the marquee shows while it is dragged")
-        input.feed(point(7600, 4750, tip: false, side: false, at: 3))
+        input.feed(point(7600, 4750, tip: false, upper: false, at: 3))
         XCTAssertNil(notebook.marquee)
         XCTAssertEqual(picks.count, 1)
         let place = try XCTUnwrap(notebook.place)
@@ -413,11 +418,11 @@ final class NotebookScribeTests: XCTestCase {
             input.feed(point(4000, 2375, tip: false, at: 6))
             XCTAssertEqual(landed, 1, "a stroke begun in one note landed in the next")
 
-            input.feed(point(0, 0, tip: true, side: true, at: 7))
+            input.feed(point(0, 0, tip: true, upper: true, at: 7))
             XCTAssertNotNil(notebook.marquee)
             notebook.place = NotebookPlace(pane: pane, scroll: 0, aspect: 0.625, note: "Letters.md")
             XCTAssertNil(notebook.marquee)
-            input.feed(point(7600, 4750, tip: true, side: true, at: 8))
+            input.feed(point(7600, 4750, tip: true, upper: true, at: 8))
             input.feed(point(7600, 4750, tip: false, side: false, at: 9))
             XCTAssertEqual(picks, 0, "a marquee begun in one note picked in the next")
         }

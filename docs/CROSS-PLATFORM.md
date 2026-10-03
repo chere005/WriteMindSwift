@@ -332,6 +332,25 @@ to the entire visible screen". Only with a tablet writing in the notebook.
   same width for both so the row does not change size between modes), a View
   menu item, remembered.
 
+### The Wacom pen's buttons: hold = eraser / box, double press = undo / redo
+Sean, 2026-10-03: "the undo button on the wacom pen should actually be a press
+and hold to make it an eraser that deletes entire strokes .. a double press of
+that same button is undo ... the other button is hold to drag a selector box (as
+if clicking and dragging), and double tap to redo".
+- **Lower switch (nearer the nib, BTN_STYLUS 0x02)**: held as the nib goes down it
+  is an ERASER, latched for the stroke; every stroke the nib's path comes within
+  a small radius of is deleted WHOLE (page: ~0.014 of the page; over the notes:
+  7 points + the ink's reach, on the floating layer and in writable drawing
+  cells; pictures, shapes and arrows are left). One erasure — nib down to nib up
+  — is ONE undo step, taken at its first deletion. The switch held on after the
+  nib lifts is the eraser still.
+- **Upper switch (0x04)**: held as the nib goes down it is the selector box, as
+  both switches were; both at once is the box.
+- **A tap** is a press let go in the air within 0.4 s with the nib up; **two taps
+  of the same switch within 0.6 s** are the command (lower = undo, upper = redo).
+  One tap, a hold, a tap with the nib touching, or taps of different switches are
+  nothing, and a hold clears the tap before it.
+
 ### The markdown view has no floating drawing, and the drawing data is visible
 Sean, 2026-10-02: "don't show or allow drawings in markdown mode on the notebook
 itself, only pure text", then "drawing cells should still appear in markdown,

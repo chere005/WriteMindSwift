@@ -191,6 +191,30 @@ final class TabletPage: ObservableObject {
         scheduleSave()
     }
 
+    /// THE ERASER (Sean, 2026-10-03: "press and hold to make it an eraser that
+    /// deletes entire strokes"): every stroke the nib's path from `a` to `b`
+    /// comes within `radius` of goes, WHOLE. One erasure — the nib down to
+    /// the nib up (`endErasing`) — is one step back, taken at its first
+    /// deletion, so scratching over a word is one ⌘Z. True when something
+    /// went.
+    @discardableResult
+    func erase(from a: CGPoint, to b: CGPoint, radius: CGFloat) -> Bool {
+        let hit = Set(strokes.filter { StrokeEraser.touches($0.points, from: a, to: b, radius: radius) }.map(\.id))
+        guard !hit.isEmpty else { return false }
+        if !erasingStep {
+            remember()
+            erasingStep = true
+        }
+        strokes.removeAll { hit.contains($0.id) }
+        scheduleSave()
+        return true
+    }
+
+    /// The nib came up: the next erasure is a step of its own.
+    func endErasing() { erasingStep = false }
+
+    private var erasingStep = false
+
     @discardableResult
     func undo() -> Bool {
         guard let previous = history.popLast() else { return false }

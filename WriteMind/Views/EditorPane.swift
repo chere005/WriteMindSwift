@@ -137,6 +137,7 @@ struct EditorPane: View {
                                   onEscapePen: { appState.escapePen() },
                                   onEscapeBox: { TabletScribe.shared.box.key($0) == nil },
                                   tabletPicks: NotebookScribe.shared.picks.eraseToAnyPublisher(),
+                                  tabletErases: NotebookScribe.shared.erases.eraseToAnyPublisher(),
                                   // Both panes scroll their objects with
                                   // the text now, so a picture stays beside
                                   // what it was put beside.

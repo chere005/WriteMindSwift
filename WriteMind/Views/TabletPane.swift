@@ -315,13 +315,15 @@ struct TabletPane: View {
 
     /// WHAT THE PAGE'S UNDO AND REDO SAY UNDER THE POINTER — every way to
     /// each, the pen's own buttons among them (Sean, 2026-10-02: "make the
-    /// wacom buttons undo and redo last drawing"): a click of the lower one
-    /// in the air is this Undo, of the upper one this Redo. Redo's says
-    /// what it needs: by the driver's events the upper button has been
-    /// seen only with the nib down, so its click is promised only captured.
+    /// wacom buttons undo and redo last drawing", then 2026-10-03: "a double
+    /// press of that same button is undo", "double tap to redo"): a double
+    /// press of the lower one in the air is this Undo, of the upper one this
+    /// Redo. Redo's says what it needs: by the driver's events the upper
+    /// button has been seen only with the nib down, so its double tap is
+    /// promised only captured.
     nonisolated static let undoTip = "Take back the last stroke on the page — ⌘Z does it too, straight after "
-        + "writing, and so does a click of the pen's lower button with the nib off the tablet"
-    nonisolated static let redoTip = "Put back what Undo took off the page — and so does a click of the pen's "
+        + "writing, and so does a double press of the pen's lower button with the nib off the tablet"
+    nonisolated static let redoTip = "Put back what Undo took off the page — and so does a double tap of the pen's "
         + "upper button with the nib off the tablet, while the pen is captured"
 
     private func corner(icon: String, label: String, help: String, enabled: Bool = true,

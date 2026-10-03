@@ -83,6 +83,10 @@ struct DrawingCanvas: View {
     /// go over the notes, in document points (`NotebookScribe.picks`):
     /// picked by the marquee's own rule.
     var tabletPicks: AnyPublisher<CGRect, Never> = Empty().eraseToAnyPublisher()
+    /// The tablet pen's ERASER over the notes (Sean, 2026-10-03: "press and
+    /// hold to make it an eraser that deletes entire strokes"): the path its
+    /// nib took, in document points, for the layer to delete by (`erase`).
+    var tabletErases: AnyPublisher<NotebookErase, Never> = Empty().eraseToAnyPublisher()
     /// How far the text under the layer has scrolled. Objects live in the
     /// DOCUMENT — a picture sits beside the paragraph it was put next to and
     /// goes up with it — so everything is drawn and hit this far up.
@@ -230,6 +234,9 @@ struct DrawingCanvas: View {
     @State private var overPaper = false
     /// The stroke under way began on a cell's paper in cursor mode.
     @State private var cursorInk = false
+    /// The tablet's eraser has taken its step: the rest of this erasure, nib
+    /// down to nib up, is that one step.
+    @State private var erasing = false
     /// The cell's height when its grip was taken.
     @State private var gripFrom: Double?
 
@@ -341,6 +348,7 @@ struct DrawingCanvas: View {
             .onChange(of: deselectToken) { _, _ in selection = []; cropping = nil; styling = nil; editingLabel = nil }
             .onChange(of: selection) { _, picked in onSelectionChanged?(!picked.isEmpty) }
             .onReceive(tabletPicks) { rect in pick(byTablet: rect) }
+            .onReceive(tabletErases) { erase(byTablet: $0) }
             // A mode change leaves nothing behind it: not a selection, not
             // a crop half-dragged, not an arrow's style bar, not a label
             // being typed. Each of those is a conversation with one mode.
@@ -1234,6 +1242,53 @@ struct DrawingCanvas: View {
         editingLabel = nil
         let additive = NSEvent.modifierFlags.contains(.shift)
         selection = Self.marqueePicked(rect, in: drawing, size: paneSize, adding: additive ? selection : nil)
+    }
+
+    /// THE TABLET'S ERASER, a segment of its path at a time: every STROKE of
+    /// the floating layer, and of a writable drawing cell, the nib came within
+    /// reach of goes whole (`StrokeEraser`) — pictures, shapes and arrows are
+    /// left where they are. The whole erasure is one step back, taken at the
+    /// first deletion, and ⌘Z is the erasure's until the next keystroke
+    /// (`onCursorInk`).
+    private func erase(byTablet erase: NotebookErase) {
+        switch erase {
+        case .end:
+            erasing = false
+        case .path(let a, let b):
+            let radius = StrokeEraser.noteRadius
+            let size = paneSize
+            let layerGone = Set(layer.items.compactMap { item -> UUID? in
+                guard case .stroke = item else { return nil }
+                let reach = radius + item.baseReach * item.transform.scale
+                return StrokeEraser.touches(item.outline(in: size), from: a, to: b, radius: reach) ? item.id : nil
+            })
+            var cellsGone: [UUID: Set<UUID>] = [:]
+            for frame in cellFrames where frame.writable {
+                guard let cell = cells.wrappedValue[frame.id] else { continue }
+                let space = CanvasSpace.cell(frame)
+                let from = space.fromDocument(a), to = space.fromDocument(b)
+                let gone = Set(cell.drawing.items.compactMap { item -> UUID? in
+                    guard case .stroke = item else { return nil }
+                    let reach = radius / space.scale + item.baseReach * item.transform.scale
+                    return StrokeEraser.touches(item.outline(in: space.size), from: from, to: to, radius: reach)
+                        ? item.id : nil
+                })
+                if !gone.isEmpty { cellsGone[frame.id] = gone }
+            }
+            guard !layerGone.isEmpty || !cellsGone.isEmpty else { return }
+            if !erasing {
+                onCursorInk?()
+                onBeginChange?()
+                erasing = true
+            }
+            if !layerGone.isEmpty { layer = layer.removing(layerGone) }
+            for (id, gone) in cellsGone {
+                guard var cell = cells.wrappedValue[id] else { continue }
+                cell.drawing = cell.drawing.removing(gone)
+                cells.wrappedValue[id] = cell
+            }
+            selection.subtract(layerGone)
+        }
     }
 
     private func handleDrag(kind: HandleKind, in size: CGSize) -> some Gesture {

@@ -2,8 +2,9 @@ import AppKit
 import Combine
 
 // FROM THE PEN'S SAMPLES TO THE PAGE: the nib down is ink, the nib down
-// with a side switch held is a box, and a side switch clicked in the air is
-// undo or redo (`TabletScribe.command`). The rule is `TabletWriting`, a
+// with the UPPER side switch held is a box, with the LOWER an eraser that
+// deletes whole strokes, and a side switch pressed twice in the air is undo
+// (lower) or redo (upper) (`TabletScribe.command`). The rule is `TabletWriting`, a
 // value tested sample by sample; `TabletScribe` is its shell — it takes the
 // funnel's stream (`TabletInput.samples`, page fractions after the turn),
 // keeps the stroke being written where its own layer can redraw it at the
@@ -53,6 +54,12 @@ struct TabletWriting {
         /// AIR is another thing, a command, and never comes here —
         /// `TabletScribe.command`.)
         case clicked
+        /// The ERASER — begun by the nib with the lower switch held — went
+        /// from `from` to `to` on the page (one point at the start): what it
+        /// touched goes, whole strokes.
+        case erasing(from: CGPoint, to: CGPoint)
+        /// It came up: the erasure is one step.
+        case erased
     }
 
     /// How far the nib must move with the switch held, in page fractions,
@@ -63,12 +70,19 @@ struct TabletWriting {
     private(set) var stroke: Stroke?
     private var boxStart: CGPoint?
     private var boxMoved = false
+    private var eraseLast: CGPoint?
 
     mutating func consume(_ sample: TabletSample, ink: TabletInk) -> Outcome {
         switch sample.phase {
         case .hover, .click:
             return .none
         case .down:
+            if sample.eraser {
+                stroke = nil
+                boxStart = nil
+                eraseLast = sample.page
+                return .erasing(from: sample.page, to: sample.page)
+            }
             if sample.sideSwitch {
                 stroke = nil
                 boxStart = sample.page
@@ -83,6 +97,10 @@ struct TabletWriting {
                                      pen: .pen(pressure: sample.pressure), tool: ink.tool)
             return .began
         case .drag:
+            if let last = eraseLast {
+                eraseLast = sample.page
+                return .erasing(from: last, to: sample.page)
+            }
             if let start = boxStart {
                 if !boxMoved {
                     boxMoved = max(abs(sample.page.x - start.x), abs(sample.page.y - start.y)) >= Self.clickSlop
@@ -93,6 +111,10 @@ struct TabletWriting {
             stroke?.append(sample.page, pen: .pen(pressure: sample.pressure))
             return .grew
         case .up:
+            if eraseLast != nil {
+                eraseLast = nil
+                return .erased
+            }
             if let start = boxStart {
                 boxStart = nil
                 let moved = boxMoved
@@ -117,6 +139,7 @@ struct TabletWriting {
         guard TabletMapping.turns(quarterTurns) != 0 else { return }
         if let under = stroke { stroke = TabletPage.turned(under, by: quarterTurns) }
         if let start = boxStart { boxStart = TabletPage.turned(start, by: quarterTurns) }
+        if let last = eraseLast { eraseLast = TabletPage.turned(last, by: quarterTurns) }
     }
 
     /// A box between two page points, on the page.
@@ -306,6 +329,12 @@ final class TabletScribe: ObservableObject {
             box.rect = rect
         case .clicked:
             if box.rect != nil { box.rect = nil }
+        case .erasing(let from, let to):
+            // Erasing on the page puts a box away, as writing does.
+            if box.rect != nil { box.rect = nil }
+            if page.erase(from: from, to: to, radius: StrokeEraser.pageRadius) { onWrite?() }
+        case .erased:
+            page.endErasing()
         }
     }
 }

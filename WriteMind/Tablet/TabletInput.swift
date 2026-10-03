@@ -334,14 +334,19 @@ struct TabletSample: Equatable {
     /// 0…1 while the nib is on the tablet; 0 on a hover and at the up.
     let pressure: Double
     let phase: Phase
-    /// The stroke is a SELECTION, not ink: a side switch was held as the
-    /// nib went down. The same on every sample of one down…up, so a stroke
-    /// is one thing from start to finish.
+    /// The stroke is a SELECTION, not ink: the UPPER side switch was held as
+    /// the nib went down (Sean, 2026-10-03: "the other button is hold to drag
+    /// a selector box (as if clicking and dragging)"). The same on every
+    /// sample of one down…up, so a stroke is one thing from start to finish.
     let sideSwitch: Bool
     /// False on the one sample that says the pen went out of reach — the
     /// marker goes, at the last place it was.
     let inProximity: Bool
     let timestamp: TimeInterval
+    /// The stroke is an ERASER: the LOWER side switch was held as the nib
+    /// went down (Sean, 2026-10-03: "press and hold to make it an eraser that
+    /// deletes entire strokes"). Latched like `sideSwitch`, and never both.
+    var eraser = false
 }
 
 /// The pen's state from one reading to the next. A value, so a test can
@@ -353,13 +358,27 @@ struct TabletPen {
     private(set) var engaged = false
     /// What the stroke under way is: latched at its down.
     private(set) var selecting = false
+    /// What the stroke under way is, the other way: an ERASER, begun by the
+    /// nib with the LOWER switch held. Latched at its down.
+    private(set) var erasing = false
     /// A side switch was pressed under a stroke of INK and is still held
     /// after the nib came up: it makes no box of the next stroke until it
     /// has been let go.
     private(set) var switchHeldOver = false
-    /// A side switch pressed IN THE AIR and not yet let go: the click it
-    /// will be if it is let go before anything else happens (`clicked`).
+    /// A side switch pressed IN THE AIR and not yet let go: the tap it
+    /// will be if it is let go before anything else happens (`clicked`) —
+    /// and when it was pressed, and the tap before it, for the double press
+    /// that is the command.
     private(set) var armed: PenSwitch?
+    private var armedAt: TimeInterval = 0
+    private var lastTap: (pen: PenSwitch, at: TimeInterval)?
+    /// A press let go within this is a TAP; held longer it is a hold, which
+    /// is the eraser or the box and never half of a double press.
+    static let tapLimit: TimeInterval = 0.4
+    /// Two taps of the same switch, let go within this of each other, are
+    /// ONE COMMAND — undo for the lower, redo for the upper (Sean, 2026-10-03:
+    /// "a double press of that same button is undo", "double tap to redo").
+    static let doubleWindow: TimeInterval = 0.6
     /// The switches as the last point had them, and nil while nothing has
     /// said — the pen out of reach, or the tablet not ready: a switch first
     /// seen already held was not pressed here.
@@ -396,7 +415,9 @@ struct TabletPen {
             }
             engaged = false
             selecting = false
+            erasing = false
             switchHeldOver = false
+            lastTap = nil
             inProximity = false
             if let last {
                 out.append(sample(last, 0, .hover, false, reading.timestamp))
@@ -410,8 +431,10 @@ struct TabletPen {
             last = page
             inProximity = true
             let switchDown = switches?.isEmpty == false
+            let upperDown = switches?.contains(.upper) == true
+            let lowerDown = switches?.contains(.lower) == true
             if !switchDown { switchHeldOver = false }
-            let click = clicked(switches, tip: tip)
+            let click = clicked(switches, tip: tip, at: reading.timestamp)
             // A STROKE BEGINS WITH THE NIB, and what KIND of stroke is
             // latched at that down: A SWITCH HELD AS THE NIB GOES DOWN
             // MAKES IT THE BOX, either switch. The switch alone, in the air,
@@ -424,56 +447,79 @@ struct TabletPen {
             // drawing in the air at no pressure — and THE BOX GOES ON WHILE
             // THE NIB OR THE SWITCH IS DOWN, so a switch let go mid-drag is
             // still the box and so is the nib lifted with one held.
-            let pressing = engaged && selecting ? tip || switchDown : tip
+            let pressing = engaged && selecting ? tip || upperDown : tip
             let phase: TabletSample.Phase
             switch (engaged, pressing) {
             case (false, true):
                 engaged = true
-                selecting = switchDown && !switchHeldOver
+                // THE UPPER SWITCH IS THE BOX, THE LOWER THE ERASER
+                // (Sean, 2026-10-03). Both at once is the box: the one
+                // that is not an erasure.
+                selecting = upperDown && !switchHeldOver
+                erasing = !selecting && lowerDown && !switchHeldOver
                 phase = .down
             case (true, true):
                 phase = .drag
             case (true, false):
                 engaged = false
                 phase = .up
-                // Still held as the ink ended: no box until pressed again.
-                if !selecting, switchDown { switchHeldOver = true }
+                // Still held as the ink ended: no box and no eraser until
+                // pressed again. An eraser's own switch, held on after the
+                // nib lifts, is the eraser still: the next touch erases.
+                if !selecting, !erasing, switchDown { switchHeldOver = true }
             case (false, false):
                 phase = click.map { .click($0) } ?? .hover
             }
             let out = sample(page, tip && phase != .up ? pressure : 0, phase, true, reading.timestamp)
-            if phase == .up { selecting = false }
+            if phase == .up {
+                selecting = false
+                erasing = false
+            }
             return [out]
         }
     }
 
-    /// A CLICK OF A SIDE SWITCH (Sean, 2026-10-02: "make the wacom buttons
-    /// undo and redo last drawing"): pressed and let go IN THE AIR — the nib
-    /// up from the press to the letting go, the pen in reach, and the press
-    /// itself seen. It is the switch's own click only when it is LET GO, so
-    /// that holding it and putting the nib down is still the box, and it is
-    /// one click however long it was held: nothing repeats. Returns the
-    /// switch on the one reading that lets it go.
+    /// A DOUBLE PRESS OF A SIDE SWITCH IN THE AIR (Sean, 2026-10-02: "make
+    /// the wacom buttons undo and redo last drawing", then 2026-10-03: "a
+    /// double press of that same button is undo", "double tap to redo" —
+    /// the single press having become the hold that makes the eraser and
+    /// the box). A TAP is a press let go in the air within `tapLimit`, the
+    /// nib up from the press to the letting go and the press itself seen;
+    /// the SECOND tap of the same switch within `doubleWindow` of the first
+    /// is the command, returned on the one reading that lets it go. One
+    /// tap alone, a press held longer, a tap with the nib touching, and the
+    /// other switch joining in are none of them anything, and leave none
+    /// owed — and a hold is never half of a double press.
     ///
-    /// Everything else is no click, and leaves none owed: the nib touching
-    /// while the switch is held (the box — and letting go after it), a
-    /// switch pressed under a stroke, one already held as the pen comes
-    /// into reach, a reading that cannot say what the switches are doing,
-    /// and the other switch joining in — two at once say nothing about
-    /// which was meant.
-    private mutating func clicked(_ switches: Set<PenSwitch>?, tip: Bool) -> PenSwitch? {
+    /// Everything else is no click either: a switch pressed under a stroke,
+    /// one already held as the pen comes into reach, and a reading that
+    /// cannot say what the switches are doing.
+    private mutating func clicked(_ switches: Set<PenSwitch>?, tip: Bool, at time: TimeInterval) -> PenSwitch? {
         let before = held
         held = switches
         guard let now = switches, !tip, !engaged else {
             armed = nil
+            if tip { lastTap = nil }
             return nil
         }
         if let pressed = armed {
             if now == [pressed] { return nil }
             armed = nil
-            return now.isEmpty ? pressed : nil
+            guard now.isEmpty, time - armedAt <= Self.tapLimit else {
+                lastTap = nil
+                return nil
+            }
+            if let last = lastTap, last.pen == pressed, time - last.at <= Self.doubleWindow {
+                lastTap = nil
+                return pressed
+            }
+            lastTap = (pressed, time)
+            return nil
         }
-        if before?.isEmpty == true, now.count == 1 { armed = now.first }
+        if before?.isEmpty == true, now.count == 1 {
+            armed = now.first
+            armedAt = time
+        }
         return nil
     }
 
@@ -481,7 +527,8 @@ struct TabletPen {
                         _ inProximity: Bool, _ timestamp: TimeInterval) -> TabletSample {
         TabletSample(page: page, pressure: pressure, phase: phase,
                      sideSwitch: phase == .hover ? false : selecting,
-                     inProximity: inProximity, timestamp: timestamp)
+                     inProximity: inProximity, timestamp: timestamp,
+                     eraser: phase == .hover ? false : erasing)
     }
 
     private func fresh(_ timestamp: TimeInterval, in recent: inout [TimeInterval]) -> Bool {

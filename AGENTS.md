@@ -1074,6 +1074,22 @@ CoreMind's `bin/report-status.sh`.
   `SidebarRenameTests` holds the store half; the field's focus and the
   gesture were driven in a scratch copy, Return itself was not (computer
   use cannot send a real key to a text field).
+- **THE PEN'S BUTTONS: HOLD = ERASER / BOX, DOUBLE PRESS = UNDO / REDO** (Sean,
+  2026-10-03). `TabletPen` (TabletInput.swift) latches at the nib's down:
+  `selecting` for the UPPER switch (the box, as before), `erasing` for the LOWER
+  — `TabletSample.eraser` beside `sideSwitch`, never both; both held is the box.
+  The eraser's switch held on after the nib lifts is the eraser still (no
+  `switchHeldOver`). A command is a DOUBLE press in the air: `clicked(_:tip:at:)`
+  counts taps (a press let go within `tapLimit` 0.4 s, nib up) and returns the
+  switch on the second of two of the same one within `doubleWindow` 0.6 s; one
+  tap, a hold, a touching nib and two different switches are nothing, and a hold
+  clears the tap before it. The eraser's geometry is `StrokeEraser`
+  (TabletEraser.swift), shared: the page erases through `TabletPage.erase` /
+  `endErasing` (one erasure = one history step, taken at the first deletion) via
+  `TabletWriting.erasing`/`.erased`; over the notes `NotebookWriting` sends
+  `NotebookErase` paths through `NotebookScribe.erases` and `DrawingCanvas.erase`
+  deletes the floating strokes and a writable cell's, whole, as one drawing step
+  with ⌘Z claimed (`onCursorInk`). `TabletEraserTests`, `TabletPenTests`.
 - **THE MARKDOWN VIEW HAS NO FLOATING DRAWING, BUT ITS DRAWING CELLS STAY.**
   Sean, 2026-10-02: "don't show or allow drawings in markdown mode on the
   notebook itself, only pure text" — and, when the first cut took the cells out

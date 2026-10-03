@@ -459,10 +459,12 @@ is how the code is put together.
   through another paper just like the last. The page is still there after
   a relaunch. **⌘Z** straight after writing takes the last stroke back,
   and the corner has undo, redo and a clear of its own — and so do **the
-  pen's two buttons**: with the nib off the tablet, a click of the lower
-  one (nearer the nib) takes the last stroke back and a click of the upper
-  one puts it back (the upper one only while the line at the bottom says
-  "pen captured"). Hold either button and drag with the nib down — or drag
+  pen's two buttons**: with the nib off the tablet, a double press of the
+  lower one (nearer the nib) takes the last stroke back and a double tap of
+  the upper one puts it back (the upper one only while the line at the bottom
+  says "pen captured"). **Hold the lower button and touch the nib down to
+  erase: every stroke the nib goes over is deleted whole, and one erasure is
+  one step back.** Hold the upper button and drag with the nib down — or drag
   with the mouse or the trackpad — to
   box part of the page, and the camera's three buttons bring it into the
   note: **Image** (that part of the page as a picture, paper and all),
@@ -497,10 +499,12 @@ is how the code is put together.
   While the pen is near, a faint outline shows where the tablet lands and
   a ring follows the nib. **⌘Z** straight after takes the strokes back, one
   stroke at a time, and once they are all back it is the typing's again;
-  **⇧⌘Z** puts them back. The pen's buttons do it here too: a click of the
+  **⇧⌘Z** puts them back. The pen's buttons do it here too: a double press of the
   lower one, nib off the tablet, undoes the last thing drawn on the note
-  and a click of the upper one redoes it. Hold either button and drag with
-  the nib down to pick things
+  and a double tap of the upper one redoes it. Hold the lower button and
+  touch the nib down to erase — every stroke of the drawing (and of a drawing
+  cell) the nib goes over is deleted whole, as one step. Hold the upper button
+  and drag with the nib down to pick things
   up on the drawing, exactly as a ⌘-drag does — ⌫ and the handles then
   work on them. The page is set aside, dimmed, and kept as it was; the
   switch (or the View menu) sends the pen back to it — Esc stays the

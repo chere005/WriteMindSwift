@@ -483,9 +483,13 @@ final class TabletScribeTests: XCTestCase {
     }
 
     /// A switch pressed and let go in the air, the nib never touching.
+    /// A DOUBLE PRESS (Sean, 2026-10-03: "a double press of that same button
+    /// is undo", "double tap to redo"): one tap alone is nothing.
     private func click(_ input: TabletInput, upper: Bool = false, at time: TimeInterval) {
         input.feed(point(5000, 5000, tip: false, at: time))
-        input.feed(point(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.1))
+        input.feed(point(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.05))
+        input.feed(point(5000, 5000, tip: false, at: time + 0.1))
+        input.feed(point(5000, 5000, tip: false, side: !upper, upper: upper, at: time + 0.15))
         input.feed(point(5200, 5100, tip: false, at: time + 0.2))
     }
 
@@ -521,25 +525,25 @@ final class TabletScribeTests: XCTestCase {
     /// box's own click.
     func testTheSideSwitchDrawsTheBoxAndTheNibPutsItAway() {
         let (input, page, scribe) = rig()
-        input.feed(point(3000, 3000, tip: false, side: true, at: 1))
+        input.feed(point(3000, 3000, tip: false, upper: true, at: 1))
         XCTAssertNil(scribe.box.rect, "the switch alone, in the air, began a box")
-        input.feed(point(0, 0, tip: true, side: true, at: 1.5))
-        input.feed(point(7600, 4750, tip: true, side: true, at: 2))
-        input.feed(point(7600, 4750, tip: false, side: false, at: 3))
+        input.feed(point(0, 0, tip: true, upper: true, at: 1.5))
+        input.feed(point(7600, 4750, tip: true, upper: true, at: 2))
+        input.feed(point(7600, 4750, tip: false, upper: false, at: 3))
         assertRect(scribe.box.rect, CGRect(x: 0.5, y: 0, width: 0.5, height: 0.5))
         XCTAssertEqual(page.strokes, [], "a box is not ink")
         input.feed(point(1000, 1000, tip: true, at: 4))
         XCTAssertNil(scribe.box.rect, "writing puts the box away")
         input.feed(point(1000, 1000, tip: false, at: 5))
         XCTAssertEqual(page.strokes.count, 1)
-        input.feed(point(5000, 5000, tip: false, side: true, at: 6))
-        input.feed(point(5000, 5000, tip: true, side: true, at: 6.5))
-        input.feed(point(5000, 5000, tip: false, side: false, at: 7))
+        input.feed(point(5000, 5000, tip: false, upper: true, at: 6))
+        input.feed(point(5000, 5000, tip: true, upper: true, at: 6.5))
+        input.feed(point(5000, 5000, tip: false, upper: false, at: 7))
         XCTAssertNil(scribe.box.rect)
         scribe.box.rect = CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.2)
-        input.feed(point(5000, 5000, tip: false, side: true, at: 8))
-        input.feed(point(5000, 5000, tip: true, side: true, at: 8.5))
-        input.feed(point(5000, 5000, tip: false, side: false, at: 9))
+        input.feed(point(5000, 5000, tip: false, upper: true, at: 8))
+        input.feed(point(5000, 5000, tip: true, upper: true, at: 8.5))
+        input.feed(point(5000, 5000, tip: false, upper: false, at: 9))
         XCTAssertNil(scribe.box.rect, "a tap with the side switch held puts it away")
         XCTAssertEqual(page.strokes.count, 1, "and neither tap wrote, or took anything back")
     }
@@ -623,10 +627,10 @@ final class TabletScribeTests: XCTestCase {
 
         // The box: the switch pressed in the air, held as the nib goes
         // down, and let go after the nib is up.
-        input.feed(point(1000, 1000, tip: false, side: true, at: 7))
-        input.feed(point(1000, 1000, tip: true, side: true, at: 8))
-        input.feed(point(6000, 6000, tip: true, side: true, at: 9))
-        input.feed(point(6000, 6000, tip: false, side: true, at: 10))
+        input.feed(point(1000, 1000, tip: false, upper: true, at: 7))
+        input.feed(point(1000, 1000, tip: true, upper: true, at: 8))
+        input.feed(point(6000, 6000, tip: true, upper: true, at: 9))
+        input.feed(point(6000, 6000, tip: false, upper: true, at: 10))
         input.feed(point(6000, 6000, tip: false, at: 11))
         XCTAssertNotNil(scribe.box.rect)
         XCTAssertEqual(page.strokes.count, 2, "letting go after the box took a stroke back")
