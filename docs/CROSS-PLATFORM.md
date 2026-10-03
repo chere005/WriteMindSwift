@@ -190,6 +190,21 @@ share (a cell is known by the character offset it starts at):
   and a command on the rendered view opens that cell — never the end or
   the start of the note, which nobody is looking at.
 
+### Double-click renames a note or a section in the sidebar
+Sean, 2026-10-02: "rename in place in the sidebar.. double click is rename in
+sidebar".
+- **Double-click a row and its title becomes a text field**, words selected, in
+  the same row; Return commits, Esc cancels, losing the keys commits (as in
+  Finder). A single click still selects at once — the double-click is
+  recognised beside the click, not after waiting out it.
+- **One rename**: the field commits through the same store call the context
+  menu's Rename… uses (`/` and `:` become `-`, a taken name gets " 2", an empty
+  or unchanged one does nothing). A project's top folder is not renamed here.
+- **Port trap**: set the field's focus on the next tick after it appears — set
+  as it appears, the notes' own text view keeps the keys — and select its words
+  only through a FIELD editor, never a select-all down the responder chain
+  (it selected the whole note).
+
 ### Drawing happens on the rendered page only
 Sean, 2026-10-02: "only allow drawing in wysiwyg mode, both from wacom and
 from the pen cursor tool". It reverses 2026-09-19's "drawing should be

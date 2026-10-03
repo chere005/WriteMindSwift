@@ -5,6 +5,11 @@ is how the code is put together.
 
 - **Notes are files.** `~/Documents/WriteMind/*.md`, one per note, readable
   by anything. The title is the note's first `# heading`, or its file name.
+- **Double-click a note or a section in the sidebar to rename it where it
+  stands.** The name becomes a field with its words selected; Return (or
+  clicking away) renames, Esc leaves it as it was. A name another note
+  already has gets a number after it, never overwrites that note; the
+  context menu's *Rename…* does the same through a dialog.
 - **Sections are folders.** Make a section in the sidebar and it is a folder
   on disk; a folder inside it is a subsection. The section you have selected
   is where the next new note goes. Drag a note — or a whole section — into

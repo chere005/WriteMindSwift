@@ -14,6 +14,12 @@ struct SidebarView: View {
     @State private var renamingNote: Note?
     @State private var renamingSection: NoteSection?
     @State private var newName = ""
+    /// The row being renamed IN PLACE (`TrashTarget.id`'s keys: "note:…" /
+    /// "section:…") and the name typed so far, in `newName`. Double-click
+    /// starts it, Return commits, Esc cancels (Sean, 2026-10-02: "rename in
+    /// place in the sidebar.. double click is rename in sidebar"). The
+    /// context menu's Rename… is the same rename through the alert.
+    @State private var renamingInPlace: String?
     /// The trash button that has been clicked once: "note:…" or
     /// "section:…". Red, and the next click on it deletes.
     @State private var armedTrash: String?
@@ -149,6 +155,39 @@ struct SidebarView: View {
         } message: {
             Text(renamingSection == nil ? "The file keeps its .md extension." : "This renames the folder on disk.")
         }
+    }
+
+    /// Which row a rename in place is on.
+    static func key(_ note: Note) -> String { "note:" + note.url.path }
+    static func key(_ section: NoteSection) -> String { "section:" + section.url.path }
+
+    /// A double-click names the row where it stands, from what it is called
+    /// now. A project folder's own name is the folder's and not this app's
+    /// to change (the context menu has no Rename… for one either).
+    private func beginRename(_ note: Note) {
+        newName = note.filename
+        renamingInPlace = Self.key(note)
+    }
+
+    private func beginRename(_ section: NoteSection) {
+        guard !section.isRoot else { return }
+        newName = section.name
+        renamingInPlace = Self.key(section)
+    }
+
+    /// Return, or the field losing the keys: the rename goes through
+    /// `NoteStore.rename`, the one the alert uses, and `renamingInPlace` is
+    /// cleared first so the second of those two cannot rename twice.
+    private func commitRename(_ note: Note) {
+        guard renamingInPlace == Self.key(note) else { return }
+        renamingInPlace = nil
+        store.rename(note, to: newName)
+    }
+
+    private func commitRename(_ section: NoteSection) {
+        guard renamingInPlace == Self.key(section) else { return }
+        renamingInPlace = nil
+        store.rename(section, to: newName)
     }
 
     /// The trash in edit mode looks like Duplicate until it is clicked: the
@@ -509,7 +548,12 @@ struct SidebarView: View {
     private func noteRow(_ note: Note, in section: NoteSection, indent: Int) -> some View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(note.title).lineLimit(1)
+                if renamingInPlace == Self.key(note) {
+                    InlineRenameField(text: $newName, font: .body,
+                                      commit: { commitRename(note) }, cancel: { renamingInPlace = nil })
+                } else {
+                    Text(note.title).lineLimit(1)
+                }
                 HStack(spacing: 6) {
                     Text(note.modified, format: .dateTime.month(.abbreviated).day())
                     if !note.snippet.isEmpty { Text(note.snippet).lineLimit(1) }
@@ -537,6 +581,9 @@ struct SidebarView: View {
             store.selection = note.id
             store.selectedSectionID = section.id
         }
+        // Beside the click and not after it: a click selects at once, and
+        // the second one of a double-click names it.
+        .simultaneousGesture(TapGesture(count: 2).onEnded { beginRename(note) })
         .dropDestination(for: SidebarItem.self) { items, _ in
             place(items, before: note, in: section)
         } isTargeted: { targeted in
@@ -582,9 +629,14 @@ struct SidebarView: View {
             Image(systemName: section.isRoot ? "folder.fill" : "folder")
                 .font(.system(size: 11))
                 .foregroundStyle(section.isRoot ? Color.accentColor : .secondary)
-            Text(section.name)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(1)
+            if renamingInPlace == Self.key(section) {
+                InlineRenameField(text: $newName, font: .system(size: 12, weight: .semibold),
+                                  commit: { commitRename(section) }, cancel: { renamingInPlace = nil })
+            } else {
+                Text(section.name)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+            }
             Spacer(minLength: 0)
             if editing, !section.isRoot {
                 trashButton(key: "section:\(section.id)", what: "section and its notes") { store.delete(section) }
@@ -604,6 +656,7 @@ struct SidebarView: View {
             Label(section.name, systemImage: "folder")
         }
         .onTapGesture { store.selectedSectionID = section.id }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { beginRename(section) })
         .dropDestination(for: SidebarItem.self) { items, _ in
             drop(items, into: section)
         } isTargeted: { targeted in
@@ -797,3 +850,42 @@ private struct RowButton: View {
 }
 
 
+
+
+/// THE NAME TYPED IN PLACE: a plain field where the row's title was, with
+/// the words selected so typing replaces them. Return commits; Esc cancels;
+/// clicking away commits, as it does in Finder.
+private struct InlineRenameField: View {
+    @Binding var text: String
+    let font: Font
+    let commit: () -> Void
+    let cancel: () -> Void
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Name", text: $text)
+            .textFieldStyle(.plain)
+            .font(font)
+            .focused($focused)
+            .onSubmit(commit)
+            .onExitCommand(perform: cancel)
+            .onAppear {
+                // A field only takes the keys once it is in the window: set
+                // in `onAppear` itself the focus is lost to the note's text
+                // view, which had them. Then select its words — only a
+                // FIELD's editor: a select-all sent down the responder chain
+                // selected the whole note.
+                DispatchQueue.main.async {
+                    focused = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isFieldEditor {
+                            editor.selectAll(nil)
+                        }
+                    }
+                }
+            }
+            .onChange(of: focused) { _, hasKeys in
+                if !hasKeys { commit() }
+            }
+    }
+}

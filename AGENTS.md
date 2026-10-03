@@ -953,6 +953,23 @@ CoreMind's `bin/report-status.sh`.
   moved puts down NOTHING and leaves the tool armed, where it used to
   put down a short horizontal line centred on the click — a different
   line from the one asked for, in a different place.
+- **DOUBLE-CLICK RENAMES A SIDEBAR ROW IN PLACE.** Sean, 2026-10-02:
+  "rename in place in the sidebar.. double click is rename in sidebar".
+  `SidebarView.renamingInPlace` names the row ("note:<path>" /
+  "section:<path>") and `newName` holds what is typed; the title `Text`
+  is swapped for `InlineRenameField`. The double-tap is a
+  `simultaneousGesture` BESIDE the single tap, so a click still selects
+  at once. Return and the field losing the keys both commit — through
+  `NoteStore.rename`, the one the context menu's alert uses — and
+  `commitRename` clears `renamingInPlace` first so the two cannot rename
+  twice; Esc clears it and the focus change then finds nothing to commit.
+  Two traps: `focused = true` in `onAppear` itself leaves the keys with the
+  note's text view (set it on the next tick), and a `selectAll` sent down
+  the responder chain selected the whole NOTE (select only when the first
+  responder `isFieldEditor`). A project's top folder is never renamed here.
+  `SidebarRenameTests` holds the store half; the field's focus and the
+  gesture were driven in a scratch copy, Return itself was not (computer
+  use cannot send a real key to a text field).
 - **DRAWING IS ON THE RENDERED PAGE ONLY.** Sean, 2026-10-02: "only allow
   drawing in wysiwyg mode, both from wacom and from the pen cursor tool".
   It reverses 2026-09-19's "drawing should be allowed in either wysiwyg
