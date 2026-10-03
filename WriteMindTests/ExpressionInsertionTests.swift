@@ -68,10 +68,59 @@ final class ExpressionInsertionTests: XCTestCase {
         }
         XCTAssertEqual(Insertion.Refusal.mathsDoesNotParse("Missing \"]\".").message,
                        "That maths does not read, so nothing was inserted: Missing \"]\".")
-        for broken in ["x +", "(1 + 2", "Sin[x))", "\"abc", "|x|", "", "   "] {
+        for broken in ["x +", "(1 + 2", "Sin[x))", "\"abc", "|x|", "", "   ", "a = 1\nb = 2", "x\ny"] {
             XCTAssertEqual(after(broken, display: true, "One‸ two."), "refused", broken)
             XCTAssertEqual(after(broken, display: false, "One‸ two."), "refused", broken)
         }
+    }
+
+    // MARK: - What a note cannot carry is refused, not written
+
+    // Review, 2026-10-03: a string literal is accepted with any content, but
+    // the stored `wl:…` code span and ```wl fence cannot carry every
+    // character: `Text["a`b"]` ended the span at the inner backtick, and a
+    // string with a line break and then ``` closed the fence early. Both
+    // were written unescaped, into the note's structure.
+
+    func testAStringANoteCannotCarryIsRefusedInEveryContextAndNothingIsWritten() {
+        let strings = ["Text[\"a`b\"]", "Text[\"one\n```\nTwo\"]", "{\"ok\", \"```\"}", "Text[\"a\nb\"]", "Text[“a`b”]"]
+        for wl in strings {
+            for (marked, display, atBar) in [("One‸ two.", true, false), ("One ‸two.", false, false),
+                                             ("One.\n\n‸Two.", true, true), ("```wl\nx + ‸\n```", true, false),
+                                             ("Area `wl:x + ‸` here.", false, false), ("Area «x» here.", false, false),
+                                             ("```wl\nx + ‸\n```", false, false), ("‸", false, false)] {
+                let (text, selection) = Marked.parse(marked)
+                guard case .refused(.mathsDoesNotParse(let why)) = Insertion.insert(
+                    .maths(wl, onItsOwnLine: display), in: text, at: selection, atBar: atBar) else {
+                    XCTFail("written: \(wl.debugDescription) in \(marked.debugDescription)")
+                    continue
+                }
+                XCTAssertTrue(why.contains("backtick"), why)
+            }
+        }
+    }
+
+    func testStringsANoteCanCarryAreWrittenAsTheyAre() {
+        XCTAssertEqual(after("Text[\"a b\"]", display: false, "One ‸two."), "One `wl:Text[\"a b\"]`‸two.")
+        XCTAssertEqual(after("Text[\"it's\\n\"]", display: true, "‸"), "```wl\nText[\"it's\\n\"]‸\n```")
+        XCTAssertEqual(after("Text[“quoted”]", display: true, "‸"), "```wl\nText[\"quoted\"]‸\n```", "curly quotes are the string's quotes")
+    }
+
+    // MARK: - More than one expression is refused, never multiplied
+
+    func testTwoStatementsOnTwoLinesAreRefusedAndTheNoteIsLeftAlone() {
+        for (wl, display) in [("a = 1\nb = 2", true), ("a = 1\nb = 2", false), ("f[x_] := x^2\ng[x_] := x^3", true)] {
+            let (text, selection) = Marked.parse("One‸ two.")
+            guard case .refused(.mathsDoesNotParse(let why)) = Insertion.insert(
+                .maths(wl, onItsOwnLine: display), in: text, at: selection, atBar: false)
+            else { return XCTFail("written: \(wl.debugDescription)") }
+            XCTAssertTrue(why.contains("new line starts a second one"), why)
+        }
+        // The same two as one statement, joined the way WL joins them, are fine — and the note holds what was typed.
+        XCTAssertEqual(after("a = 1;\nb = 2", display: true, "‸"), "```wl\na = 1; b = 2‸\n```")
+        // A formula broken over lines inside its brackets is one expression.
+        XCTAssertEqual(after("Integrate[\n  Sin[x],\n  {x, 0, 1}\n]", display: true, "‸"),
+                       "```wl\nIntegrate[Sin[x], {x, 0, 1}]‸\n```")
     }
 
     // MARK: - The source pane: one step of undo, the caret where typing goes
@@ -105,8 +154,12 @@ final class ExpressionInsertionTests: XCTestCase {
     }
 
     func testOneUndoTakesAnExpressionBackWhereverItWentAndTheCaretEndsAfterIt() {
-        for (marked, display) in [("One two‸ three.", true), ("One two ‸three.", false), ("One.\n\n‸Two.", true),
-                                  ("Area «x^2 + 1» here.", false), ("```wl\nx + ‸\n```", true)] {
+        // Where the caret must be, said exactly: after the closing backtick of a span, and after the
+        // WL with the closing fence line next on a block. (A caret left inside the span, or in front of
+        // the fence, is a caret typing would put in the middle of the maths.)
+        for (marked, display, bare) in [("One two‸ three.", true, false), ("One two ‸three.", false, false),
+                                        ("One.\n\n‸Two.", true, false), ("Area «x^2 + 1» here.", false, false),
+                                        ("```wl\nx + ‸\n```", true, true), ("Area `wl:x + ‸` here.", false, true)] {
             let undoer = Undoer()
             let (view, bridge) = pane(marked, undoer: undoer, bar: marked.contains("\n\n‸"))
             let original = view.string
@@ -116,8 +169,15 @@ final class ExpressionInsertionTests: XCTestCase {
             let caret = view.selectedRange()
             XCTAssertEqual(caret.length, 0)
             let before = (view.string as NSString).substring(to: caret.location)
-            XCTAssertTrue(before.hasSuffix(display ? "(1 + x)" : "(1 + x)`") || before.hasSuffix("(1 + x)"),
-                          "the caret is after the maths: \(Marked.show(view.string, caret))")
+            let after = (view.string as NSString).substring(from: caret.location)
+            let shown = Marked.show(view.string, caret)
+            if bare && !display {
+                XCTAssertTrue(before.hasSuffix("(1 + x)") && after.hasPrefix("`"), "inside the span, bare: \(shown)")
+            } else if display {
+                XCTAssertTrue(before.hasSuffix("(1 + x)") && after.hasPrefix("\n```"), "on the end of the WL: \(shown)")
+            } else {
+                XCTAssertTrue(before.hasSuffix("(1 + x)`"), "after the closing backtick, in the sentence: \(shown)")
+            }
             undoer.manager.undo()
             XCTAssertEqual(view.string, original, "one ⌘Z: \(marked)")
         }

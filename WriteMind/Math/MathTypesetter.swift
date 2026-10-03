@@ -133,6 +133,31 @@ enum MathMarkup {
     static let inlinePrefix = "wl:"
     static let fence = "wl"
 
+    /// WHAT A NOTE CAN HOLD: the expression, read — or why it cannot be
+    /// written. Everything `WLParser` reads can be typeset, but what is
+    /// written is the WL as TEXT, in a code span or a fence, and a string
+    /// literal with a backtick or a line break in it survives neither: the
+    /// backtick ends the span, and a line break then ``` closes the fence
+    /// early (and a blank line ends the paragraph the span is in). Such a
+    /// string is refused with a message rather than written unescaped, by
+    /// the palette and by `Insertion` alike. It is only the writing that is
+    /// held to this: a note that already has one is still typeset, as it
+    /// was (Sean, 2026-10-03: "maths input should also just allow for an
+    /// expression"; the review of the same day).
+    static func read(_ source: String) -> Result<WLExpr, WLSyntaxError> {
+        let parsed = WLParser.read(source)
+        guard case .success = parsed, source.contains("`") || source.contains(where: \.isNewline) else { return parsed }
+        if let string = WLParser.tokenize(source).first(where: { token in
+            token.kind == .text && token.value.contains { $0 == "`" || $0.isNewline }
+        }) {
+            return .failure(WLSyntaxError(
+                message: "The string at position \(string.offset + 1) has a backtick or a line break in it, "
+                    + "and a note cannot keep that — write it another way (a line break is \\n).",
+                offset: string.offset, length: string.length))
+        }
+        return parsed
+    }
+
     static func inline(_ wl: String) -> String { "`" + inlinePrefix + wl + "`" }
     static func block(_ wl: String) -> String { "```" + fence + "\n" + wl + "\n```" }
 

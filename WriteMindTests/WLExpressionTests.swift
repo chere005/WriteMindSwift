@@ -154,6 +154,53 @@ final class WLExpressionTests: XCTestCase {
         XCTAssertEqual(failure("()").offset, 1, "at the bracket that closes it")
     }
 
+    // MARK: - A new line is a new statement, never a product
+
+    // Review, 2026-10-03: a newline was whitespace, so `a = 1⏎b = 2` read as
+    // `a = ((1*b) = 2)`, was typeset as "a = 1b = 2" and — through Insertion's
+    // canonical step — written into the note as that one wrong formula.
+
+    func testTwoCompleteExpressionsOnTwoLinesAreRefusedNotMultiplied() {
+        for source in ["a = 1\nb = 2", "x\ny", "f[x] := x^2\ng[x] := x^3", "a\n+ b", "1\n2", "x^2\n(y + 1)",
+                       "a = 1\r\nb = 2", "x\n\ny", "  x  \n  y  \n"] {
+            guard case .failure(let error) = WLParser.read(source) else {
+                return XCTFail("read as one expression, and it is two: \(source.debugDescription) → \(WLParser.parse(source).map(WLPrinter.source) ?? "?")")
+            }
+            XCTAssertTrue(error.message.contains("new line"), "\(source.debugDescription): \(error.message)")
+            XCTAssertNil(WLParser.parse(source), source.debugDescription)
+        }
+        let error = failure("a = 1\nb = 2")
+        XCTAssertEqual(error.message, "Maths holds one expression, and a new line starts a second one (position 7): "
+                       + "join them with \";\" or insert them one at a time.")
+        XCTAssertEqual(error.offset, 6, "at the first thing of the second line")
+    }
+
+    func testALineIsOnlyEndedWhereTheExpressionIsComplete() {
+        // An operator left hanging goes on to the next line; so does anything inside a bracket.
+        XCTAssertEqual(canonical("a +\nb"), "a + b")
+        XCTAssertEqual(canonical("a *\n  b"), "a*b")
+        XCTAssertEqual(canonical("a = 1;\nb = 2"), "a = 1; b = 2", "a `;` between them makes them one expression")
+        XCTAssertEqual(canonical("Integrate[\n  Sin[x],\n  {x, 0, 1}\n]"), "Integrate[Sin[x], {x, 0, 1}]")
+        XCTAssertEqual(canonical("{1,\n 2,\n 3}"), "{1, 2, 3}")
+        XCTAssertEqual(canonical("m[[1,\n2]]"), "m[[1, 2]]")
+        XCTAssertEqual(canonical("(a\n b)"), "a*b", "inside brackets a new line is a space, as in WL")
+        // At the ends, and inside a comment or a string, a line break separates nothing.
+        XCTAssertEqual(canonical("x^2\n"), "x^2")
+        XCTAssertEqual(canonical("\n\n  x^2"), "x^2")
+        XCTAssertEqual(canonical("a (* one\n line *) + b"), "a + b")
+        XCTAssertEqual(canonical("a (* c *)\n"), "a")
+        XCTAssertEqual(parse("\"two\nlines\""), .text("two\nlines"))
+        // The first line unfinished is its own mistake, said first.
+        XCTAssertEqual(failure("x +\n").message, "Expected an expression after \"+\".")
+        XCTAssertTrue(failure("Sin[x\ny").message.hasPrefix("Missing \"]\""))
+        // On one line, two things side by side are still a product.
+        XCTAssertEqual(canonical("2 x"), "2*x")
+    }
+
+    func testSomethingElseOnTheNextLineIsNotCalledANewExpression() {
+        XCTAssertEqual(failure("x\n, y").message, "Unexpected \",\" at position 3.")
+    }
+
     func testTheOldWayOfAskingStillAnswersNilForBrokenMaths() {
         XCTAssertNil(WLParser.parse("Integrate["))
         XCTAssertNil(WLParser.parse("x +"))

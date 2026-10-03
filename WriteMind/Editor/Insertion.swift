@@ -56,13 +56,13 @@ import Foundation
 ///   other code span is refused, as it is in a code block.
 ///
 /// - MATHS THAT DOES NOT READ IS NEVER WRITTEN. The palette's WL goes
-///   through `WLParser.read` first and is written in its one spelling
+///   through `MathMarkup.read` first and is written in its one spelling
 ///   (`Sin[x]^2/(1+x)` is kept as `Sin[x]^2/(1 + x)`); one that does not
-///   read — a bracket never closed — is refused with the parser's reason in
-///   the footer, in every context here, because the palette is not the
-///   only caller and `WLPrinter.canonical` leaves what it cannot read as
-///   it was typed (Sean, 2026-10-03: "maths input should also just allow
-///   for an expression").
+///   read — a bracket never closed, two expressions on two lines, a string
+///   with a backtick or a line break that no code span or fence could
+///   keep — is refused with the reason in the footer, in every context
+///   here, because the palette is not the only caller (Sean, 2026-10-03:
+///   "maths input should also just allow for an expression").
 ///
 /// It answers with ONE edit over the note, so the source pane applies it
 /// as one step of undo, and the rendered page asks the same question with
@@ -706,7 +706,7 @@ enum Insertion {
     /// that is not maths is as it was.
     private static func canonical(_ thing: Thing) -> Result<Thing, WLSyntaxError> {
         guard case .maths(let wl, let onItsOwnLine) = thing else { return .success(thing) }
-        return WLParser.read(wl.trimmingCharacters(in: .whitespacesAndNewlines)).map {
+        return MathMarkup.read(wl.trimmingCharacters(in: .whitespacesAndNewlines)).map {
             .maths(WLPrinter.source($0), onItsOwnLine: onItsOwnLine)
         }
     }

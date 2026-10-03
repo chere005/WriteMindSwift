@@ -42,7 +42,19 @@ enum WLParser {
         }
         if let unbalanced = bracketError(in: tokens, length: source.count) { return .failure(unbalanced) }
         var parser = Parser(tokens: tokens, end: source.count)
-        if let expression = parser.expression(0), parser.isFinished { return .success(expression) }
+        let expression = parser.expression(0)
+        if let expression, parser.isFinished { return .success(expression) }
+        // A new line between two complete expressions ends the statement, as
+        // it does in a Wolfram notebook: this is one expression too many, and
+        // is said so — never read as the product of the two (a = 1⏎b = 2 was
+        // a = ((1·b) = 2), and then written into the note as that).
+        if expression != nil, parser.error == nil, let next = parser.current, next.lineBreakBefore,
+           next.kind != .punct || next.value == "(" || next.value == "{" {
+            return .failure(WLSyntaxError(
+                message: "Maths holds one expression, and a new line starts a second one (position \(next.offset + 1)): "
+                    + "join them with \";\" or insert them one at a time.",
+                offset: next.offset, length: next.length))
+        }
         return .failure(parser.error ?? parser.unexpectedCurrent())
     }
 
@@ -56,6 +68,10 @@ enum WLParser {
         /// takes there.
         var offset = 0
         var length = 1
+        /// Whether a line break (not one inside a comment or a string) lies
+        /// between the token before it and this one. At the top level, outside
+        /// every bracket, that is where a statement ends.
+        var lineBreakBefore = false
 
         var end: Int { offset + length }
     }
@@ -87,17 +103,34 @@ enum WLParser {
         var tokens: [Token] = []
         let characters = Array(source)
         var index = 0
+        // A line break seen in the white space before the next token. Each
+        // pass of the loop below makes at most one white-space skip or
+        // adds tokens; `settle` hands the break to the first token added.
+        var breakPending = false
+        var settled = 0
+        func settle() {
+            if tokens.count > settled {
+                tokens[settled].lineBreakBefore = breakPending
+                breakPending = false
+                settled = tokens.count
+            }
+        }
 
         func at(_ position: Int) -> Character? { position < characters.count ? characters[position] : nil }
         func isDigit(_ character: Character) -> Bool { character.isNumber && superscripts[character] == nil }
         func isWordCharacter(_ character: Character) -> Bool { character.isLetter || isDigit(character) || character == "$" }
 
         while index < characters.count {
+            settle()
             let character = characters[index]
             let start = index
             if tokens.count > maxTokens { break }
 
-            if character.isWhitespace { index += 1; continue }
+            if character.isWhitespace {
+                if character.isNewline { breakPending = true }
+                index += 1
+                continue
+            }
 
             // (* a comment *), which WL skips and so does this. They nest.
             if character == "(", at(index + 1) == "*" {
@@ -215,6 +248,7 @@ enum WLParser {
             tokens.append(Token(kind: .punct, value: String(character), offset: start, length: 1))
             index += 1
         }
+        settle()
         return (tokens, nil)
     }
 
@@ -281,6 +315,9 @@ enum WLParser {
         let end: Int
         var index = 0
         var depth = 0
+        /// How many brackets are open here: inside any of them a new line is
+        /// white space, as in WL; outside them it ends a statement.
+        var open = 0
         var error: WLSyntaxError?
 
         var isFinished: Bool { index >= tokens.count }
@@ -314,6 +351,10 @@ enum WLParser {
             guard var left = unary(minimum) else { return nil }
 
             while let token = current {
+                // `left` is complete, and the next thing starts a new line
+                // outside every bracket: that is another statement, not an
+                // operand (`a = 1⏎b = 2`) and not a continuation (`a⏎+ b`).
+                if token.lineBreakBefore, open == 0 { break }
                 if token.kind == .op {
                     // body & — a pure function, written after what it is.
                     if token.value == "&" {
@@ -392,6 +433,7 @@ enum WLParser {
         mutating func postfix() -> WLExpr? {
             guard var value = primary() else { return nil }
             while let token = current {
+                if token.lineBreakBefore, open == 0 { break }
                 if token.kind == .punct, token.value == "[" {
                     // m[[i]] — two brackets side by side are a part.
                     if index + 1 < tokens.count, tokens[index + 1].kind == .punct, tokens[index + 1].value == "[",
@@ -438,6 +480,8 @@ enum WLParser {
                 switch token.value {
                 case "(":
                     index += 1
+                    open += 1
+                    defer { open -= 1 }
                     guard let inner = expression(0) else {
                         if error == nil { fail("Expected an expression inside \"(\".", at: current) }
                         return nil
@@ -482,6 +526,8 @@ enum WLParser {
 
         /// Comma-separated expressions up to a closing bracket.
         mutating func list(until close: String) -> [WLExpr]? {
+            open += 1
+            defer { open -= 1 }
             var items: [WLExpr] = []
             if let token = current, token.kind == .punct, token.value == close {
                 index += 1
