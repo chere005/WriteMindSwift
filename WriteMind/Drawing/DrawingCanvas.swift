@@ -1626,9 +1626,12 @@ struct CanvasHitShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         if everything { return Path(rect) }
-        var path = objects(in: rect)
-        for cell in paper { path.addRect(cell) }
-        return path.applying(CGAffineTransform(translationX: 0, y: -offset))
+        return HitPathCache.shared.path(items: items, paper: paper, size: rect.size) {
+            var path = objects(in: rect)
+            for cell in paper { path.addRect(cell) }
+            return path
+        }
+        .applying(CGAffineTransform(translationX: 0, y: -offset))
     }
 
     private func objects(in rect: CGRect) -> Path {
@@ -1702,5 +1705,34 @@ private struct ConnectorStyleBar: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .shadow(radius: 4, y: 2)
         .fixedSize()
+    }
+}
+
+
+/// THE LAYER'S HIT SHAPE, built once for the drawing it was built for. SwiftUI
+/// asks `CanvasHitShape.path` on every pointer event over the layer, and
+/// building it strokes every item's outline — 14 ms for a note's worth of ink
+/// (measured, 2026-10-02), on every move of the mouse. The last answer is kept
+/// with what it was made from; the same items again (the same buffer, which is
+/// what a hover or a selection change leaves them in) is a comparison and
+/// nothing more, and a drag's every frame is one new answer as it always was.
+/// The scroll offset is not part of the key: it is applied to the answer.
+final class HitPathCache {
+    static let shared = HitPathCache()
+    private var items: [CanvasItem] = []
+    private var paper: [CGRect] = []
+    private var size: CGSize = .zero
+    private var path = Path()
+    private var valid = false
+
+    func path(items: [CanvasItem], paper: [CGRect], size: CGSize, build: () -> Path) -> Path {
+        if valid, size == self.size, paper == self.paper, items == self.items { return path }
+        let fresh = build()
+        self.items = items
+        self.paper = paper
+        self.size = size
+        path = fresh
+        valid = true
+        return fresh
     }
 }

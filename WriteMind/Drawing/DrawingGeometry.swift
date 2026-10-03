@@ -60,6 +60,23 @@ extension CanvasItem {
             // check mark's handles should hold its box, not hug the tick.
             return Self.box(center: shape.center, width: shape.width, aspect: shape.aspect, in: size)
         }
+        // A STROKE'S BOX IS WORKED OUT IN ONE PASS OVER ITS POINTS, with no
+        // array made of them: this runs under every hit test, every handle
+        // and every redraw of the layer, and for a note full of ink it was
+        // two arrays of every point per question (Sean, 2026-10-02: "fix the
+        // performance of grouped objects").
+        if case .stroke(let stroke) = self {
+            guard let first = stroke.points.first else { return .zero }
+            var minX = first.x * size.width, maxX = minX
+            var minY = first.y * size.height, maxY = minY
+            for point in stroke.points.dropFirst() {
+                let x = point.x * size.width, y = point.y * size.height
+                if x < minX { minX = x } else if x > maxX { maxX = x }
+                if y < minY { minY = y } else if y > maxY { maxY = y }
+            }
+            return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+                .insetBy(dx: -stroke.reach, dy: -stroke.reach)
+        }
         let points = basePoints(in: size)
         guard let first = points.first else { return .zero }
         var rect = CGRect(origin: first, size: .zero)
@@ -93,8 +110,14 @@ extension CanvasItem {
 
     /// Rotate and scale about the item's own centre, then translate.
     func matrix(in size: CGSize) -> CGAffineTransform {
-        let centre = baseCenter(in: size)
-        return CGAffineTransform.identity
+        matrix(about: baseCenter(in: size), in: size)
+    }
+
+    /// The same, for a centre already worked out — `baseCenter` is a pass
+    /// over every point of a stroke, and what asks for the matrix often has
+    /// the box in hand.
+    func matrix(about centre: CGPoint, in size: CGSize) -> CGAffineTransform {
+        CGAffineTransform.identity
             .translatedBy(x: centre.x + transform.dx * size.width,
                           y: centre.y + transform.dy * size.height)
             .rotated(by: transform.rotation)
@@ -105,6 +128,13 @@ extension CanvasItem {
     /// The outline where it is now.
     func outline(in size: CGSize) -> [CGPoint] {
         let matrix = matrix(in: size)
+        // A stroke's points go from the pane's fractions to where they are
+        // now in ONE array, not two.
+        if case .stroke(let stroke) = self {
+            return stroke.points.map {
+                CGPoint(x: $0.x * size.width, y: $0.y * size.height).applying(matrix)
+            }
+        }
         return basePoints(in: size).map { $0.applying(matrix) }
     }
 
@@ -112,10 +142,27 @@ extension CanvasItem {
     /// leans over with the item, which is what the selection outline draws.
     func frameCorners(in size: CGSize) -> [CGPoint] {
         let box = baseBounds(in: size)
-        let matrix = matrix(in: size)
+        let matrix = matrix(about: CGPoint(x: box.midX, y: box.midY), in: size)
         return [CGPoint(x: box.minX, y: box.minY), CGPoint(x: box.maxX, y: box.minY),
                 CGPoint(x: box.maxX, y: box.maxY), CGPoint(x: box.minX, y: box.maxY)]
             .map { $0.applying(matrix) }
+    }
+
+    /// Every point of the item, where it is now, lies inside this box, grown
+    /// by `slack` — the cheap question a hit test and a marquee ask before
+    /// any of the item's own points are visited. One pass, no array of them.
+    func envelope(in size: CGSize, slack: CGFloat = 0) -> CGRect {
+        bounds(in: size).insetBy(dx: -slack, dy: -slack)
+    }
+
+    /// How far past the outline a click still hits: the line's own width.
+    private var lineSlack: CGFloat {
+        switch self {
+        case .shape(let shape): return CGFloat(shape.lineWidth * transform.scale)
+        case .connector(let connector): return CGFloat(connector.lineWidth * transform.scale)
+        case .stroke(let stroke): return CGFloat(stroke.reach * transform.scale)
+        case .image: return 0
+        }
     }
 
     /// The upright box around the item where it is now — what the handles
@@ -131,6 +178,10 @@ extension CanvasItem {
     /// Does a click at this point land on the item? On the ink, not on the box
     /// around it — otherwise one big stroke would swallow every click near it.
     func hitTest(_ point: CGPoint, in size: CGSize) -> Bool {
+        // Most items on a pane are nowhere near the pointer: they are put
+        // aside by their box, which is a few multiplications, before any of
+        // their points are touched.
+        guard envelope(in: size, slack: 8 + lineSlack).contains(point) else { return false }
         let outline = outline(in: size)
         guard !outline.isEmpty else { return false }
         switch self {
@@ -186,6 +237,14 @@ extension CanvasItem {
     /// Does the marquee touch the item at all? Touching is enough — the whole
     /// drawing does not have to be inside the rectangle.
     func intersects(_ rect: CGRect, in size: CGSize) -> Bool {
+        // The outline is inside the envelope: a marquee that misses the
+        // envelope misses the item.
+        // A thousandth of a point of slack: the outline's own corner and the
+        // envelope's are the same number worked out two ways, and either can
+        // be a rounding error outside the other.
+        let envelope = envelope(in: size, slack: 0.001)
+        guard !(rect.maxX < envelope.minX || rect.minX > envelope.maxX
+                || rect.maxY < envelope.minY || rect.minY > envelope.maxY) else { return false }
         let outline = outline(in: size)
         guard !outline.isEmpty else { return false }
         if outline.contains(where: { rect.contains($0) }) { return true }
