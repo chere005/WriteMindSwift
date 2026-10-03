@@ -82,6 +82,23 @@ final class TabletDeveloperMessagesTests: XCTestCase {
         XCTAssertTrue(store.captureNotice?.contains("virtual tablet is off") == true, store.captureNotice ?? "nil")
     }
 
+    /// THE WIRING, which no running test can reach (the app's scene is not
+    /// built under test): the app hands the footer to the developer, and the
+    /// footer shows the notice the store keeps. Read from the sources, as the
+    /// suite does where a call has to be there (`CanvasModeTests`).
+    func testTheAppHandsTheFooterToTheDeveloperAndTheFooterShowsTheNotice() throws {
+        func source(_ path: String) throws -> String {
+            let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            return try String(contentsOf: root.appending(path: path), encoding: .utf8)
+        }
+        let app = try source("WriteMind/WriteMindApp.swift")
+        XCTAssertTrue(app.contains("tablet.developer.say(in: store)"), "WriteMindApp no longer wires the developer's messages to the footer")
+        let pane = try source("WriteMind/Views/EditorPane.swift")
+        XCTAssertTrue(pane.contains("store.captureNotice"), "the footer no longer shows the store's notice")
+        XCTAssertTrue(try source("WriteMind/Tablet/TabletDeveloper.swift").contains("store?.notice(text)"),
+                      "the developer's footer line is the store's notice")
+    }
+
     /// The footer is not the only place: with nothing wired, the message is
     /// still the status the panel and the menu show.
     func testAMessageIsTheStatusWithNoFooterWired() {
