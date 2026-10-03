@@ -544,6 +544,101 @@ final class CellModeEndsUnderTheNibTests: XCTestCase {
     }
 }
 
+// MARK: - ⌘Z straight after drawing in a cell
+
+/// A STROKE IN A CELL GIVES ⌘Z TO THE INK, whoever drew it, so that ⌘Z right
+/// after Esc or Done never undoes the typing before it (review, 2026-10-03:
+/// the mouse's stroke did not claim it, the nib's did, and a cursor-mode
+/// stroke into a cell used to).
+///
+/// What this holds: the nib's half through the real scribe and its wiring, the
+/// mouse's through the closures the editor pane hands the canvas
+/// (`onCursorInk` is `AppState.inkedNote(above:)`, `onBeginChange` is
+/// `NoteStore.beginDrawingChange`, the cell binding is `NoteStore.cells`) in
+/// the order `DrawingCanvas.beginInk` calls them — the gesture that calls them
+/// cannot be driven from a test, so that call is read, not run.
+@MainActor
+final class CellInkClaimsUndoTests: XCTestCase {
+    private var dir: URL!
+    private var store: NoteStore!
+    private var state: AppState!
+    private var suite: String!
+    private var notebook: NotebookScribe!
+    private var wiring: Any?
+
+    override func setUp() async throws {
+        suite = "WriteMindTests-\(UUID().uuidString)"
+        dir = FileManager.default.temporaryDirectory.appending(path: "WriteMindTests-cellclaim-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("# Sketch\n\nsome words\n".utf8).write(to: dir.appending(path: "Sketch.md"))
+        store = NoteStore(directory: dir)
+        store.canvasSize = CGSize(width: 800, height: 600)
+        store.cellFrames = [cellA, cellB]
+        state = AppState(defaults: UserDefaults(suiteName: suite)!)
+        state.mode = .preview
+        state.follow(tabletPicked: true)
+        notebook = NotebookScribe()
+        notebook.place = makePlace()
+        notebook.writes(into: store, telling: state)
+        // As the app tells the state of the drawing (`WriteMindApp`).
+        let drawing = store.$drawing.sink { [unowned self] _ in state.drawingChanged(steps: store.drawingSteps) }
+        let cells = store.$cells.sink { [unowned self] _ in state.drawingChanged(steps: store.drawingSteps) }
+        wiring = [drawing, cells]
+        state.enterCell(cellA.id)
+        notebook.place = makePlace(entered: cellA.id)
+    }
+
+    override func tearDown() async throws {
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        wiring = nil
+        notebook = nil
+        store = nil
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    private func afterLeavingTheCell() {
+        state.endCellDrawing()
+        XCTAssertTrue(state.drawingOwnsUndo, "⌘Z after leaving the cell went to the text")
+        XCTAssertTrue(state.drawingOwnsRedo)
+        // Only down to where the drawing stood: with the stroke taken back
+        // the typing before it is next.
+        XCTAssertTrue(store.undoDrawing())
+        XCTAssertFalse(state.drawingOwnsUndo, "the stroke is back: ⌘Z is the typing's")
+    }
+
+    func testTheNibsStrokeInACellClaimsCmdZAfterTheModeEnds() {
+        notebook.consume(sample(inA, in: notebook.place!, .down))
+        notebook.consume(sample(CGPoint(x: 260, y: 380), in: notebook.place!, .drag))
+        notebook.consume(sample(CGPoint(x: 260, y: 380), in: notebook.place!, .up, pressure: 0))
+        XCTAssertEqual(store.cells[cellA.id]?.drawing.strokes.count, 1)
+        afterLeavingTheCell()
+    }
+
+    func testTheMousesStrokeInACellClaimsCmdZAfterTheModeEnds() {
+        // The canvas's `beginInk`: the claim, then the step; and at the end
+        // of the drag the stroke goes into the cell.
+        state.inkedNote(above: store.drawingSteps)
+        store.beginDrawingChange()
+        var cell = store.cells[cellA.id] ?? .empty(width: Double(cellA.width))
+        cell.drawing.items.append(.stroke(Stroke.starting(at: CGPoint(x: 0.2, y: 0.1), colorHex: "#1C1C1E", width: 3,
+                                                         pen: .pen(pressure: 0.5), tool: .pen)))
+        store.cells[cellA.id] = cell
+        XCTAssertEqual(store.cells[cellA.id]?.drawing.strokes.count, 1)
+        afterLeavingTheCell()
+    }
+
+    /// And typing clears the claim for both: ⌘Z is the text's again.
+    func testTypingTakesTheClaimBack() {
+        state.inkedNote(above: store.drawingSteps)
+        store.beginDrawingChange()
+        store.cells[cellA.id] = .empty(width: Double(cellA.width))
+        state.endCellDrawing()
+        XCTAssertTrue(state.drawingOwnsUndo)
+        state.noteTyped()
+        XCTAssertFalse(state.drawingOwnsUndo)
+    }
+}
+
 // MARK: - A cell's own undo and redo
 
 /// UNDO AND REDO INSIDE A CELL step through the strokes of THAT CELL and

@@ -179,6 +179,9 @@ asked for).
   in, or nowhere if the cell has no frame (never floating over where the
   cell was), and its eraser and selection box stop when the mode does, since
   both would be the page's from then on.
+- **⌘Z is the ink's after a stroke in a cell, mouse or pen**: it belongs to
+  the drawing until the next keystroke, down to where the drawing stood under
+  the stroke, so ⌘Z after Esc or Done never undoes the typing before it.
 - **Why a press is decided in one pure place**: a drag gesture cannot be
   driven from a test here, so what a press about a cell means is a function
   of where it began, what is under it, what tool is armed and whether ⌘ is

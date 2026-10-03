@@ -1355,7 +1355,14 @@ CoreMind's `bin/report-status.sh`.
   (`NotebookScribe.place`'s `didSet` — the erasure is ended so its one step
   closes — and a touch that began OUTSIDE the cell, the way out, is not
   touched by it: its lift on another cell still enters that one). `drop()`
-  ends an erasure it drops. **THE NIB**: with the
+  ends an erasure it drops. **⌘Z IS THE INK'S AFTER A STROKE IN A CELL,
+  WHOEVER DREW IT**: the mouse's stroke begins with `beginInk`, which tells
+  `onCursorInk` (`AppState.inkedNote(above:)`) in a cell before it takes
+  its step, as a cursor-mode stroke into a cell did before the mode and as
+  the nib's landing does — without it ⌘Z after Esc or Done undid the
+  typing before the stroke, silently (`CellInkClaimsUndoTests`; the
+  gesture that calls it cannot be run, so `CellPressGlueTests` reads the
+  canvas and fails if a stroke begins without it). **THE NIB**: with the
   tablet's target the notebook the nib TAPPING a cell enters it and in the
   mode writes into it; with the target the page it never touches a cell
   (the notebook is handed no samples at all). `NotebookWriting` is walked
@@ -1394,7 +1401,7 @@ CoreMind's `bin/report-status.sh`.
   `DrawingCellModeTests.swift` (the pure rules, the state machine, and
   `CellPressGlueTests`, which reads the canvas's call sites),
   `DrawingCellTabletTests.swift` (the nib, the scribe's wiring, a cell's
-  undo, the mode ending under the nib), `CanvasKeyTests`
+  undo, the mode ending under the nib, ⌘Z after a stroke), `CanvasKeyTests`
   (Esc and ⌘Z through the real key monitor) and `EscapeWiringTests` (Esc
   through the real editor pane).
 - **A group is a shared id, and every rule about it is in `CanvasGroups`.**

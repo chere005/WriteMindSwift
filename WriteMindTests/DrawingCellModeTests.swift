@@ -379,12 +379,13 @@ final class CellDrawingStateTests: XCTestCase {
 // MARK: - The canvas's press glue, read
 
 /// THE GESTURE GLUE CANNOT BE RUN HERE (a SwiftUI drag does not fire for a
-/// synthesized event in a window that is never key), so the rule of the review
-/// of 2026-10-03 that lives in it — a press the cell mode ends under is
-/// finished in the cell or dropped and never goes on onto the page — is held
-/// at the call sites by reading `DrawingCanvas.swift`. The decision it asks
-/// for is walked (`CellDrawing.departure`); what this holds is that the glue
-/// still asks it.
+/// synthesized event in a window that is never key), so the two rules of the
+/// review of 2026-10-03 that live in it — a press the cell mode ends under is
+/// finished in the cell or dropped and never goes on onto the page, and a
+/// stroke in a cell claims ⌘Z — are held at the call sites by reading
+/// `DrawingCanvas.swift`. The decisions they ask for are walked
+/// (`CellDrawing.departure`, `CellInkClaimsUndoTests`); what this holds is that
+/// the glue still asks them.
 final class CellPressGlueTests: XCTestCase {
     private func canvasSource() throws -> String {
         let file = URL(fileURLWithPath: #filePath)
@@ -437,5 +438,20 @@ final class CellPressGlueTests: XCTestCase {
         // The three drags that carry a press end through it.
         XCTAssertEqual(source.components(separatedBy: "pressEnded()").count - 1, 4,
                        "the main drag, the handles' and the connector's end through pressEnded(), and its own definition")
+    }
+
+    /// A STROKE'S FIRST POINT CLAIMS ⌘Z through `beginInk()`: the call that
+    /// takes the step back for a stroke is never made bare, so a stroke in a
+    /// cell tells `onCursorInk` first, as the nib's does.
+    func testAStrokeBeginsThroughTheCallThatClaimsCmdZ() throws {
+        let source = try canvasSource()
+        let start = try text(source, from: "if current == nil {", to: "current = Stroke.starting(")
+        XCTAssertTrue(start.contains("beginInk()"), "a stroke began without claiming ⌘Z for a cell")
+        XCTAssertFalse(start.contains("onBeginChange?()"), "a stroke takes its step without asking beginInk()")
+        let ink = try text(source, from: "private func beginInk()", to: "/// THE ACTIVE CELL CAN BE")
+        let claim = try XCTUnwrap(ink.range(of: "onCursorInk?()"), "beginInk() no longer claims ⌘Z")
+        let step = try XCTUnwrap(ink.range(of: "onBeginChange?()"), "beginInk() no longer takes the step")
+        XCTAssertLessThan(claim.lowerBound, step.lowerBound, "the claim is told before the step is taken")
+        XCTAssertTrue(ink.contains("if case .cell = active"), "and only for a stroke in a cell")
     }
 }

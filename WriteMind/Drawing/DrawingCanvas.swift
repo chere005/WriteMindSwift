@@ -131,7 +131,10 @@ struct DrawingCanvas: View {
     var onCellChanged: ((UUID) -> Void)?
     /// Ink or an erasure is going into the note with the keyboard still in
     /// the text and nothing picked: ⌘Z is the ink's until the next
-    /// keystroke (`AppState.inkedNote`). Told before the step is taken.
+    /// keystroke (`AppState.inkedNote`). Told before the step is taken — by a
+    /// stroke begun in the entered cell with the mouse (`beginInk`: so ⌘Z
+    /// after Esc or Done is the stroke's, as it is after the nib's) and by the
+    /// tablet's eraser.
     var onCursorInk: (() -> Void)?
 
     /// A point on the pane, in the ACTIVE SPACE's own points — the
@@ -1133,7 +1136,7 @@ struct DrawingCanvas: View {
                     // notebook itself"), with the tool on the pen menu.
                     let pen = PenSampleReader.shared.sample
                     if current == nil {
-                        onBeginChange?()
+                        beginInk()
                         // As wide as the pen on screen, in a cell shown
                         // smaller than it was drawn.
                         current = Stroke.starting(at: began, colorHex: color.hexString, width: width / space.scale,
@@ -1245,6 +1248,18 @@ struct DrawingCanvas: View {
                 }
                 pressEnded()
             }
+    }
+
+    /// A STROKE BEGINS: one step back, taken before the stroke is made — and
+    /// in a cell ⌘Z is the INK'S until the next keystroke, down to where the
+    /// drawing stood under it, as the tablet's strokes in a cell and its
+    /// eraser have it (`AppState.inkedNote`). Without it a stroke drawn in a
+    /// cell with the mouse, then Esc or Done, left ⌘Z to the text view, which
+    /// silently undid the previous typing (review, 2026-10-03; cursor-mode
+    /// strokes in a cell claimed it before the mode, and so should these).
+    private func beginInk() {
+        if case .cell = active { onCursorInk?() }
+        onBeginChange?()
     }
 
     /// THE ACTIVE CELL CAN BE THE SPACE NO MORE — the mode ended, the cell
