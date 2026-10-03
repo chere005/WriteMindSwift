@@ -20,7 +20,7 @@ final class DrawingStoreTests: XCTestCase {
 
         DrawingStore.save(drawing, for: note, in: dir)
         XCTAssertEqual(DrawingStore.load(for: note, in: dir), drawing)
-        XCTAssertTrue(DrawingStore.url(for: note, in: dir).path.contains("/.drawings/Trip.json"))
+        XCTAssertTrue(DrawingStore.url(for: note, in: dir).path.contains("/_drawings/Trip.json"))
 
         DrawingStore.rename(from: note, to: renamed, in: dir)
         XCTAssertEqual(DrawingStore.load(for: renamed, in: dir), drawing)

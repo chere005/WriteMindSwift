@@ -395,7 +395,9 @@ struct MarkdownPreview: View {
             // The cell brackets, in the margin the page already leaves.
             .overlay(alignment: .topTrailing) {
                 CellBrackets(brackets: cellBrackets,
-                             onSelect: { beginEditing($0) },
+                             // A click on one cell's bracket SELECTS it, as the
+                             // markdown pane's does (Sean, 2026-10-02); Return opens it.
+                             onSelect: { selectCells([$0]) },
                              onSelectCells: { selectCells($0) },
                              onToggle: { onToggleSection?($0) },
                              onHoverCells: { promisedCells = $0 },
@@ -1394,6 +1396,10 @@ struct MarkdownPreview: View {
         case replace(String)
         /// ⌫ or ⌦: they go, and nothing takes their place.
         case remove
+        /// Return, with ONE cell held: it opens for typing — the other way
+        /// into a cell whose bracket only selects it (Sean, 2026-10-02: a
+        /// click on a bracket should "select", as the markdown pane's does).
+        case open
         /// Escape: the brackets go out and the note is untouched.
         case clear
         /// Nobody's business here.
@@ -1405,6 +1411,7 @@ struct MarkdownPreview: View {
         // is not an S. Shift is, though — it is how a capital arrives.
         guard modifiers.isDisjoint(with: [.command, .control]) else { return .pass }
         if characters == "\u{1B}" { return .clear }
+        if characters == "\r" || characters == "\n" { return modifiers.isEmpty ? .open : .pass }
         if characters == "\u{8}" || characters == "\u{7F}" { return .remove }
         guard !characters.isEmpty else { return .pass }
         let printable = characters.unicodeScalars.allSatisfy { scalar in
@@ -1441,9 +1448,14 @@ struct MarkdownPreview: View {
         case .escape: characters = "\u{1B}"
         case .delete: characters = "\u{8}"
         case .deleteForward: characters = "\u{7F}"
+        case .return: characters = "\r"
         default: characters = press.characters
         }
         switch Self.cellKey(characters: characters, modifiers: press.modifiers) {
+        case .open:
+            guard selectedCells.count == 1, let cell = selectedCells.first else { return .ignored }
+            beginEditing(cell)
+            return .handled
         case .clear:
             selectedCells = []
             return .handled

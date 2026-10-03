@@ -182,6 +182,8 @@ struct CameraPane: View {
         // Every tool put away, so what arrives can be picked up and
         // dragged where it goes — an armed shape would take that click.
         appState.putToolsAway()
+        // A picture or a box is put on the page, and the page is the rendered one.
+        appState.showRenderedPage()
         store.captureNotebook(frame: camera.currentFrame(), quarterTurns: appState.cameraRotation / 90,
                               colour: NSColor(appState.penColor), mode: mode, region: region)
         section = nil

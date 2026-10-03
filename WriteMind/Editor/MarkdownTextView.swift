@@ -73,6 +73,8 @@ struct MarkdownTextView: NSViewRepresentable {
         // A layout manager that can fold: closed sections get line
         // fragments of no height, and are not drawn.
         let folding = FoldingLayoutManager()
+        // Pure text: a drawing cell is drawn on the rendered page only.
+        folding.drawings.enabled = false
         tv.textContainer?.replaceLayoutManager(folding)
         folding.typesetter = FoldingTypesetter(folding.folding)
         tv.delegate = context.coordinator

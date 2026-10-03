@@ -152,7 +152,7 @@ final class NoteStore: ObservableObject {
     @Published private(set) var lastSaved: Date?
 
     /// Every folder in the project. The first is the primary — where a note
-    /// goes when nothing else says otherwise, and what the hidden `.drawings`
+    /// goes when nothing else says otherwise, and what the visible `_drawings`
     /// and `.writemind` folders sit beside for notes that live in it.
     @Published private(set) var folders: [URL]
     /// The primary folder. Kept as `directory` because it is what the folder
@@ -287,6 +287,9 @@ final class NoteStore: ObservableObject {
 
     func reload() {
         createDirectoryIfNeeded()
+        // The hidden `.drawings` is `_drawings` now (`DrawingStore`): moved
+        // before anything reads a drawing, and a no-op once it has been.
+        for folder in folders { DrawingStore.migrateHiddenData(in: folder) }
         var readable: [NoteSection] = []
         var anyDenied = false
         for folder in folders {

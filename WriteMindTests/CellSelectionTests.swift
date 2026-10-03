@@ -417,6 +417,17 @@ final class HeldCellKeyTests: XCTestCase {
         XCTAssertEqual(MarkdownPreview.cellKey(characters: "\u{1B}", modifiers: []), .clear)
     }
 
+    /// Sean, 2026-10-02, asked whether a click on a cell's bracket OPENS it
+    /// or SELECTS it (the markdown pane selects): "select". A held cell is
+    /// then opened by Return, so a checklist — whose items own their own
+    /// clicks and which only its bracket used to open as a whole — can still
+    /// be got into.
+    func testReturnOpensAHeldCell() {
+        XCTAssertEqual(MarkdownPreview.cellKey(characters: "\r", modifiers: []), .open)
+        XCTAssertEqual(MarkdownPreview.cellKey(characters: "\r", modifiers: .shift), .pass,
+                       "⇧↩ runs an evaluation cell and is not this")
+    }
+
     func testAShortcutIsNotTyping() {
         // ⌃⌫ is the Delete Cell menu item and ⌘S is not an S; both are
         // somebody else's before they are ever this.

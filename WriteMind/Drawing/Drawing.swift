@@ -128,10 +128,10 @@ struct Stroke: Codable, Equatable, Identifiable {
 }
 
 /// A picture dropped on the page: added from the Add Image button, or pasted.
-/// The file itself lives in `.drawings/media`; this is where it sits.
+/// The file itself lives in `_drawings/media`; this is where it sits.
 struct ImageItem: Codable, Equatable, Identifiable {
     var id = UUID()
-    /// File name inside `.drawings/media`.
+    /// File name inside `_drawings/media`.
     var file: String
     /// The centre, as a fraction of the pane, before the transform moves it.
     var center: CGPoint = CGPoint(x: 0.5, y: 0.5)
@@ -510,7 +510,7 @@ struct Drawing: Codable, Equatable {
 }
 
 /// What an imported picture turned out to be: the file that now sits in
-/// `.drawings/media`, and how big it really is.
+/// `_drawings/media`, and how big it really is.
 struct ImportedImage: Equatable {
     var file: String
     var pixelWidth: Double
@@ -519,12 +519,75 @@ struct ImportedImage: Equatable {
     var aspect: Double { pixelWidth > 0 ? pixelHeight / pixelWidth : 1 }
 }
 
-/// Drawings live beside the notes in a hidden folder, one JSON per note, so
-/// the notes folder stays a folder of markdown files. Pictures go in
-/// `.drawings/media`, named by UUID so two notes can never collide.
+/// Drawings live beside the notes in a VISIBLE folder, one JSON per note.
+/// Pictures go in `_drawings/media`, named by UUID so two notes can never
+/// collide, and a note's drawing cells in `_drawings/cells`.
+///
+/// It was a hidden `.drawings` until 2026-10-02 (Sean: "visible data
+/// generally speaking" — and, asked whether the existing folders should move
+/// too: "yes"). `migrateHiddenData` moves what is there, once, and nothing
+/// that is there is ever overwritten or deleted.
 enum DrawingStore {
-    static let folderName = ".drawings"
+    static let folderName = DrawingCells.dataFolder
+    /// What the folder was called before it was visible.
+    static let legacyFolderName = ".drawings"
     static let mediaFolderName = "media"
+
+    private static func legacyFolder(in directory: URL) -> URL {
+        directory.appending(path: legacyFolderName, directoryHint: .isDirectory)
+    }
+
+    /// THE HIDDEN `.drawings` MOVED INTO THE VISIBLE `_drawings`, one item at
+    /// a time and never over anything: a sidecar or a picture whose name is
+    /// already there stays in the hidden folder, where `load` and `mediaURL`
+    /// still find it, and a folder that is in both is merged the same way.
+    /// An emptied `.drawings` goes (a folder is not data); one with anything
+    /// left in it stays. Returns how many items moved. Safe to run on every
+    /// load: with no `.drawings` it is one `fileExists`.
+    @discardableResult
+    static func migrateHiddenData(in directory: URL) -> Int {
+        let fileManager = FileManager.default
+        let legacy = legacyFolder(in: directory)
+        var isFolder: ObjCBool = false
+        guard fileManager.fileExists(atPath: legacy.path, isDirectory: &isFolder), isFolder.boolValue else { return 0 }
+        let visible = directory.appending(path: folderName, directoryHint: .isDirectory)
+        do {
+            try fileManager.createDirectory(at: visible, withIntermediateDirectories: true)
+        } catch {
+            NSLog("WriteMind: could not make \(folderName) to move the hidden drawings into: \(error)")
+            return 0
+        }
+        let moved = mergeMoving(from: legacy, into: visible)
+        if moved > 0 { NSLog("WriteMind: moved \(moved) item(s) from \(legacyFolderName) to \(folderName) in \(directory.path)") }
+        return moved
+    }
+
+    private static func mergeMoving(from source: URL, into target: URL) -> Int {
+        let fileManager = FileManager.default
+        var moved = 0
+        let children = (try? fileManager.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey],
+                                                             options: [])) ?? []
+        for child in children {
+            let destination = target.appending(path: child.lastPathComponent)
+            let isFolder = (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if !fileManager.fileExists(atPath: destination.path) {
+                do {
+                    try fileManager.moveItem(at: child, to: destination)
+                    moved += 1
+                } catch {
+                    NSLog("WriteMind: could not move \(child.lastPathComponent): \(error)")
+                }
+            } else if isFolder, (try? destination.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                moved += mergeMoving(from: child, into: destination)
+            }
+            // Anything else is a name that is taken: it stays where it is.
+        }
+        // Emptied, it goes. Not while anything is left in it.
+        if (try? fileManager.contentsOfDirectory(atPath: source.path))?.isEmpty == true {
+            try? fileManager.removeItem(at: source)
+        }
+        return moved
+    }
 
     static func url(for noteURL: URL, in directory: URL) -> URL {
         directory
@@ -538,12 +601,25 @@ enum DrawingStore {
             .appending(path: mediaFolderName, directoryHint: .isDirectory)
     }
 
+    /// Where a picture is — in `_drawings/media`, or, if the move left it
+    /// behind (a name that was already taken there), in the hidden folder
+    /// it came from.
     static func mediaURL(_ file: String, in directory: URL) -> URL {
-        mediaFolder(in: directory).appending(path: file)
+        let visible = mediaFolder(in: directory).appending(path: file)
+        if FileManager.default.fileExists(atPath: visible.path) { return visible }
+        let hidden = legacyFolder(in: directory)
+            .appending(path: mediaFolderName, directoryHint: .isDirectory).appending(path: file)
+        return FileManager.default.fileExists(atPath: hidden.path) ? hidden : visible
     }
 
     static func load(for noteURL: URL, in directory: URL) -> Drawing {
-        let file = url(for: noteURL, in: directory)
+        var file = url(for: noteURL, in: directory)
+        if !FileManager.default.fileExists(atPath: file.path) {
+            // Left behind in the hidden folder by a move that never overwrites.
+            let hidden = legacyFolder(in: directory)
+                .appending(path: noteURL.deletingPathExtension().lastPathComponent + ".json")
+            if FileManager.default.fileExists(atPath: hidden.path) { file = hidden }
+        }
         guard let data = try? Data(contentsOf: file) else { return Drawing() }
         return (try? JSONDecoder().decode(Drawing.self, from: data)) ?? Drawing()
     }
@@ -724,7 +800,7 @@ enum DrawingStore {
     static let cellPicturePrefix = "cell-"
 
     /// Delete the pictures in this folder that no note in it points at any
-    /// more. Notes share `.drawings/media`, so a picture is only an orphan
+    /// more. Notes share `_drawings/media`, so a picture is only an orphan
     /// when EVERY sidecar has stopped mentioning it — which is why this reads
     /// them all rather than trusting the note in front of it.
     ///
@@ -736,6 +812,9 @@ enum DrawingStore {
     /// cannot be read: skipping it, as this used to, deleted every picture
     /// only that one named.
     static func pruneMedia(in directory: URL, keeping: Set<String> = []) {
+        // While anything of the hidden folder is still there its sidecars
+        // name pictures this sweep does not read: it deletes nothing.
+        guard !FileManager.default.fileExists(atPath: legacyFolder(in: directory).path) else { return }
         let media = mediaFolder(in: directory)
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: media, includingPropertiesForKeys: nil), !files.isEmpty else { return }

@@ -125,9 +125,9 @@ enum NoteTree {
         folder.lastPathComponent.caseInsensitiveCompare(DrawingCells.dataFolder) != .orderedSame
     }
 
-    /// Read a folder and everything under it. Hidden folders — `.drawings`,
-    /// `.writemind` — are skipped: they are the app's own bookkeeping. So is
-    /// a note's `_drawings` (`isSection`).
+    /// Read a folder and everything under it. Hidden folders — a leftover
+    /// `.drawings`, `.writemind` — are skipped: they are the app's own
+    /// bookkeeping. So is a note's `_drawings` (`isSection`).
     static func read(directory: URL, root: URL, order: NoteOrder, depth: Int = 0,
                      excluding: Set<String> = []) -> NoteSection {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isDirectoryKey]

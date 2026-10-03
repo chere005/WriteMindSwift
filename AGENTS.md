@@ -87,9 +87,14 @@ CoreMind's `bin/report-status.sh`.
   it took his notes with it). Every hand-off of `projects.folders` to
   `store.setFolders` passes `excluding: projects.excluded` too.
 - **The drawing is a sidecar, not a note edit.** Pen strokes live in
-  `~/Documents/WriteMind/.drawings/<note>.json` (hidden, one file per note,
-  removed when the drawing is cleared) so the notes folder stays a folder of
-  markdown. `DrawingStore` follows a rename and a trash; a note file with no
+  `~/Documents/WriteMind/_drawings/<note>.json` (VISIBLE since 2026-10-02 —
+  Sean: "visible data generally speaking", and "yes" to moving the existing
+  hidden `.drawings`: `DrawingStore.migrateHiddenData`, run by
+  `NoteStore.reload`, moves each item one at a time and never over anything or
+  deleting any — a taken name stays behind in `.drawings`, which `load` and
+  `mediaURL` still read and which stops the media sweep; an emptied
+  `.drawings` goes; `DrawingMigrationTests`), one file per note, removed when
+  the drawing is cleared. `DrawingStore` follows a rename and a trash; a note file with no
   sidecar is the normal case.
 - **A DRAWING CELL IS ONE LINE IN THE NOTE AND ONE FILE BESIDE IT, AND THE
   FILE IS VISIBLE.** Sean, 2026-10-02: "on drawing segments, add a dock
@@ -101,9 +106,9 @@ CoreMind's `bin/report-status.sh`.
   same at every depth, so a moved note never has its line rewritten; the
   file is `_drawings/cells/<UUID>.png` in the NOTE'S OWN folder
   (`DrawingCellStore`). It is the one exception to "the notes folder stays
-  a folder of markdown", by that decision — the floating layer's
-  `.drawings` sidecars stay hidden and are NOT moved (moving Sean's data
-  is its own decision). **`_drawings` IS NEVER A SECTION**
+  a folder of markdown", by that decision — and the floating layer's
+  sidecars and pictures share the folder now (`_drawings/<note>.json`,
+  `_drawings/media`). **`_drawings` IS NEVER A SECTION**
   (`NoteTree.isSection`, any case): the tree skips it, `uniqueURL` never
   hands out its name for a folder (a section called that would vanish),
   and neither move takes it as a target. **THE LINE** is read by one
@@ -131,7 +136,7 @@ CoreMind's `bin/report-status.sh`.
   file that is not a cell this build can read whoever asks; an iCloud
   placeholder (`.<ID>.png.icloud`) is never created over; and NOTHING
   UNDER `_drawings/cells` IS EVER DELETED — an emptied cell is written
-  empty, the media sweep never looks there (it reads `.drawings/media`
+  empty, the media sweep never looks there (it reads `_drawings/media`
   only, and `DrawingCellStoreTests` holds it to that). A note MOVED copies
   its cells' files to the new folder and leaves the originals; RENAMED, it
   needs nothing; TRASHED, its cells stay so the Trash can give it back;
@@ -1069,6 +1074,26 @@ CoreMind's `bin/report-status.sh`.
   `SidebarRenameTests` holds the store half; the field's focus and the
   gesture were driven in a scratch copy, Return itself was not (computer
   use cannot send a real key to a text field).
+- **THE MARKDOWN VIEW IS PURE TEXT.** Sean, 2026-10-02, a day after drawing
+  was limited to the rendered page: "don't show or allow drawings in
+  markdown mode on the notebook itself, only pure text". `EditorPane` mounts
+  `DrawingCanvas` only when `mode == .preview` (in markdown a clear
+  `GeometryReader` keeps `store.canvasSize` current for what is measured
+  against it, the PDF and a dock); the live source pane's
+  `FoldingLayoutManager.drawings.enabled` is false, so a drawing line is read
+  as no cell — no room, no paint, no frame, no stand-in caret — and is the line
+  of text it is in the file; the + there offers no Drawing; Insert ▸ Drawing
+  Cell (⌘0) and every drop of a picture, box or capture bring the rendered page
+  up first (`showRenderedPage`; `CanvasModeTests` reads the sources for it).
+  The OFFSCREEN layout (`MarkdownTextView.cellBoxes(of:…)`) keeps cells enabled:
+  it is what the two panes' mapping and the PDF measure a cell's height by.
+  The hosted source-pane drawing-cell tests (keys, layout, painting) went with
+  the behaviour; `DrawingCellLayoutTests` holds the pure-text rule.
+- **A BRACKET SELECTS A CELL ON BOTH PANES** (D1 of `docs/handoff/cell-ux-report.md`,
+  Sean, 2026-10-02: "select"): a click on one cell's bracket on the rendered page
+  HOLDS it, as the markdown pane always did, and Return opens a held cell for
+  typing (`CellKey.open`) — the way into a checklist as a whole, which only its
+  bracket used to open.
 - **DRAWING IS ON THE RENDERED PAGE ONLY.** Sean, 2026-10-02: "only allow
   drawing in wysiwyg mode, both from wacom and from the pen cursor tool".
   It reverses 2026-09-19's "drawing should be allowed in either wysiwyg
@@ -2121,7 +2146,7 @@ WriteMind/
   Drawing/Drawing.swift   the objects on the drawing layer: Stroke
                           (normalised 0…1 points, hex colour, width, and
                           for ink a pressure per point and the tool),
-                          ImageItem (a file in .drawings/media, its centre,
+                          ImageItem (a file in _drawings/media, its centre,
                           its width as a fraction of the pane, its aspect),
                           ItemTransform (dx/dy as fractions, scale, rotation),
                           CanvasItem, Drawing, and DrawingStore — the sidecar,

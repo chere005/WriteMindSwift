@@ -91,10 +91,24 @@ struct EditorPane: View {
                                         onDrawingCaret: { caretDrawing = $0 })
                             .id(note.id)
                     }
-                    // The drawing belongs to the note, so it shows in both
-                    // modes. In pen and select mode it takes the whole pane;
-                    // in cursor mode it takes only the objects on it, and the
+                    // THE DRAWING IS ON THE RENDERED PAGE ONLY (Sean,
+                    // 2026-10-02: "don't show or allow drawings in markdown
+                    // mode on the notebook itself, only pure text"): over
+                    // the markdown view there is no layer to see, hit or
+                    // draw on, and only the pane's size is kept up to date
+                    // for what is measured against it (the PDF, a dock).
+                    // In pen and select mode it takes the whole pane; in
+                    // cursor mode it takes only the objects on it, and the
                     // text underneath gets everything else.
+                    if appState.mode == .editor {
+                        Color.clear
+                            .allowsHitTesting(false)
+                            .background(GeometryReader { geo in
+                                Color.clear
+                                    .onAppear { store.canvasSize = geo.size }
+                                    .onChange(of: geo.size) { _, size in store.canvasSize = size }
+                            })
+                    } else {
                     DrawingCanvas(layer: layerDrawing,
                                   mode: appState.canvasMode,
                                   color: appState.penColor,
@@ -136,6 +150,7 @@ struct EditorPane: View {
                                   // keystroke — down to where the drawing
                                   // stood under it.
                                   onCursorInk: { appState.inkedNote(above: store.drawingSteps) })
+                    }
                     // The tablet writing straight into the note: its live
                     // stroke, its marquee, and where it lands on the notes
                     // while the pen is near. Over the layer, taking no

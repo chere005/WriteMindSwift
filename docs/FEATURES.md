@@ -14,9 +14,10 @@ is how the code is put together.
   real PNG of it in the folder `_drawings/cells` beside the note (visible, and
   yours — WriteMind never deletes anything in it), with the strokes kept inside
   the picture so it can be drawn in again. Any other app shows the picture.
-  Drawing in a cell is on the rendered page, like all drawing; in the
-  markdown view a cell is shown and held, and a press on its paper is the
-  text's. A handle at its bottom stretches it taller or shorter.
+  Drawing, and every drawing cell, is on the rendered page, like all drawing:
+  the markdown view is pure text — a cell is just its one line there, and
+  nothing floating is shown or can be drawn. A handle at its bottom stretches
+  it taller or shorter.
 - **Dock, and Make Cell, beside a selection.** Pick floating drawing — ink,
   shapes, pictures, a flow chart — and two more buttons appear beside it. **Make
   Cell** (right) turns it into a drawing cell at the nearest gap between cells,
@@ -398,7 +399,9 @@ is how the code is put together.
   did, and nothing already drawn changes.
 - **Pictures on the page.** The image button adds one, ⌘V pastes one, and
   they behave like any other object on the layer. Files live in
-  `.drawings/media/`; a note's own copies go with it when it moves and go
+  `_drawings/media/` (beside the note's sidecar, visible; a folder written by an
+  older version as the hidden `.drawings` is moved there when it is opened); a
+  note's own copies go with it when it moves and go
   when it does.
 - **Maths, written as Wolfram Language.** The `f(x)` button opens a pane of
   shapes — integrals with their bounds (single, double and contour), sums

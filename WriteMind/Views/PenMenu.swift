@@ -57,6 +57,8 @@ struct PenMenu: View {
                 Spacer()
                 Button {
                     appState.putToolsAway()
+                    // A picture or a box is put on the page, and the page is the rendered one.
+                    appState.showRenderedPage()
                     store.chooseImage()
                 } label: {
                     Label("Add Image", systemImage: "photo.badge.plus")

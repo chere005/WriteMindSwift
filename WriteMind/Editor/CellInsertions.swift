@@ -416,7 +416,7 @@ final class CellInsertions: NSView {
         onArm?(seam.offset)
         guard Self.pressesPlus(at: point, in: seam, drawnOn: drawn) else { return }
         let target = CellSeams.plusTarget(in: seam, leading: Self.plusLeading)
-        CellTypeMenu.popUp(current: chosenType, at: NSPoint(x: 2, y: target.maxY),
+        CellTypeMenu.popUp(current: chosenType, drawings: false, at: NSPoint(x: 2, y: target.maxY),
                            in: self) { [weak self] kind in self?.onChoose?(kind) }
     }
 
@@ -485,7 +485,7 @@ extension NSView {
 /// the menu outlives the pointer leaving the page.
 enum CellTypeMenu {
     /// The menu, with a tick beside what is chosen now.
-    static func menu(current: CellTypes.Kind,
+    static func menu(current: CellTypes.Kind, drawings: Bool = true,
                      choose: @escaping (CellTypes.Kind) -> Void) -> NSMenu {
         let chooser = Chooser(choose: choose)
         let menu = TypeMenu(title: "Cell Type")
@@ -495,7 +495,11 @@ enum CellTypeMenu {
         // outlives exactly as long as the choice can be made.
         menu.chooser = chooser
         menu.autoenablesItems = false
-        for (index, group) in CellTypes.groups.enumerated() {
+        // The markdown pane is pure text, so it offers no drawing
+        // (Sean, 2026-10-02).
+        let groups = CellTypes.groups.map { group in group.filter { drawings || $0 != .drawing } }
+            .filter { !$0.isEmpty }
+        for (index, group) in groups.enumerated() {
             if index > 0 { menu.addItem(.separator()) }
             for kind in group {
                 let item = NSMenuItem(title: kind.name, action: #selector(Chooser.pick(_:)),
@@ -512,9 +516,9 @@ enum CellTypeMenu {
     /// At a point in a view, or — with no view — at a point on the screen,
     /// which is all the rendered page can offer: there is no NSView of its
     /// own behind that +.
-    static func popUp(current: CellTypes.Kind, at point: NSPoint, in view: NSView?,
+    static func popUp(current: CellTypes.Kind, drawings: Bool = true, at point: NSPoint, in view: NSView?,
                       choose: @escaping (CellTypes.Kind) -> Void) {
-        menu(current: current, choose: choose).popUp(positioning: nil, at: point, in: view)
+        menu(current: current, drawings: drawings, choose: choose).popUp(positioning: nil, at: point, in: view)
     }
 
     private final class TypeMenu: NSMenu {

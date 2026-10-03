@@ -50,7 +50,7 @@ struct DrawingCellLook: Equatable {
 /// (`NoteStore.cellLooks`), and where pictures in them are kept.
 struct DrawingCellsShown: Equatable {
     var looks: [UUID: DrawingCellLook] = [:]
-    /// The folder whose `.drawings/media` the pictures are in.
+    /// The folder whose `_drawings/media` the pictures are in.
     var media: URL?
 
     func look(_ id: UUID) -> DrawingCellLook { looks[id] ?? .empty }

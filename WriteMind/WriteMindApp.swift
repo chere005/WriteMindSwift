@@ -424,6 +424,8 @@ struct InsertMenu: Commands {
             // or the box that arrives takes the next click.
             Button("Image…") {
                 appState.putToolsAway()
+                // A picture or a box is put on the page, and the page is the rendered one.
+                appState.showRenderedPage()
                 store.chooseImage()
             }
             .shortcut(.insertImage)
@@ -431,6 +433,8 @@ struct InsertMenu: Commands {
 
             Button("Text Box") {
                 appState.putToolsAway()
+                // A picture or a box is put on the page, and the page is the rendered one.
+                appState.showRenderedPage()
                 store.addTextBox(colorHex: appState.penColorHex)
             }
             .disabled(store.selectedNote == nil)
@@ -446,7 +450,16 @@ struct InsertMenu: Commands {
             // ⌘0 (Sean, 2026-10-02: "drawing cell which is cmd + 0"). It
             // makes a cell and never turns one into another kind, so it is
             // Insert's and not Format's.
-            Button("Drawing Cell") { appState.editor.drawingCell() }
+            // A drawing is on the rendered page only (Sean, 2026-10-02): in
+            // markdown it brings that page up and makes the cell there.
+            Button("Drawing Cell") {
+                if appState.mode == .editor {
+                    appState.showRenderedPage()
+                    DispatchQueue.main.async { appState.editor.drawingCell() }
+                } else {
+                    appState.editor.drawingCell()
+                }
+            }
                 .shortcut(.drawingCell)
                 .disabled(store.selectedNote == nil)
         }

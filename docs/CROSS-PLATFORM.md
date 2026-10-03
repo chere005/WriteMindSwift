@@ -332,6 +332,23 @@ to the entire visible screen". Only with a tablet writing in the notebook.
   same width for both so the row does not change size between modes), a View
   menu item, remembered.
 
+### The markdown view is pure text, and the drawing data is visible
+Sean, 2026-10-02: "don't show or allow drawings in markdown mode on the notebook
+itself, only pure text"; asked whether the existing hidden `.drawings` folders
+should move to a visible `_drawings`: "yes"; and whether a cell's bracket opens
+the cell or selects it: "select".
+- **Markdown view = text only**: no drawing layer over it (keep the pane's size
+  for what is measured against it), no drawing cells (their lines are ordinary
+  lines), no Drawing in the + menu; Insert ▸ Drawing Cell and any drop of a
+  picture or box switch to the rendered page first. The offscreen layout the
+  mapping and the PDF use keeps cells' heights.
+- **`.drawings` → `_drawings`** (sidecars `<note>.json` and `media/`, beside the
+  cells' `cells/`): move each item once, at load, never over anything and
+  deleting nothing; a taken name stays in the hidden folder, which readers fall
+  back to and which blocks the media sweep; remove an emptied hidden folder.
+- **A bracket click selects the cell on both views**, and Return opens a held
+  cell (a checklist is entered as a whole that way).
+
 ### Drawing happens on the rendered page only
 Sean, 2026-10-02: "only allow drawing in wysiwyg mode, both from wacom and
 from the pen cursor tool". It reverses 2026-09-19's "drawing should be

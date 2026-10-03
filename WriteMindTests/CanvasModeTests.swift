@@ -150,10 +150,15 @@ final class CanvasModeTests: XCTestCase {
                 guard ["store.addTextBox(", "store.chooseImage(", "store.captureNotebook(",
                        "store.takeFromTablet("].contains(where: line.contains) else { continue }
                 drops += 1
-                let before = lines[max(0, index - 2)..<index].joined(separator: "\n")
+                let before = lines[max(0, index - 6)..<index].joined(separator: "\n")
                 XCTAssertTrue(before.contains("appState.putToolsAway()"),
                               "\(file.lastPathComponent):\(index + 1) drops something on the page "
                               + "with a tool still in hand")
+                // And the page it lands on is the rendered one: there is no
+                // drawing in markdown (Sean, 2026-10-02).
+                XCTAssertTrue(before.contains("appState.showRenderedPage()"),
+                              "\(file.lastPathComponent):\(index + 1) drops something on a page "
+                              + "that may be the markdown view, where nothing is drawn")
             }
         }
         XCTAssertEqual(drops, 6, "the bar's Text Box, the pen menu's Add Image, the Insert menu's "

@@ -188,7 +188,11 @@ struct TabletPane: View {
     private func take(_ choice: TabletChoice, box: CGRect, pageSize: CGSize, millimetres: CGSize) {
         // As the camera's capture does: every tool is put away so what has
         // just arrived can be picked up and dragged where it goes.
-        if choice != .text { appState.putToolsAway() }
+        if choice != .text {
+            appState.putToolsAway()
+            // What is written or picked is drawing, and drawing is on the rendered page.
+            appState.showRenderedPage()
+        }
         if store.takeFromTablet(choice, strokes: sheet.strokes, box: box, pageSize: pageSize,
                                 theme: sheet.theme, millimetres: millimetres) {
             scribe.box.rect = nil

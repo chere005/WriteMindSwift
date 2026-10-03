@@ -260,6 +260,8 @@ struct TopBar: View {
                 BarButton(systemImage: "character.textbox", label: "Text Box",
                           help: "A box of words that floats over the page; the note's text keeps clear of it") {
                     appState.putToolsAway()
+                    // A picture or a box is put on the page, and the page is the rendered one.
+                    appState.showRenderedPage()
                     store.addTextBox(colorHex: appState.penColorHex)
                 }
             }
