@@ -46,6 +46,31 @@ final class EditorBridge {
     /// its armed state itself.
     var armBarInDocument: ((NSRange) -> Void)?
 
+    /// THE GEOMETRY OF WHICHEVER PANE IS UP, installed by each as it comes
+    /// up (like `paneCaret`): the spaces between its cells, and where its
+    /// column starts and how wide it is, in the document's points — what a
+    /// dock needs to put a cell where the objects are (`EditorPane.dock`).
+    var paneSeams: (() -> [CellSeams.Seam])?
+    var paneColumn: (() -> (left: CGFloat, width: CGFloat)?)?
+
+    /// WHERE A DOCK GOES: strictly where the cursor is, in whichever pane
+    /// is up — a drawing cell, an armed bar, a cell of words — and nil for
+    /// no cursor at all. Never the note's first cell for want of one: with
+    /// nothing open, the objects make a cell of their own where they are
+    /// (`DockTarget`).
+    func dockTarget() -> DockTarget? {
+        guard let carried = paneCaret?() else { return nil }
+        if let line = drawingCellAtCursor,
+           let cell = DrawingCells.lines(in: carried.text).first(where: { NSEqualRanges($0.range, line) }) {
+            return .drawingCell(cell.id)
+        }
+        switch carried.caret {
+        case .bar(let offset, _)?: return .bar(offset: offset)
+        case .text(let range)?: return .textCell(caret: range.location)
+        default: return nil
+        }
+    }
+
     /// THE CURSOR OF WHICHEVER PANE IS UP (`PaneCaret`), and the note it is
     /// a cursor in. Each pane installs its own reader as it comes up, over
     /// the last pane's; neither takes its away when it goes, because on a

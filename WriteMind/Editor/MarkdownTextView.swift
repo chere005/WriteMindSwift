@@ -201,6 +201,16 @@ struct MarkdownTextView: NSViewRepresentable {
             guard let tv else { return EditorBridge.Carried(caret: nil, text: "") }
             return EditorBridge.Carried(caret: Coordinator.caret(of: tv), text: tv.string)
         }
+        // Where its seams and its column are, for a dock (`EditorBridge.paneSeams`).
+        bridge.paneSeams = { [weak tv, weak coordinator = context.coordinator] in
+            guard let tv else { return [] }
+            return MarkdownTextView.seams(in: tv, cells: coordinator?.cells)
+        }
+        bridge.paneColumn = { [weak tv] in
+            guard let tv, let container = tv.textContainer else { return nil }
+            return (tv.textContainerOrigin.x + container.lineFragmentPadding,
+                    FoldingLayoutManager.column(of: container))
+        }
         // Whatever the rendered page was showing, show that: the same
         // place at the top of the window, and its cursor where it was.
         let carried = bridge.takeCarried(for: text)

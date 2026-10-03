@@ -348,7 +348,6 @@ struct MarkdownPreview: View {
                 GeometryReader { proxy in
                     Color.clear.preference(key: PreviewScrollKey.self,
                                            value: -proxy.frame(in: .named(Self.space)).minY)
-                        .preference(key: PreviewWidthKey.self, value: proxy.size.width)
                 }
                 .frame(height: 0)
 
@@ -463,11 +462,6 @@ struct MarkdownPreview: View {
             else { return }
             onTopCell?(top)
         }
-        .onPreferenceChange(PreviewWidthKey.self) { width in
-            guard abs(width - pageWidth) > 0.5 else { return }
-            pageWidth = width
-            tellDrawingFrames()
-        }
         .onChange(of: drawingCells) { _, _ in tellDrawingFrames() }
         .environment(\.drawingCells, drawingCells)
         .background(Color(nsColor: .textBackgroundColor))
@@ -576,6 +570,8 @@ struct MarkdownPreview: View {
             // where its caret is in it, so it asks `Insertion` itself.
             bridge.insertInDocument = { thing in insert(thing) }
             bridge.drawingCellInDocument = { drawingCellHere() }
+            bridge.paneSeams = { seams }
+            bridge.paneColumn = { (Self.sideInset, max(0, pageWidth - Self.sideInset * 2)) }
             bridge.drawingCursorInDocument = {
                 if case .drawing(let line) = cursor { return line }
                 return nil
@@ -646,8 +642,25 @@ struct MarkdownPreview: View {
                   let onFollow, onFollow(destination) else { return .systemAction }
             return .handled
         })
-        .onAppear { pageHeight = window.size.height }
+        .onAppear {
+            pageHeight = window.size.height
+            pageWidth = window.size.width
+        }
         .onChange(of: window.size.height) { _, height in pageHeight = height }
+        // THE PAGE'S WIDTH IS THE WINDOW'S, measured from OUTSIDE the scroll
+        // view — never the content's. The content is 17 points narrower while a
+        // legacy scroller shows, and the scroller shows when the content is
+        // taller than the window, and a drawing cell is taller the wider the
+        // column: a cell that filled the window to within a few points had
+        // the page measuring 514 then 497 then 514, the cell shown at two
+        // sizes, and the main thread never came back (found docking a stroke
+        // into a cell, 2026-10-02). A cell may hang into the margin by the
+        // width of a scroller and nothing else changes.
+        .onChange(of: window.size.width) { _, width in
+            guard abs(width - pageWidth) > 0.5 else { return }
+            pageWidth = width
+            tellDrawingFrames()
+        }
         }
         }
     }
@@ -824,7 +837,8 @@ struct MarkdownPreview: View {
                       onToggleTodo: { index in tickTodo(item.range, at: index) },
                       evaluation: evaluation(of: item, in: groups),
                       editing: checklistEditing(in: item.range, block: block),
-                      drawingLit: cursor == .drawing(item.range))
+                      drawingLit: cursor == .drawing(item.range),
+                      drawingColumn: max(0, pageWidth - Self.sideInset * 2))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // The faint promise a hover over the gutter makes. An
                 // overlay of colour rather than a background, so a code
@@ -2337,6 +2351,8 @@ struct MarkdownPreview: View {
         var editing: ChecklistEditing?
         /// A drawing cell that is the page's cursor: its outline is lit.
         var drawingLit = false
+        /// The page's column, which a drawing cell is shown in (`DrawingCellRow`).
+        var drawingColumn: CGFloat = 0
         @Environment(\.notePaper) private var paper
         @Environment(\.drawingCells) private var drawingCells
 
@@ -2490,7 +2506,8 @@ struct MarkdownPreview: View {
                 // it, and there would be nowhere left to click the rule.
                 Divider().frame(height: 9)
             case .drawing(let id, _):
-                DrawingCellRow(look: drawingCells.look(id), media: drawingCells.media, lit: drawingLit)
+                DrawingCellRow(look: drawingCells.look(id), media: drawingCells.media, lit: drawingLit,
+                               column: drawingColumn)
             }
         }
 
@@ -2631,12 +2648,6 @@ private struct PreviewRowHeights: PreferenceKey {
     static func reduce(value: inout [Int: CGFloat], nextValue: () -> [Int: CGFloat]) {
         value.merge(nextValue()) { _, new in new }
     }
-}
-
-/// How wide the page's content is.
-private struct PreviewWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private struct PreviewScrollKey: PreferenceKey {

@@ -1025,6 +1025,33 @@ CoreMind's `bin/report-status.sh`.
   moved puts down NOTHING and leaves the tool armed, where it used to
   put down a short horizontal line centred on the click — a different
   line from the one asked for, in a different place.
+- **DOCK AND MAKE CELL** (Sean, 2026-09-22 / 2026-10-02): two `Handle`s on a
+  floating selection (`DrawingCanvas.objectHandles`, `HandleLayout.side`),
+  carried out in `Views/EditorPaneDocking.swift` on the layer AS THE PANE
+  SHOWS IT (`layerDrawing`), through the pure `Drawing.lifting` and
+  `Docking.newCell/into/carryPictures` (`DockingTests`). The target is
+  `EditorBridge.dockTarget()` — STRICT, from `paneCaret` and the drawing
+  cursor, never the first cell for want of one; the pane's seams and column
+  come from `paneSeams` / `paneColumn`, installed by whichever pane is up. ONE
+  step on the drawing stack (`beginDrawingChange`); a dock that made a cell
+  records `DockRecord` for its step and `undoDrawing` takes the cell's line out
+  of the note through `writeCell`, `redoDrawing` puts it back (`DockUndoTests`).
+  A picture is copied into the media folder as `cell-…` (exempt from
+  `DrawingStore.pruneMedia`, which now also keeps `NoteStore.mediaInUse` — the
+  open note's layer, history, future and cells — and deletes NOTHING when a
+  sidecar cannot be read; `DockPictureTests`).
+  **TWO TRAPS found driving a docked cell in the real app:** (1) the rendered
+  page sized a drawing cell from the width it was OFFERED, and measured its
+  own width from inside the scroll view — with the cell filling the window to
+  within a few points, a legacy scroller came and went with the cell's height,
+  the row measured 62 and 59.7 for ever and the main thread never returned.
+  `pageWidth` is the WINDOW's now (outside the scroll view) and
+  `DrawingCellRow.column` is what the cell is shown in, hanging into the right
+  margin by a scroller at worst. (2) `FoldingTypesetter` had only
+  `init(_:)`: AppKit makes typesetters by `init()` to fill a layout hole when a
+  text view is resized, and the app died with "Use of unimplemented initializer
+  'init()'" — it now has one and finds the folding state through its layout
+  manager.
 - **DOUBLE-CLICK RENAMES A SIDEBAR ROW IN PLACE.** Sean, 2026-10-02:
   "rename in place in the sidebar.. double click is rename in sidebar".
   `SidebarView.renamingInPlace` names the row ("note:<path>" /

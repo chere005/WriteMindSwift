@@ -11,10 +11,20 @@ struct DrawingCellRow: View {
     let look: DrawingCellLook
     let media: URL?
     var lit = false
+    /// THE COLUMN IT IS SHOWN IN, the page's, decided by the page from its
+    /// window: not what the row is offered. The scroll view offers 17
+    /// points less while a legacy scroller shows, the scroller shows when
+    /// the page is taller than its window, and a cell is taller the wider
+    /// the column — a cell that filled the window to within a few points had
+    /// the row measured 62 and then 59.7 and then 62 for ever, and the main
+    /// thread never came back (found docking a stroke into one, 2026-10-02).
+    /// Shown at the page's column it hangs into the right margin by a
+    /// scroller's width at worst, and nothing feeds back.
+    var column: CGFloat = 0
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        DrawingCellFit(look: look) {
+        DrawingCellFit(look: look, column: column) {
             Canvas { context, size in
                 let paper = DrawingCellPainter.Paper.screen(hex: InkPaths.notePaperHex(dark: colorScheme == .dark))
                 context.withCGContext { cg in
@@ -36,11 +46,14 @@ struct DrawingCellRow: View {
 /// column's to decide, and the row's height is what the page stacks by.
 private struct DrawingCellFit: Layout {
     let look: DrawingCellLook
+    /// The page's column, when it says (`DrawingCellRow.column`).
+    let column: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let offered = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? CGFloat(look.cell?.width ?? 0)
-        let column = max(offered, 1)
-        return CGSize(width: column, height: look.shown(column: column).size.height)
+        let offered = column > 0 ? column
+            : (proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? CGFloat(look.cell?.width ?? 0))
+        let width = max(offered, 1)
+        return CGSize(width: width, height: look.shown(column: width).size.height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {

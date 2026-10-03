@@ -98,6 +98,11 @@ struct DrawingCanvas: View {
     /// A click on a cell's paper that drew nothing: the caret goes into the
     /// cell (`EditorBridge.focusDrawingCell`).
     var onCellTap: ((UUID) -> Void)?
+    /// DOCK AND MAKE CELL, from the two handles beside a selection of
+    /// floating objects: the picked ones, for the pane to carry out
+    /// (`EditorPane.dock`).
+    var onDock: ((Set<UUID>) -> Void)?
+    var onMakeCell: ((Set<UUID>) -> Void)?
     /// A gesture changed a cell: it grows to keep its ink, and anything
     /// moved off its sides comes back (`NoteStore.fitCell`) — the same step.
     var onCellChanged: ((UUID) -> Void)?
@@ -768,6 +773,24 @@ struct DrawingCanvas: View {
                    hovered: $hoveredHandles, name: "group")
                 .position(x: x(box.midX), y: y(box.maxY + 20))
                 .onTapGesture { toggleGrouping() }
+        }
+
+        // The picked objects into a drawing cell, or a drawing cell made of
+        // them — on floating objects only, never a cell's own.
+        if activeCell == nil, onDock != nil || onMakeCell != nil {
+            let sides = HandleLayout.side(box: box)
+            if let onDock {
+                Handle(systemImage: "text.insert", help: "Dock into the cell at the cursor",
+                       hovered: $hoveredHandles, name: "dock")
+                    .position(x: x(sides.dock.x), y: y(sides.dock.y))
+                    .onTapGesture { onDock(handleIDs); selection = [] }
+            }
+            if let onMakeCell {
+                Handle(systemImage: "rectangle.badge.plus", help: "Make a drawing cell of this, here",
+                       hovered: $hoveredHandles, name: "makecell")
+                    .position(x: x(sides.make.x), y: y(sides.make.y))
+                    .onTapGesture { onMakeCell(handleIDs); selection = [] }
+            }
         }
 
         // An arrow's heads and line come from its bar; this is the way back

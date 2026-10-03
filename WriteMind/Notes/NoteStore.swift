@@ -433,6 +433,7 @@ final class NoteStore: ObservableObject {
         drawingHistory.removeAll()
         drawingFuture.removeAll()
         drawingSteps = 0
+        docks.removeAll()
         cells = [:]
         cellStates = [:]
         cellPictures = [:]
@@ -571,6 +572,13 @@ final class NoteStore: ObservableObject {
     /// ⌘Z is measured against (`AppState.inkFloor`).
     private(set) var drawingSteps = 0
 
+    /// THE DOCKS THAT MADE A CELL, by the drawing step each one is
+    /// (`DockRecord`): taking that step back takes the cell's line out of
+    /// the note, and putting it back puts the line back, so the objects are
+    /// never left in a cell nothing in the note points at. Cleared with the
+    /// history.
+    var docks: [DockRecord] = []
+
     var canUndoDrawing: Bool { !drawingHistory.isEmpty }
     var canRedoDrawing: Bool { !drawingFuture.isEmpty }
 
@@ -582,6 +590,8 @@ final class NoteStore: ObservableObject {
         drawingHistory.append(DrawingState(layer: drawing, cells: cells))
         if drawingHistory.count > 60 { drawingHistory.removeFirst() }
         drawingFuture.removeAll()
+        // A dock on a step that has just been given up is gone with it.
+        docks.removeAll { $0.step >= drawingSteps }
     }
 
     /// True when there was something to step back to — the canvas asks so
@@ -592,9 +602,12 @@ final class NoteStore: ObservableObject {
         guard let previous = drawingHistory.popLast() else { return false }
         // Counted before the drawing changes: its change is told with the
         // count (`AppState.drawingChanged`).
+        let undone = drawingSteps
         drawingSteps -= 1
         drawingFuture.append(DrawingState(layer: drawing, cells: cells))
         restore(previous)
+        // A dock that made a cell takes the cell's line out with it.
+        if let record = docks.first(where: { $0.step == undone }) { takeOutLine(of: record) }
         return true
     }
 
@@ -604,6 +617,7 @@ final class NoteStore: ObservableObject {
         drawingSteps += 1
         drawingHistory.append(DrawingState(layer: drawing, cells: cells))
         restore(next)
+        if let record = docks.first(where: { $0.step == drawingSteps }) { putBackLine(of: record) }
         return true
     }
 
@@ -1138,7 +1152,8 @@ final class NoteStore: ObservableObject {
         // Deleting a picture cannot delete its file then and there — Undo has
         // to be able to bring it back. Leaving the note is when that stops
         // being true, so that is when the unreferenced ones go.
-        for folder in folders { DrawingStore.pruneMedia(in: folder) }
+        let keeping = mediaInUse
+        for folder in folders { DrawingStore.pruneMedia(in: folder, keeping: keeping) }
     }
 
     private func saveNow() {

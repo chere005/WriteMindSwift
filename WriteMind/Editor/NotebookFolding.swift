@@ -21,10 +21,24 @@ final class FoldingState {
 /// line fragment's rectangle, which is the one place this can be done
 /// without touching a character of the note.
 final class FoldingTypesetter: NSATSTypesetter {
-    let folding: FoldingState
+    private let own: FoldingState?
+
+    /// What is folded: the state it was made with, or — for one AppKit made
+    /// itself — the layout manager's.
+    var folding: FoldingState { own ?? (layoutManager as? FoldingLayoutManager)?.folding ?? FoldingState() }
 
     init(_ folding: FoldingState) {
-        self.folding = folding
+        own = folding
+        super.init()
+    }
+
+    /// AppKit MAKES TYPESETTERS OF ITS OWN, by `init()`, to fill a hole in the
+    /// layout (`_fillLayoutHoleForCharacterRange`, from a text view being
+    /// resized). Without this the app died there with "Use of unimplemented
+    /// initializer 'init()'" — seen twice driving a note with a drawing
+    /// cell in it (2026-10-02), and in the test host.
+    override init() {
+        own = nil
         super.init()
     }
 

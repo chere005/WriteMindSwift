@@ -19,16 +19,15 @@ had to say it. Verification is the job, not an item.
   layer's redraw, the tablet pane's page relayout — and `Instruments` on a
   drag is the first step, not a guess.
 
-- **Docking a floating picture into the note.** Sean, 2026-09-22: "add a
-  button for floating elements to dock them to a cell wherever the input
-  cursor is.. or drag that button to get an interactive mouse cursor that
-  puts the image wherever i release the mouse button.. text can not
-  overlap with an image". Planned in full in
-  [PLAN-docking.md](PLAN-docking.md), including the one decision that is
-  Sean's — docking writes `![](.drawings/media/…)` into the .md, which is
-  what makes the picture a cell and so makes everything else fall out of
-  what is already built. The button is one build, the drag is another
-  (neither pane publishes its seams, and the drawing layer is above both).
+- **Dragging the Dock handle to a seam.** The Dock and Make Cell handles
+  are built (2026-10-02: `Docking`, `EditorPane+Docking`); what is not is
+  dragging the Dock handle to wherever the pointer is let go (Sean,
+  2026-09-22: "or drag that button to get an interactive mouse cursor that
+  puts the image wherever i release the mouse button"). A click docks at the
+  cursor; the drag would hand `Docking` a seam by the point it ended on
+  (`CellSeams.nearest(toLine:)`). Pictures docked in a cell cannot yet be
+  cropped or read into text (`NoteStore.cropImage` and `readText` only look at
+  the layer).
 - **The evaluation cell's margin, four things.** Sean, 2026-09-22, in one
   message; C and Rust landed from it, these did not.
   - **A new evaluation cell is Wolfram** ("default to wolfram"). ⌘9 writes

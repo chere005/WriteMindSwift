@@ -717,11 +717,25 @@ enum DrawingStore {
         return copy
     }
 
+    /// The start of the name of a picture that belongs to a drawing cell
+    /// (`Docking.carryPictures`): never swept, as nothing under
+    /// `_drawings/cells` is — a cell's file points at it by name and
+    /// nothing else knows it is there.
+    static let cellPicturePrefix = "cell-"
+
     /// Delete the pictures in this folder that no note in it points at any
     /// more. Notes share `.drawings/media`, so a picture is only an orphan
     /// when EVERY sidecar has stopped mentioning it — which is why this reads
     /// them all rather than trusting the note in front of it.
-    static func pruneMedia(in directory: URL) {
+    ///
+    /// `keeping` is what the OPEN note still needs and no sidecar says yet:
+    /// every picture its drawing, its undo history and its redo future name
+    /// (`NoteStore.mediaInUse`), because the sweep runs mid-note (⌘S) and an
+    /// undo after it brought back a picture whose file was gone. A cell's own
+    /// pictures are never swept. And NOTHING is deleted when any sidecar
+    /// cannot be read: skipping it, as this used to, deleted every picture
+    /// only that one named.
+    static func pruneMedia(in directory: URL, keeping: Set<String> = []) {
         let media = mediaFolder(in: directory)
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: media, includingPropertiesForKeys: nil), !files.isEmpty else { return }
@@ -729,13 +743,15 @@ enum DrawingStore {
         let sidecars = (try? FileManager.default.contentsOfDirectory(
             at: directory.appending(path: folderName, directoryHint: .isDirectory),
             includingPropertiesForKeys: nil)) ?? []
-        var referenced: Set<String> = []
+        var referenced = keeping
         for sidecar in sidecars where sidecar.pathExtension == "json" {
             guard let data = try? Data(contentsOf: sidecar),
-                  let drawing = try? JSONDecoder().decode(Drawing.self, from: data) else { continue }
+                  let drawing = try? JSONDecoder().decode(Drawing.self, from: data) else { return }
             referenced.formUnion(drawing.images.map(\.file))
         }
-        for file in files where !referenced.contains(file.lastPathComponent) {
+        for file in files {
+            let name = file.lastPathComponent
+            if referenced.contains(name) || name.hasPrefix(cellPicturePrefix) { continue }
             try? FileManager.default.removeItem(at: file)
         }
     }

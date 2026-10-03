@@ -190,7 +190,9 @@ final class SymbolTests: XCTestCase {
     func testEveryHandleHasAnIconThatExists() {
         let icons = ["arrow.clockwise", "arrow.up.left.and.arrow.down.right",
                      "arrow.up.and.down.and.arrow.left.and.right", "trash", "slider.horizontal.3",
-                     "crop", "text.viewfinder", "checkmark", "xmark", "arrow.up.and.down"]
+                     "crop", "text.viewfinder", "checkmark", "xmark", "arrow.up.and.down",
+                     // Dock and Make Cell, beside a floating selection.
+                     "text.insert", "rectangle.badge.plus"]
         for icon in icons {
             XCTAssertNotNil(NSImage(systemSymbolName: icon, accessibilityDescription: nil),
                             "a handle asks for the missing symbol \(icon)")

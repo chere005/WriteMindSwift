@@ -272,6 +272,35 @@ sidebar".
   only through a FIELD editor, never a select-all down the responder chain
   (it selected the whole note).
 
+### Dock and Make Cell (floating objects into a drawing cell)
+Sean, 2026-09-22 and 2026-10-02: "a dock button which inserts it into the cell
+of the existing cursor, and a create cell from drawing which has a new type of
+cell".
+- **Two handles on a FLOATING selection** (not a cell's): Dock at the left,
+  Make Cell at the right, both in the middle of the side — a row under the box
+  instead when it is under 16 pt tall.
+- **The objects are moved, not copied** (same ids, groups, pressures), lifted
+  with whole groups; an arrow goes when picked or when both its ends go; an
+  arrow with one end on something that goes stays and lets that end go where it
+  is. A picture's file is COPIED to `cell-<cell>-<picture>.<ext>` in the media
+  folder (never swept) and the picture renamed.
+- **Where**: a drawing cell the cursor is in → into it (the objects' place on
+  screen kept when their box meets the cell, else under its lowest content; the
+  cell grows); an armed bar → a new cell there; a cell of words → a new cell
+  under the caret's line; no cursor, or Make Cell → the seam nearest the box's
+  top. A new cell is the column wide, `pad` above and under the set, x kept on
+  the column, scaled down only when wider.
+- **Undo**: the dock is ONE step on the drawing stack, and the step carries the
+  cell's line with it — undo takes the line out of the note, redo puts it back
+  (keyed by the step number; a new step drops the undone dock). Do it on the
+  layer as the pane SHOWS it, so the rendered page's mapping is respected.
+- **Port traps** (found driving the app, 2026-10-02): a page that sizes a
+  drawing cell from the width it is OFFERED, with a legacy scroller that appears
+  when the page gets taller, loops forever — size it from the window's width and
+  let it hang into the margin. And a platform text engine may construct its own
+  layout helper subclass through the base initializer; give a custom one an
+  initializer it can call.
+
 ### Subgroups: ⌘-click picks one object, and a drag of a group is one write
 Sean, 2026-10-02: "object grouping is really slow. optimize that.. it should
 also be quick/easy to select a subgroup and include more with holding cmd".

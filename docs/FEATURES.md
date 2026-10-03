@@ -17,6 +17,17 @@ is how the code is put together.
   Drawing in a cell is on the rendered page, like all drawing; in the
   markdown view a cell is shown and held, and a press on its paper is the
   text's. A handle at its bottom stretches it taller or shorter.
+- **Dock, and Make Cell, beside a selection.** Pick floating drawing — ink,
+  shapes, pictures, a flow chart — and two more buttons appear beside it. **Make
+  Cell** (right) turns it into a drawing cell at the nearest gap between cells,
+  its objects keeping their place on the column; **Dock** (left) puts it where the
+  cursor is: into the drawing cell the cursor is in (under what is there, or
+  where it already sits over the cell), or a new drawing cell at the bar or
+  under the line you are in — and Make Cell when there is no cursor. It is one
+  step: ⌥⌘Z, or ⌘Z while the drawing owns it, puts the objects back on the page
+  and takes the new cell's line out of the note again; ⇧ puts them back. Arrows
+  between things that go go with them; one end of an arrow left behind lets go
+  where it is.
 - **Double-click a note or a section in the sidebar to rename it where it
   stands.** The name becomes a field with its words selected; Return (or
   clicking away) renames, Esc leaves it as it was. A name another note

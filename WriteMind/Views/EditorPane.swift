@@ -3,8 +3,8 @@ import SwiftUI
 /// The left pane: the markdown editor or its preview, with the drawing layer
 /// on top of whichever is showing.
 struct EditorPane: View {
-    @EnvironmentObject private var store: NoteStore
-    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject var store: NoteStore
+    @EnvironmentObject var appState: AppState
     /// Bumped by a click in the text, which is what tells the objects on the
     /// drawing layer to let go.
     @State private var textClicks = 0
@@ -16,7 +16,7 @@ struct EditorPane: View {
     /// Where the drawing cells are on the pane that is up, as it last told
     /// (`CellFrame`), and the one the caret is in — whose grip the layer
     /// shows.
-    @State private var drawingFrames: [CellFrame] = []
+    @State var drawingFrames: [CellFrame] = []
     @State private var caretDrawing: UUID?
 
     var body: some View {
@@ -128,6 +128,8 @@ struct EditorPane: View {
                                   cellFrames: CellFrame.forLayer(drawingFrames, rendered: appState.mode == .preview),
                                   litCell: caretDrawing,
                                   onCellTap: { appState.editor.focusDrawingCell($0) },
+                                  onDock: { dock($0) },
+                                  onMakeCell: { makeCell($0) },
                                   onCellChanged: { store.fitCell($0) },
                                   // Drawn with the keyboard still in the
                                   // text, so ⌘Z is the ink's until the next
@@ -253,7 +255,7 @@ struct EditorPane: View {
     /// markdown pane, and on the rendered page that one shown through the
     /// page's own cells, every change the layer makes going back the same
     /// way (`Drawing.shown`, `Drawing.stored`).
-    private var layerDrawing: Binding<Drawing> {
+    var layerDrawing: Binding<Drawing> {
         guard appState.mode == .preview else { return $store.drawing }
         let frames = frames, store = store
         return Binding(

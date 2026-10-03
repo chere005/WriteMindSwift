@@ -8,7 +8,13 @@ Sean, 2026-09-22:
 > existing cell .. text can not overlap with an image, the input cursor and
 > text can only go above and below a docked image
 
-Nothing here is built. This is the plan and the one decision that is not mine.
+BUILT 2026-10-02 as the Dock and Make Cell handles over drawing cells (see
+`docs/handoff/drawing-cells-spec.md`, section 9, and AGENTS.md): a docked
+object goes into a drawing cell (`![](_drawings/cells/<ID>.png)`), not into a
+loose picture line. Kept as the record of what was asked; the drag-to-a-seam
+half is still open (docs/TODO.md).
+
+Original plan:
 
 ## The decision
 
