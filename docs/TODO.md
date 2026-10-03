@@ -10,6 +10,15 @@ had to say it. Verification is the job, not an item.
 
 ## Open
 
+- **Dragging the divider between the notes and the video is groggy.** Sean,
+  2026-10-02: "resizing the screen by dragging the middle vertical line is
+  groggy". The HSplitView's divider lags the pointer. Not yet looked into;
+  the likely weight is what a width change runs on every frame — the
+  note's offscreen layout for the pane mapping (`PaneFrames`, which now
+  waits 150 ms after a resize stops, but check it holds), the drawing
+  layer's redraw, the tablet pane's page relayout — and `Instruments` on a
+  drag is the first step, not a guess.
+
 - **Docking a floating picture into the note.** Sean, 2026-09-22: "add a
   button for floating elements to dock them to a cell wherever the input
   cursor is.. or drag that button to get an interactive mouse cursor that
