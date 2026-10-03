@@ -203,7 +203,16 @@ struct BlockEditor: NSViewRepresentable {
             guard let storage = view.textStorage else { return }
             let selection = view.selectedRanges
             let source = view.string
-            if let language, language != .plain {
+            // EVERY language is code, `.plain` included: a fence that names
+            // none (a bare ```), or names one this app has no colouring for,
+            // is still a code cell, and `CodeColours` sets it with nothing
+            // coloured. It used to be read as markdown — its backticks faded
+            // and vanished with the caret on another line of the cell, a `#`
+            // comment lost its hash as a heading does — which is the backtick
+            // weirdness again. Ruled 2026-10-03: a plain fenced block is a
+            // code cell, and its backticks are never hidden or styled as
+            // markdown, here or in the markdown pane.
+            if let language {
                 CodeColours.style(storage, language: language, font: view.baseFont,
                                   paragraph: view.paragraphStyle)
                 // Code is code: there are no markdown markers in it to hide.
@@ -254,6 +263,22 @@ struct BlockEditor: NSViewRepresentable {
         func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange oldRange: NSRange,
                       toCharacterRange newRange: NSRange) -> NSRange {
             MarkerHiding.outside(newRange, of: hiding.furnitureRanges)
+        }
+
+        /// AN EDIT OVER MARKERS TAKES THEM WHOLE, as it does in the markdown
+        /// pane (`MarkerDeletion`): a selection that cuts half of a code span
+        /// takes the other tick with it, and typing over "`fo" in "`foo`"
+        /// leaves "xo", not "xo`". This editor had no such rule, so the two
+        /// disagreed (Sean, 2026-10-03: "cursor behavior around backticks is
+        /// very weird"). A key that deletes what is beside the caret takes
+        /// just that, as there. Not in a code cell, whose text is code.
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange,
+                      replacementString: String?) -> Bool {
+            guard language == nil, hiding.isEnabled else { return true }
+            let beside = (textView as? PasteAwareTextView)?.isRunningCommand == true
+                && textView.selectedRange().length == 0
+            return !textView.applyMarkerDeletion(range: affectedCharRange, replacement: replacementString,
+                                                 completingPairs: !beside)
         }
 
         /// The caret moved: the line it left hides its markers again, the
@@ -354,14 +379,20 @@ struct BlockEditor: NSViewRepresentable {
                 parent.onMove?(.out)
                 return true
 
+            // ↑ AND ↓ LEAVE THE CELL FROM ITS FIRST AND LAST LINE AS LAID OUT,
+            // not its first and last line of text: a paragraph that wraps is
+            // one line of text however tall, and ↑ from the middle of it went
+            // to the cell above — a long code span's paragraph included
+            // (Sean, 2026-10-03: "cursor behavior around backticks is very
+            // weird"). The markdown pane has always asked the layout
+            // (`MarkdownTextView.isOnEndLine`).
             case #selector(NSResponder.moveUp(_:)):
-                guard PreviewEditing.lineRange(in: text, at: caret.location).location == 0 else { return false }
+                guard MarkdownTextView.isOnEndLine(of: view, top: true) else { return false }
                 parent.onMove?(.up)
                 return true
 
             case #selector(NSResponder.moveDown(_:)):
-                let line = PreviewEditing.lineRange(in: text, at: caret.location)
-                guard NSMaxRange(line) >= (text as NSString).length else { return false }
+                guard MarkdownTextView.isOnEndLine(of: view, top: false) else { return false }
                 parent.onMove?(.down)
                 return true
 

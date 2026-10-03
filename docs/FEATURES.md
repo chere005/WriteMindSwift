@@ -152,6 +152,27 @@ is how the code is put together.
   block, ` for a span, `` `` `` for a span with a backtick in it (Sean,
   2026-09-20). Four spaces at the front of a line is indentation — it is
   drawn indented and stays a paragraph — so Tab is safe anywhere.
+- **A backtick is a character like any other to the cursor** (Sean,
+  2026-10-03: "cursor behavior around backticks is very weird"). Shift-arrow
+  walks a selection through a line with a code span in it one character at a
+  time, and ⌥⇧-arrow goes forward by words (it stops at each backtick, as it
+  does in any editor) without ever giving ground back — a selection shows its
+  markers at both ends while it is made — and a double click takes the word
+  under the pointer, not the backtick beside it, on a line the cursor was
+  already in or one it has just arrived at. ⌫ and ⌦ take the ONE backtick
+  next to the cursor, in both panes, not its partner at the far end of the
+  span (a selection that cuts a span in half still takes the other tick with
+  it, in both). A fence
+  line is edited like any other line — ⌫ in "```python" takes a letter — and
+  the line breaks that make a fence are not taken by a key: ⌫ at the start of
+  the first line of code, or ⌦ at the end of the fence line, does nothing,
+  rather than making the first line of your program the language. Two
+  backticks with nothing between them are text, not a span that hides. A
+  fenced block with no language is code like any other, on the rendered page
+  too: its backticks are never hidden or styled as markdown.
+- **↑ and ↓ in a wrapped cell on the rendered page go up and down its own
+  lines** before they leave it for the cell above or below — they used to
+  leave from the middle of any paragraph that wrapped.
 - **Indentation that follows the structure.** ⌘] and ⌘[ — or Tab and
   Shift-Tab — move the lines you're on in and out; a quote gains another
   level, anything else gains two spaces. Backspace inside a line's

@@ -56,3 +56,14 @@ had to say it. Verification is the job, not an item.
   their own rule that pass; Sublime's run needs every range replaced and
   a caret left in each, and NSTextView does not keep several empty
   carets, so it wants a design of its own rather than a patch.
+- **An inline code span is two regular expressions, not cmark's rule.** Found
+  walking the cursor around backticks (2026-10-03, Sean: "cursor behavior
+  around backticks is very weird, fix that"). A backtick string of N opens a
+  span that the next string of exactly N closes; `MarkdownSourceStyle` reads
+  "`x`" and "``x``" with two patterns instead, so a tick typed AFTER a span's
+  closing tick ("`foo``") leaves the span styled and its ticks hidden in both
+  editors, where the rendered page (Foundation's markdown) draws all of it as
+  text, and "`a``b`" is two spans here and one there. The empty span was
+  fixed that day; the grammar is the rest. It is one scanner in
+  `MarkdownSourceStyle.runs` and `spans`, and everything that reads them
+  (`MarkerDeletion`, `Insertion`) follows.

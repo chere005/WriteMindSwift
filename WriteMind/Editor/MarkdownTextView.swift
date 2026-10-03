@@ -1235,6 +1235,13 @@ struct MarkdownTextView: NSViewRepresentable {
                !typeOverHeldCells(textView, range: affectedCharRange, replacement: replacementString) {
                 return false
             }
+            // A KEY that would take the line break after an opening fence or
+            // in front of a closing one does nothing (`FenceLines`).
+            if let pane = textView as? PasteAwareTextView, pane.isRunningCommand,
+               pane.selectedRange().length == 0, (replacementString ?? "").isEmpty,
+               FenceLines.takes(affectedCharRange, in: textView.string) {
+                return false
+            }
             return widenedEdit(textView, range: affectedCharRange, replacement: replacementString)
         }
 
@@ -1251,31 +1258,17 @@ struct MarkdownTextView: NSViewRepresentable {
         ///
         /// Only while the markers ARE hidden: with the raw markdown
         /// showing, what is selected is what the eye saw, and half a `**`
-        /// is then a fair thing to delete.
+        /// is then a fair thing to delete. And a key that deletes beside the
+        /// caret takes just that: the pair is completed for a selection only.
         private func widenedEdit(_ tv: NSTextView, range: NSRange,
                                  replacement: String?) -> Bool {
-            guard hiding.isEnabled, range.length > 0,
-                  let replacement, let storage = tv.textStorage else { return true }
-            let ranges = MarkerDeletion.deletions(for: range, in: tv.string)
-            guard ranges != [range] else { return true }
-            let asked = MarkerDeletion.asked(range, in: ranges)
-            let strings = ranges.map { $0 == asked ? replacement : "" }
-            // In order (`shouldChangeText(over:)`): the deletions come back
-            // to front, and "**bo" typed over in "**bold** here" threw
-            // instead of leaving "xld here".
-            guard tv.shouldChangeText(over: zip(ranges, strings).map { ($0, $1) }) else { return false }
-            // Back to front, so an earlier range's location still means
-            // what it meant when it was worked out.
-            storage.beginEditing()
-            for (range, string) in zip(ranges, strings) {
-                storage.replaceCharacters(in: range, with: string)
-            }
-            storage.endEditing()
-            tv.didChangeText()
-            // After whatever went in, not before it.
-            if let last = ranges.last {
-                let typed = last == asked ? (replacement as NSString).length : 0
-                tv.setSelectedRange(NSRange(location: last.location + typed, length: 0))
+            guard hiding.isEnabled else { return true }
+            // A KEY that deletes what is beside the caret takes exactly that
+            // (`MarkerDeletion`): the caret's own line shows every marker,
+            // and the other tick of a pair is not something to take with it.
+            let beside = (tv as? PasteAwareTextView)?.isRunningCommand == true && tv.selectedRange().length == 0
+            guard tv.applyMarkerDeletion(range: range, replacement: replacement, completingPairs: !beside) else {
+                return true
             }
             restyle(tv, force: true)
             return false
@@ -1621,6 +1614,36 @@ class PasteAwareTextView: NSTextView {
     /// pressed at a bar must never edit the cell beside it. A key that
     /// only moves, selects or scrolls then does that (`CellSeams.handsOn`).
     override func doCommand(by selector: Selector) {
+        // A KEYBOARD COMMAND IS RUNNING: what the selection grows into has to
+        // be showing its markers BEFORE the key is pressed, and the two ends
+        // of the selection after it (`paragraphsShowingTheirMarkers`).
+        // Extending a selection is the one move that crosses characters
+        // nobody can see — AppKit takes a run of zero-advance glyphs as one
+        // place, so ⇧→ over a hidden backtick took the newline in front of
+        // it with it, or stopped there, or went back (Sean, 2026-10-03:
+        // "cursor behavior around backticks is very weird"). The neighbours
+        // are shown for this command only: afterwards the paragraphs go back
+        // to the ends' own, so nothing stays open that the caret is not in.
+        let wasRunning = isRunningCommand
+        isRunningCommand = true
+        defer { isRunningCommand = wasRunning }
+        let extending = NSStringFromSelector(selector).hasSuffix("AndModifySelection:")
+        let hiding = extending && armedSeam == nil ? layoutManager?.delegate as? MarkerHiding : nil
+        if let hiding, hiding.isEnabled { reveal(paragraphsShowingTheirMarkers(neighbours: true), in: hiding) }
+        dispatchCommand(selector)
+        if let hiding, hiding.isEnabled { updateHiddenMarkers(hiding) }
+    }
+
+    /// True while `doCommand(by:)` is running: a key moved or deleted, not the
+    /// mouse, not a script, not undo.
+    private(set) var isRunningCommand = false
+    /// What was on screen when the latest SINGLE click began: the paragraphs
+    /// showing their markers, and how long the note was (an edit since makes
+    /// the ranges mean nothing). The second and third click of a multi-click
+    /// are aimed at that layout (`mouseDown`).
+    private var layoutAimedAt: (paragraphs: [NSRange], length: Int)?
+
+    private func dispatchCommand(_ selector: Selector) {
         if let line = standingIn {
             switch DrawingCells.key(command: selector) {
             case .empty:
@@ -1945,9 +1968,39 @@ class PasteAwareTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let hiding = layoutManager?.delegate as? MarkerHiding
+        // THE SECOND CLICK OF A DOUBLE CLICK IS AIMED AT THE TEXT THE FIRST
+        // ONE WAS. A click puts the caret in its line, which shows the line's
+        // markers, which moves every word in it — and the second click, read
+        // against the layout the first left, took the word BEFORE the one
+        // under the pointer, or the backtick: a double click on "bar" in
+        // "`foo` bar" selected "foo", and on the f of "foo" selected the tick
+        // (Sean, 2026-10-03: "cursor behavior around backticks is very
+        // weird"). So the paragraphs that were showing when the first click
+        // began are what is showing for the length of the later ones — which
+        // is what the pointer was aimed at, whether the first click changed
+        // anything or not: a line the caret was already in keeps its markers
+        // (hiding them "again" put every word its markers' width to the left
+        // of the pointer), and a paragraph above that wraps one way with its
+        // markers showing and another without keeps the wrap the pointer saw.
+        // The selection the click makes shows its line afterwards, below.
+        if event.clickCount <= 1 {
+            layoutAimedAt = hiding.map { ($0.revealedParagraphs, textStorage?.length ?? 0) }
+        }
         // A click anywhere in the text puts the insertion bar out.
         armedSeam = nil
         onClick?()
+        if event.clickCount > 1, let hiding, hiding.isEnabled,
+           let aimed = layoutAimedAt, aimed.length == (textStorage?.length ?? 0) {
+            reveal(aimed.paragraphs, in: hiding)
+        }
         super.mouseDown(with: event)
+        // The gesture is over: the ends of what it selected show now — and
+        // a line that shows its markers can wrap differently, which is a
+        // cell editor's height.
+        if let hiding {
+            updateHiddenMarkers(hiding)
+            invalidateIntrinsicContentSize()
+        }
     }
 }
