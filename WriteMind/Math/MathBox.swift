@@ -257,18 +257,31 @@ enum MathBuilder {
         return .row(items, level: WLLevel.sum)
     }
 
-    /// `a*b*c`: set side by side, the way maths is — except where that
-    /// would read as one number (`2*3` is 2 × 3, not 23), and where a sign
-    /// has to say it is a product (`x*2` is x · 2).
+    /// `a*b*c`: set side by side, ON ONE LINE, the way maths is — except
+    /// where that would read as one number (`2*3` is 2 × 3, not 23), and
+    /// where a sign has to say it is a product (`x*2` is x · 2).
+    ///
+    /// AND WITHOUT THE BRACKETS THE TRADITIONAL FORM DOES NOT DRAW (Sean,
+    /// 2026-10-03, on `(-2*x) * (E^-(x^2))` set as "(-2) x" with the e
+    /// below the line: "things multiplied should be on the same line
+    /// horizontally"). A factor that is itself a product is part of this
+    /// one — `a*(b*c)` is a b c, in WL's own FullForm too, where Times
+    /// flattens — and a negation in FRONT of the first factor is the
+    /// product's sign: `(-2*x)*E^(-x^2)` is −2 x e^{−x²}, not (−2x) e^{−x²}.
+    /// What stays in brackets is what the brackets mean: a sum, a fraction
+    /// beside a number (2 (1/3) is not 2⅓), a negation anywhere but in front
+    /// (`x*(-y)`: `x −y` reads as a subtraction), a power's base. The stored
+    /// text is untouched; this is only how it is set.
     private static func product(_ expr: WLExpr) -> MathBox {
-        var factors: [WLExpr] = []
-        var current = expr
-        while case .binary("*", let left, let right) = current {
-            factors.append(right)
-            current = left
+        var factors = Self.factors(of: expr)
+        var signed = false
+        if case .negate(let inner) = factors[0] {
+            signed = true
+            factors = Self.factors(of: inner) + factors.dropFirst()
         }
-        var items = [box(current, atLeast: WLLevel.product)]
-        for factor in factors.reversed() {
+        var items: [MathBox] = signed ? [.glyphs("−", .roman)] : []
+        items.append(box(factors[0], atLeast: WLLevel.product))
+        for factor in factors.dropFirst() {
             let next = box(factor, atLeast: WLLevel.product + 1)
             if let first = next.firstGlyphs?.first, first.isNumber || first == "." {
                 let afterNumber = items.last?.lastGlyphs?.last?.isNumber == true
@@ -278,7 +291,31 @@ enum MathBuilder {
             }
             items.append(next)
         }
-        return .row(items, level: WLLevel.product)
+        // A product with a sign in front is a signed term, as −x is: in a sum
+        // or as a base it is bracketed.
+        return .row(items, level: signed ? WLLevel.sum : WLLevel.product)
+    }
+
+    /// The factors of a product, in order, however it was bracketed:
+    /// `a*b*c`, `a*(b*c)` and `Times[a, Times[b, c]]` are a, b, c. Anything
+    /// else is one factor. Walked with a stack, not by recursion, so a
+    /// product of a thousand factors is a loop.
+    private static func factors(of expr: WLExpr) -> [WLExpr] {
+        var out: [WLExpr] = []
+        var pending = [expr]
+        while let next = pending.popLast() {
+            switch next {
+            case .binary("*", let left, let right):
+                pending.append(right)
+                pending.append(left)
+            case .call(.symbol("Times"), let args) where args.count >= 2 && args[0] != .negate(.number("1")):
+                // (Times[-1, x] is WL's spelling of -x, and is set as the negation it is.)
+                pending.append(contentsOf: args.reversed())
+            default:
+                out.append(next)
+            }
+        }
+        return out
     }
 
     private static func infixRow(_ op: String, _ left: WLExpr, _ right: WLExpr) -> MathBox {

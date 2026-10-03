@@ -1614,6 +1614,41 @@ CoreMind's `bin/report-status.sh`.
   — no xcodebuild, no heavy lock — which is how the layout was tuned: draw
   a contact sheet of formulas into a bitmap through `MathDrawing.draw` and
   look at the PNG.
+  **A PRODUCT IS ONE LINE, AND ITS REDUNDANT BRACKETS ARE NOT DRAWN.**
+  Sean, 2026-10-03, with two screenshots of the Wolfram result
+  `(-2*x) * (E^-(x^2))` set as "(-2) x" with the e and its exponent lower and
+  smaller than the rest: "how is the math being formatted? this is terrible,
+  things multiplied should be on the same line horizontally". That was the old
+  typesetter — a pile of attributed runs with baseline offsets — which is gone:
+  `MathBuilder`'s one tree has every factor of a product in ONE row, and both
+  painters keep it there (`MathLayout` places a row's parts all at y 0 and
+  raises scripts from it; the inline painter gives a factor no offset at all and
+  a script a positive one). `MathProductTests` holds it for products of
+  numbers, letters, function calls, powers with negative and bracketed
+  exponents, fractions, roots and sums in brackets — the full-size runs of
+  every one share one y origin, left to right, and every script is smaller and
+  above it, in two dimensions and in a sentence. **`MathBuilder.product`
+  flattens what a traditional form does not bracket**: a factor that is itself
+  a product is part of this one (`a*(b*c)` is a b c; `Times[a, Times[b, c]]`
+  too, but never WL's `Times[-1, x]`, which is the negation `-x`), and a
+  negation in FRONT of the first factor is the whole product's sign —
+  `(-2*x)*E^(-x^2)` is −2 x e^{−x²}, `(-(a+b))*c` is −(a + b) c. Such a
+  product is a signed term (`WLLevel.sum`, like `-x`), so as a base or as a
+  later term of a sum it is bracketed. **What stays bracketed is what the
+  brackets mean**: a sum; a fraction beside a number (`2 (1/3)` is not 2⅓);
+  a negation anywhere but in front (`x (−y)`: `x −y` is a subtraction); a
+  power's base. Only the DISPLAY is flattened: the printer's one spelling,
+  and so the stored text and "Stored as", keep the user's brackets
+  (`(-2*x)*E^(-x^2)`), because the note must never be changed into a
+  different formula. **EVERY PLACE THAT TYPESETS WL USES THE ONE BUILDER**,
+  and `MathProductTests` reads the sources to hold it: the sentence's `wl:`
+  span (`MarkdownBlocks`), the page's ```wl block (`MarkdownPreview`) and the
+  palette's preview (`MathMenu`) are the only callers, and raised or lowered
+  text is written in `MathTypesetter` alone. **AN OUT CELL IS NOT TYPESET**:
+  `EvalOutput` writes an `out` fence of the plain text the engine printed,
+  monospace everywhere, so that it travels with the note into any other
+  editor; there is no second typesetter on the answer to fix, and setting
+  one is a feature, not a repair.
   **WHAT IS STORED IS PLAIN WL** — `` `wl:…` `` in a sentence, a ```wl
   fence on its own line — in `WLPrinter`'s one spelling (spaces round the
   operators of sum level and below, none round `*` `/` `^`, brackets only

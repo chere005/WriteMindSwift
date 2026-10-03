@@ -197,10 +197,34 @@ integrals".
   expression does not read. The shapes sit below the field; picking one
   writes its expression into the field, shows its parts to fill in, and the
   parts drive the field until the field is typed in (then the parts go: they
-  no longer describe it). A shape wraps what is "the subject" — the
-  selection the palette opened over, or what was typed and reads as maths —
-  in its first part; the next shape REPLACES a shape's own output, it never
-  nests it, so browsing the shapes does not stack them.
+  no longer describe it). **THE FIELD AND THE SHAPES COMPOSE** (Sean's ruling
+  on the review of this change; a shape used to overwrite the field):
+  - A shape with NO PARTS (a Greek letter, a constant, a symbol — about 70 of
+    the buttons) is written INTO the typed text AT THE CARET, with a space
+    before it unless it follows nothing, an opening bracket or a comma, and a
+    space after it always (what keeps the next typed letter from being part
+    of it: `Pir`), and the caret ends after that space — so `2`, π, `r` is
+    `2 Pi r`. A selection inside the field is never written over: it goes in
+    at the END of the selection (the field's editor selects everything when it
+    takes the keyboard). It holds for text that does not read yet.
+  - A shape WITH PARTS wraps the field — what was typed or selected and reads
+    as maths — in its first part. What it wrapped is remembered (the
+    "subject"), so the next shape, and the same one again, wrap it too
+    (`x^2+1`, √, |x| is `Abs[x^2 + 1]`); the next shape REPLACES a shape's own
+    output, it never nests it, so browsing the shapes does not stack them.
+    Typing in the field forgets the subject. Over text that does not read
+    there is nothing to wrap, so the shape goes in at the caret with its own
+    suggestions and nothing typed is lost.
+  - **A slot an operator reaches is bracketed**: wrapping `a + b` in the
+    exponent shape is `(a + b)^2` and in the nth root `(a + b)^(1/3)` — never
+    `a + b^2`, which is another formula — and the same for either side of an
+    equation, the `x` of a limit's `x -> a`, a part typed into a shape's
+    field, and a selection the palette was seeded with. A slot that stands
+    alone between the brackets and commas of an argument list takes its text
+    as it is. The result is written in the canonical spelling, which takes
+    the brackets back where they were not needed (`x` into the exponent is
+    `x^2`). Slots are filled in one pass over the shape's form, so a `#2` the
+    user typed (a pure function `#1 + #2 &`) is never read as the second slot.
 - **A clear error state.** Maths that does not read is never inserted, and
   says why under the field (red text, red outline) with where: brackets are
   checked first and on their own — `Missing "]" — the "[" at position 10 is
@@ -211,7 +235,25 @@ integrals".
   `Abs[x]`. THE INSERTION REFUSES TOO, in every context (at a bar, in a
   block, in a span, over a selection) with the footer line `That maths does
   not read, so nothing was inserted: …`, because the palette is not the only
-  caller. Nothing is written and there is no undo step.
+  caller. Nothing is written and there is no undo step. Two more things are
+  refused the same way, because a note cannot hold them:
+  - **More than one expression.** A new line between two complete
+    expressions OUTSIDE every bracket ends the statement, as in a Wolfram
+    notebook — it is never white space, because white space between two
+    things is a product (`a = 1⏎b = 2` read as `a = ((1·b) = 2)` and was
+    written into the note as that). `Maths holds one expression, and a new
+    line starts a second one (position 7): join them with ";" or insert them
+    one at a time.` An operator left hanging (`a +⏎b`), a `;` between them
+    and anything inside a bracket (`Integrate[⏎…⏎]`, `{1,⏎2}`) is one
+    expression over as many lines as it likes; a line break inside a comment
+    or a string is none. A ```wl block of two statements that is already in
+    a note is shown as typed, with the reason as its tooltip.
+  - **A string the stored form cannot carry.** The WL is stored as text in a
+    code span or a fence: a backtick in a string literal ends the span, and a
+    line break then three backticks closes the fence early. `The string at
+    position 6 has a backtick or a line break in it, and a note cannot keep
+    that — write it another way (a line break is \n).` Only the WRITING is
+    held to it: a note that already holds such a string is still typeset.
 - **What is stored is plain WL, in one spelling:** `` `wl:…` `` in a sentence,
   a ```wl block on its own line. Spaces round `+ - == != < <= > >= -> :> = :=
   && || /; /.` and `.`; none round `* / ^`; `; ` has one after; a comma is
@@ -224,7 +266,8 @@ integrals".
   calls `f[x]` (and `f[x][y]`), `m[[i, j]]` parts, `f'[x]` primes, `n!`
   factorials, `!a` not, `#^2 &` pure functions with `#`, `##`, `#2`, patterns
   `x_` `x__` `_Integer` `x_Real`, `(* comments *)` skipped, and two things
-  side by side as a product (`2 x`). Binding, loosest first: `;` · `=` `:=`
+  side by side on one line as a product (`2 x`; on two lines they are two
+  statements, see above). Binding, loosest first: `;` · `=` `:=`
   (right) · `&` · `/.` · `->` `:>` (right) · `/;` · `||` · `&&` · `!` ·
   relations (`== != === =!= < <= > >=`) · `+ -` · `* /` and juxtaposition ·
   `.` · `^` (right) · `!` and `'` after a thing. **A minus sign is looser
@@ -275,8 +318,28 @@ integrals".
   - A list of lists is a matrix: a grid of cells centred in their columns,
     rows of at least a line's height, in tall parentheses (a ragged one is
     padded; one row is a matrix too); any other list is `{a, b, c}`.
-  - Products: side by side with a small gap, except two numbers (`2*3` is
-    2 × 3, not 23) and a number second (`x*2` is x · 2). A sum is spaced
+  - **Products: every factor on ONE baseline, side by side** with a small
+    gap (a thin space in a sentence), whatever the factor is — a number, a
+    letter, a function call, a power with a negative or bracketed exponent, a
+    fraction, a root, a sum in brackets: the factors share one baseline, the
+    exponents are raised from it and a fraction's bar hangs on the axis of
+    the line (Sean, 2026-10-03, with two screenshots of `(-2*x) * (E^-(x^2))`
+    set as "(-2) x" with the e and its exponent below the line: "how is the
+    math being formatted? this is terrible, things multiplied should be on
+    the same line horizontally" — the old typesetter was a pile of runs with
+    baseline offsets, and it is gone). Two numbers are `2 × 3`, not 23, and a
+    number second is `x · 2`. **The brackets Mathematica's traditional form
+    does not draw are not drawn**: a factor that is itself a product is part
+    of this one (`a*(b*c)` is `a b c`; `Times` flattens, in FullForm too), and
+    a negation in FRONT of the first factor is the product's sign
+    (`(-2*x)*E^(-x^2)` is `−2 x e^{−x²}`, `(-x)*y` is `−x y`,
+    `(-(a+b))*c` is `−(a + b) c`). What stays in brackets is what the
+    brackets mean: a sum (`(a + b) c`), a fraction beside a number (`2 (1/3)`
+    is not 2⅓), a negation anywhere but in front (`x (−y)`: `x −y` reads as a
+    subtraction), a power's base (`(a b)²`, `(−2x)²`), and a product with a
+    sign in front used as a term of a sum (`a + (−2x)`). This is only how it
+    is SET: the stored text keeps the user's brackets
+    (`(-2*x)*E^(-x^2)`). A sum is spaced
     round `+` and `−` (U+2212). Relations: `== != <= >=` are `= ≠ ≤ ≥`, `->`
     is `→`, `:>` `:→`, `&&` `∧`, `||` `∨`, `!` `¬`, `:=` stays `:=`, `.` `·`.
     Anything else is `f(a, b)`; a pattern `x_` is shown as it is written.
@@ -303,8 +366,14 @@ integrals".
   name: `x_`, `x_Integer`, `a_1`), and anything with a word in it.
 - Port note: the parts that are easy to get wrong are the precedence of the
   minus sign, the bracket check coming FIRST (so the message is the plain
-  one), the baseline rule for rows, and fences/roots/big operators being drawn
-  to measure rather than taken from a font's glyph.
+  one), the baseline rule for rows (a product is a row: test that every
+  factor's runs share one y origin, scripts raised from it), the flattening
+  of a product's redundant brackets (display only — the stored text keeps
+  them), a new line being a statement end and never a product, and
+  fences/roots/big operators being drawn to measure rather than taken from a
+  font's glyph. Typeset only what is MATHS: an evaluation's Out cell is the
+  plain text the engine printed, in monospace, and is not set (by
+  `EvalOutput`'s rule: it travels with the note into any other editor).
 
 ### A code block, an evaluation cell or maths always lands as a cell of its own
 Sean, 2026-10-02: "make math and code block insertion sensible..". One rule
