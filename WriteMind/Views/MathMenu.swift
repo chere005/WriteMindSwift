@@ -1,19 +1,31 @@
 import SwiftUI
 
-/// The maths dropdown: pick the shape, fill in its parts, see it set — and
-/// what goes into the note is the Wolfram Language underneath, which is the
-/// canonical form (Sean, 2026-09-18). The WL line is editable, so anything
-/// the palette does not cover can simply be typed.
+/// The maths dropdown: type an expression — any formula or function, in
+/// Wolfram Language — and see it set as you type, or pick a shape and fill
+/// in its parts; either way what goes into the note is the WL underneath,
+/// which is the canonical form (Sean, 2026-09-18).
+///
+/// Sean, 2026-10-03: "maths input should also just allow for an expression
+/// so i could insert a function or something and it would appear like the
+/// derivatives or integrals". The field is first and has the keyboard when
+/// the palette opens; Return inserts, Escape cancels, an expression that
+/// does not read says why under it and cannot be inserted. The shapes are
+/// below it: each writes an expression into the same field. Everything that
+/// can be decided lives in `MathPalette`.
 struct MathMenu: View {
     @EnvironmentObject private var appState: AppState
     @Binding var isPresented: Bool
 
-    @State private var selected: MathTemplate = MathTemplate.all[0]
-    @State private var values: [String] = MathTemplate.all[0].initialValues
-    @State private var wl: String = ""
-    @State private var onItsOwnLine = true
-    /// The selection the palette was opened over, when it reads as maths.
-    @State private var seed: String?
+    @State private var palette = MathPalette()
+    @FocusState private var typing: Bool
+    /// The caret as the field last said it, with the text it said it for: a
+    /// click on a shape may take the keyboard from the field, and the shape
+    /// still goes in where the caret was.
+    @State private var lastSelection: (text: String, range: NSRange)?
+
+    private var expression: Binding<String> {
+        Binding(get: { palette.expression }, set: { palette.type($0) })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -23,6 +35,19 @@ struct MathMenu: View {
                 Text("Wolfram Language").font(.caption).foregroundStyle(.secondary)
             }
 
+            TextField("Expression — Sin[x]^2/(1+x), D[f[x], x], f[x_] := x^2", text: expression)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13, design: .monospaced))
+                .focused($typing)
+                .autocorrectionDisabled()
+                .onSubmit { insert() }
+                .overlay(RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(palette.problem == nil ? Color.clear : Color.red, lineWidth: 1.5))
+
+            preview
+
+            Divider()
+
             // One pane with everything in it, scrolled — not a row of tabs
             // to go hunting through (Sean, 2026-09-18).
             ScrollView {
@@ -31,14 +56,14 @@ struct MathMenu: View {
                     ForEach(MathTemplate.Group.allCases) { group in
                         Section {
                             ForEach(MathTemplate.group(group)) { template in
-                                Button { choose(template) } label: {
+                                Button { pick(template) } label: {
                                     Text(template.glyph)
                                         .font(.system(size: 12, design: .serif))
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.55)
                                         .padding(.horizontal, 3)
                                         .frame(maxWidth: .infinity, minHeight: 24)
-                                        .background(selected.id == template.id
+                                        .background(palette.template?.id == template.id
                                                     ? Color.accentColor.opacity(0.25)
                                                     : Color.primary.opacity(0.06),
                                                     in: RoundedRectangle(cornerRadius: 5))
@@ -58,11 +83,11 @@ struct MathMenu: View {
                 }
                 .padding(.horizontal, 2)
             }
-            .frame(height: 176)
+            .frame(height: 150)
 
-            if !selected.slots.isEmpty {
+            if let template = palette.template, !template.slots.isEmpty {
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
-                    ForEach(Array(selected.slots.enumerated()), id: \.offset) { index, slot in
+                    ForEach(Array(template.slots.enumerated()), id: \.offset) { index, slot in
                         GridRow {
                             Text(slot.label)
                                 .font(.caption)
@@ -71,74 +96,107 @@ struct MathMenu: View {
                             TextField(slot.initial, text: value(index))
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(size: 12, design: .monospaced))
+                                .autocorrectionDisabled()
+                                .onSubmit { insert() }
                         }
                     }
                 }
             }
 
-            TextField("Wolfram Language", text: $wl, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12, design: .monospaced))
-                .lineLimit(1...3)
-
-            MathView(source: wl, size: 22)
-                .frame(maxWidth: .infinity, minHeight: 52)
-                .padding(8)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.1)))
-
             HStack {
-                Toggle("On its own line", isOn: $onItsOwnLine)
+                Toggle("On its own line", isOn: $palette.onItsOwnLine)
                     .toggleStyle(.checkbox)
                     .help("A ```wl block, set large. Off puts it inline in the sentence.")
                 Spacer()
                 Button("Insert") { insert() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(wl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!palette.canInsert)
             }
         }
         .padding(16)
         .frame(width: 420)
-        .onAppear { start() }
+        .onExitCommand { isPresented = false }
+        .onAppear {
+            palette.start(seed: appState.editor.mathsSeed())
+            // A turn later: the popover's window is not key yet, and focus
+            // asked for in the same breath is not given.
+            DispatchQueue.main.async { typing = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSTextView.didChangeSelectionNotification)) { note in
+            if let editor = note.object as? NSTextView, editor.isFieldEditor, editor.string == palette.expression {
+                lastSelection = (editor.string, editor.selectedRange())
+            }
+        }
+    }
+
+    /// A shape picked: it composes with what is in the field at the caret
+    /// (`MathPalette.choose`), the keyboard goes back to the field and the
+    /// caret to after what was written — so typing goes on.
+    private func pick(_ shape: MathTemplate) {
+        let text = palette.expression
+        let live = MathFieldCaret.selection(holding: text, in: NSApp.keyWindow)
+        let remembered = lastSelection.flatMap { $0.text == text ? $0.range : nil }
+        palette.choose(shape, selection: live ?? remembered)
+        typing = true
+        if let caret = palette.caret { MathFieldCaret.settle(caret, holding: palette.expression) }
+    }
+
+    /// WHAT WILL BE INSERTED, set the way it will be set: two-dimensional on
+    /// a line of its own, in the line of type when it goes in a sentence —
+    /// or, when the expression does not read, why not.
+    @ViewBuilder
+    private var preview: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Group {
+                switch palette.reading {
+                case .empty:
+                    Text("Type an expression, or pick a shape below. It is set here as you type.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 52, alignment: .center)
+                case .maths(let canonical):
+                    Group {
+                        if palette.onItsOwnLine {
+                            MathView(source: canonical, size: 22)
+                        } else if let line = MathTypesetter.inline(canonical, size: 16) {
+                            Text(line)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .center)
+                case .broken(let error):
+                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(Color.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                }
+            }
+            .padding(8)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.1)))
+
+            if let stored = palette.storedAs {
+                Text("Stored as \(stored)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
     }
 
     private func value(_ index: Int) -> Binding<String> {
         Binding(
-            get: { index < values.count ? values[index] : "" },
-            set: { typed in
-                guard index < values.count else { return }
-                values[index] = typed
-                rebuild()
-            })
+            get: { palette.values.indices.contains(index) ? palette.values[index] : "" },
+            set: { palette.setValue($0, at: index) })
     }
 
-    private func choose(_ template: MathTemplate) {
-        selected = template
-        values = template.values(seed: seed)
-        rebuild()
-    }
-
-    /// OPENED OVER A SELECTION THAT READS AS MATHS, the palette starts from
-    /// it (Sean, 2026-10-02: "make math and code block insertion
-    /// sensible.."): the WL is the selection, so Insert sets exactly what
-    /// was selected, in the sentence when it sits in one; and a shape
-    /// picked afterwards takes it into its first slot. It used to start
-    /// from the first shape whatever was selected, and Insert replaced the
-    /// selection with that.
-    private func start() {
-        guard let found = appState.editor.mathsSeed() else { return rebuild() }
-        seed = found.wl
-        onItsOwnLine = !found.inline
-        values = selected.values(seed: found.wl)
-        wl = found.wl
-    }
-
-    /// The fields drive the WL, until the WL itself is edited — then that is
-    /// what gets inserted.
-    private func rebuild() { wl = selected.wl(values) }
-
+    /// Return and the Insert button: the expression through `Insertion`,
+    /// which is what puts it where the caret is. Never broken maths — the
+    /// field already says why — and never twice for one press.
     private func insert() {
-        appState.editor.insertMath(wl, display: onItsOwnLine)
+        guard isPresented else { return }
+        guard case .maths(let wl, let display)? = palette.insertion else { NSSound.beep(); return }
+        appState.editor.insertMath(wl, display: display)
         isPresented = false
     }
 }

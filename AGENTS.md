@@ -1454,6 +1454,223 @@ CoreMind's `bin/report-status.sh`.
   (`replacing:` a selection, the spacing read off the note as it is).
   The map of what each command did before, context by context in both
   panes, is in the commit that made this.
+- **MATHS IS AN EXPRESSION, AND ONE TYPESETTER SETS IT.** Sean, 2026-10-03:
+  "maths input should also just allow for an expression so i could insert
+  a function or something and it would appear like the derivatives or
+  integrals". The maths palette (`Views/MathMenu.swift`, state in the pure
+  `Math/MathPalette.swift`) opens on a FREE FIELD with the keyboard in it,
+  not on a shape: type any WL — `Sin[x]^2/(1+x)`, `f[x_] := x^2`,
+  `Integrate[Exp[-x^2], {x, -Infinity, Infinity}]`, `{{1,2},{3,4}}`,
+  `Alpha + Pi*Theta` — and the preview under it sets it AS IT WILL BE SET
+  (two-dimensional when "On its own line", the line of type of a sentence
+  when not), with "Stored as …" when the note will hold a different
+  spelling. RETURN INSERTS, ESCAPE CANCELS (`onExitCommand`, and the
+  popover's own). **Broken maths is never inserted**: the field says why in
+  red (`MathMarkup.read`, over `WLParser.read`, returns the reason and
+  where — "Missing "]" — the "[" at position 10 is never closed", brackets
+  checked first and on their own, then "Expected an expression after "+"",
+  an unterminated string or comment, "|x|" with the hint that WL writes
+  Abs[x]) and Insert and Return refuse (a beep) — and `Insertion` refuses
+  too (`Refusal.mathsDoesNotParse`, said in the footer, in every context:
+  bar, block, span, selection), because the palette is not the only caller.
+  **TWO MORE THINGS A NOTE CANNOT HOLD ARE REFUSED THE SAME WAY** (the
+  review of 2026-10-03, and Sean's rulings on it). (1) *More than one
+  expression.* A new line between two complete expressions OUTSIDE every
+  bracket ends the statement, as in a Wolfram notebook — it is never white
+  space, because white space between two things is a product: `a = 1⏎b = 2`
+  read as `a = ((1·b) = 2)`, was set as "a = 1b = 2" and was written into the
+  note as that, a different formula from the one typed. Now it is "Maths
+  holds one expression, and a new line starts a second one (position N):
+  join them with ";" or insert them one at a time." (`Token.lineBreakBefore`,
+  set by the lexer from white space only — a line break inside a comment or a
+  string is none — and read by the parser where an expression is complete
+  and the next token is on a new line with no bracket open: that is also
+  `a⏎+ b`, which WL reads as two statements). An operator left hanging
+  (`a +⏎b`), a `;` between, and anything inside a bracket (`Integrate[⏎…⏎]`,
+  `{1,⏎2}`, `m[[1,⏎2]]`) is one expression over as many lines as it likes.
+  A hand-written ```wl block of two statements is therefore shown as typed,
+  with the reason as its tooltip, like any maths that does not read.
+  (2) *A string a note cannot carry.* The WL is stored as TEXT, in a code
+  span or a fence: a backtick in a string ends the span, and a line break
+  then ``` closes the fence early (a blank line ends the span's paragraph).
+  `MathMarkup.read` refuses a string literal with a backtick or a line break
+  in it — "The string at position N has a backtick or a line break in it, and
+  a note cannot keep that — write it another way (a line break is \n)" — and
+  it is the ONE reader the palette and `Insertion` both use, so nothing
+  reaches the note unescaped. It is only the WRITING that is held to it:
+  `WLParser.read`, which typesets what a note already holds, still reads such
+  a string, so a note that has one is not suddenly shown as source.
+  The shapes are below the field and each WRITES AN EXPRESSION INTO IT
+  (`MathPalette.choose`) — **AND THE FIELD AND THE SHAPES COMPOSE**, Sean's
+  ruling on the review (before it a shape overwrote the field: `2`, π, `r`
+  could not make `2 Pi r`, and a formula typed was gone with the next
+  shape). A shape with NO PARTS (a Greek letter, a constant, a symbol) is
+  written INTO what is typed AT THE CARET, with a space either side where it
+  would run into its neighbour (`2`, π, then `r` is `2 Pi r`: the space after
+  is what keeps the next typed letter from being `Pir`) and the caret after
+  it; this holds for text that does not read yet, which is what a half-typed
+  formula is. A shape WITH PARTS wraps the field in its first part — what was
+  typed or selected and reads as maths — and the next shape REPLACES the
+  previous shape's output, never nests it; what was wrapped is remembered
+  (`MathPalette.subject`, the selection the palette opened over or the typed
+  maths the first shape took) so the next shape, and the same one twice, wrap
+  it too — the first cut forgot it after one shape, and `x^2+1`, √, |x| came
+  out `Abs[x]`. Typing in the field forgets it, and lets the shape go (its
+  parts no longer describe the text). Over text that does not read there is
+  nothing to wrap: the shape is written in at the caret with its own
+  suggestions and nothing typed is lost. **THE SELECTION IN THE FIELD IS
+  NEVER WRITTEN OVER** (`MathPalette.writing`): the field's editor selects
+  all of its text when it takes the keyboard, so a click on a symbol would
+  have thrown away what the palette was seeded with; it goes in at the END of
+  the selection. The caret comes from the field's editor (`Views/
+  MathFieldCaret.swift`: a `TextField` has no selection to bind on macOS 14),
+  only when that editor holds EXACTLY the palette's text — a part field's
+  editor or the note's own text view is never taken for it — and is put back
+  after the write by retrying a few times (the write reaches the editor a
+  turn or two late); the view remembers the last selection the editor
+  announced, in case a click on a shape takes the keyboard from the field.
+  **A SLOT AN OPERATOR REACHES IS BRACKETED** (`MathTemplate.wl`): a slot
+  standing alone between the brackets and commas of an argument list takes
+  its text as it is; any other (the base of `#1^#2`, either side of
+  `#1 == #2`, the `x` of `x -> 0`) goes in as `(text)` and the whole is
+  written in the canonical spelling, which takes back the brackets that were
+  not needed — `a + b` into the exponent is `(a + b)^2` and not `a + b^2`
+  (found in review: the palette wrote another formula, with no warning, from
+  a selection and from typed text alike), and `x` is `x^2`. It holds for a
+  part typed into a shape's field too. Slots are filled in ONE pass over the
+  form, because replacing `#1` and then `#2` would read a `#2` of the user's
+  own (a pure function `#1 + #2 &` typed into a slot) as the second slot.
+  SEEDED FROM A
+  SELECTION as before (`MathSelection`), which now also reads `=`, `:=`,
+  `n!`, `x²`, `f'[x]`, `#^2 &` as maths — and still refuses `f(x) = 2x`
+  (a name with a bracket right after it is function notation WL does not
+  write: it would parse as f times x), an apostrophe that is not a prime
+  (`I'm`), `#hashtag` and `snake_case` (a pattern reads as maths only with
+  a one-letter name).
+  **THE PARSER READS WHAT A FORMULA IS WRITTEN WITH** (`Math/WLParser.swift`;
+  `WLExpr` gained `prefix`, `postfix`, `part`, `blank`): arithmetic with
+  WL's precedence on the one `WLLevel` scale (sequence `;`, `=` `:=`,
+  `&`, `/.`, `->` `:>`, `/;`, `||`, `&&`, `!`, relations, sum, product
+  with two things side by side, `.`, `^`, factorial and primes), patterns
+  `x_` `x__` `_Integer`, `m[[i, j]]`, `f'[x]`, `n!`, `#^2 &`, comments,
+  `\[Name]`; typography put back (`−`, `×`, `÷`, `≤`, `→`, `∞`, `°`,
+  superscript digits, “curly” quotes — a TextField's smart quotes would
+  otherwise have made `Direction -> “FromAbove”` unreadable). **`-x^2` IS
+  -(x^2)**: unary minus parses its operand at the product level, or at the
+  caller's own level inside an exponent (`2^-x*3` is `(2^-x)*3`); before,
+  `Exp[-x^2]` — the palette's own improper integral — was stored as
+  `Exp[(-x)^2]`. A negation as a factor keeps its brackets in the printer
+  (`(-a)*b`), which is what makes `parse(print(tree)) == tree` hold for
+  every tree: `WLExpressionTests` checks it on 3,000 random ones and 4,000
+  random strings. LIMITS: 2,000 tokens and 300 levels of nesting are
+  refused with a message (the recursion that sets them is the app's to
+  survive); sums, products and chains of one operator are walked down the
+  left of the tree in a loop.
+  **ONE DECISION, TWO PAINTERS** (`Math/MathBox.swift`): `MathBuilder`
+  turns an expression into a `MathBox` tree — glyph runs, rows with the
+  `WLLevel` of the whole, fractions, scripts, radicals, fences, big
+  operators with limits above/below or beside, matrices, and `choice` for
+  the one part set differently in a sentence (a binomial is Cⁿₖ there) —
+  and EVERYTHING that is typeset goes through it: a palette shape is just
+  an expression it already knows (`Integrate`, `Sum`, `Product`, `Limit`
+  with its direction, `D` in all its forms, `Dt`, `Grad`…, `Sqrt`, `Abs`,
+  `Binomial`, `Subscript`, FullForm `Plus`/`Times`/`Power`/`Divide`/
+  `Rational`/`Equal`/`And`…), anything else is a function applied, `f(x)`.
+  `Sin[x]^2` is sin²(x), `2*3` is 2 × 3 and `x*2` is x · 2 (two numbers
+  side by side read as one), capital Greek is upright, bare `Alpha`/`Theta`
+  are α/θ (`MathSymbols.letters`), `Sum[f, {i, n}]` runs from 1, several
+  iterators make several signs, and a multiple integral's differentials
+  are innermost-first (`dy dx` for `{x…}, {y…}`, WL's order — it was
+  `dx dy`). `MathTypesetter.paint` writes the box on one line (inline
+  `wl:` spans: fractions as `a/b` with brackets by level, scripts as
+  raised and lowered text whose offsets ADD when nested);
+  **`MathLayout` sets it in two dimensions as a typesetter**, not a pile
+  of stacks (`x + a/b` came out with the `x +` level with the numerator
+  top): every part has a width, an ascent and a descent measured from the
+  ink CoreText says it has (`MathFonts.measure`: an italic f leans over
+  the next glyph, so the advance is where the ink stops), a row shares one
+  baseline, a fraction's bar hangs on the axis (0.25 em, where the cross of
+  `+` is) with the denominator's baseline fixed for denominators of
+  ordinary height, a script is raised by how tall its base is, a fence is
+  drawn to the height of its content centred on the axis (a crescent for
+  `(`, bars and arms for the rest), ∑ ∏ lim carry their limits centred over
+  and under, ∫'s limits go beside it, a matrix is a grid of centred cells.
+  Nothing is set under 5 pt (`MathLayout.smallest`). It paints from its
+  own numbers — text as CoreText lines, the rest as ONE filled path —
+  through `MathDrawing.draw(in:origin:color:yDown:)`. **A SWIFTUI CANVAS'S
+  CGCONTEXT IS Y-DOWN AND ITS MATRIX IS THE IDENTITY, SO THE MATRIX CANNOT
+  SAY SO.** The first cut read `ctm.d < 0` to decide whether to flip, and every
+  formula on a line of its own was painted UPSIDE DOWN, hanging below its
+  baseline and cut off by the bottom edge (found 2026-10-03 by looking at the
+  bitmap: a CG rect filled at y 0 lands on the TOP edge in an `ImageRenderer`
+  bitmap, in its PDF, and in a window on screen, with `ctm` the identity in
+  every one). So `MathCanvas` says `yDown: true`; with nothing said the matrix
+  is read, which is right for a flipped `NSView` and for the plain bitmap the
+  contact sheets are drawn into. The checks that were meant to catch it
+  could not: a T hanging below its baseline and cut off still has its wide
+  serif "at the top" of what is left. `MathLayoutTests` now asks that the
+  WHOLE of the T is on the page with room round it, in a bitmap and in a PDF,
+  that a heavy numerator is over a thin denominator, and that `draw` believes
+  the caller over the matrix; `MathProductTests` measures where the foot of
+  the ink is from the bottom of the picture. Do not take "the glyph is at the
+  top" for "the right way up";
+  `MathView` is a `Canvas` over it (the colour is
+  `Color.primary.resolve(in: context.environment)`, so dark mode and the
+  white PDF paper both follow the environment), cached by size and source
+  (`MathDrawingCache`), in a `ViewThatFits` that falls back to a sideways
+  scroll for a line too wide for the page. `MathLayoutTests` says where
+  things are in points and renders through `ImageRenderer` (the PDF
+  export's renderer) to check it paints, the right way up, in both
+  appearances. Traps: `CGPath.boundingBox` counts CONTROL POINTS (use
+  `boundingBoxOfPath`); a miter join on the root's sharp foot spikes below
+  the line (round join). The pure Math files (WLExpression, WLParser,
+  MathSymbols, MathBox, MathLayout) compile with `swiftc` and a `main.swift`
+  — no xcodebuild, no heavy lock — which is how the layout was tuned: draw
+  a contact sheet of formulas into a bitmap through `MathDrawing.draw` and
+  look at the PNG.
+  **A PRODUCT IS ONE LINE, AND ITS REDUNDANT BRACKETS ARE NOT DRAWN.**
+  Sean, 2026-10-03, with two screenshots of the Wolfram result
+  `(-2*x) * (E^-(x^2))` set as "(-2) x" with the e and its exponent lower and
+  smaller than the rest: "how is the math being formatted? this is terrible,
+  things multiplied should be on the same line horizontally". That was the old
+  typesetter — a pile of attributed runs with baseline offsets — which is gone:
+  `MathBuilder`'s one tree has every factor of a product in ONE row, and both
+  painters keep it there (`MathLayout` places a row's parts all at y 0 and
+  raises scripts from it; the inline painter gives a factor no offset at all and
+  a script a positive one). `MathProductTests` holds it for products of
+  numbers, letters, function calls, powers with negative and bracketed
+  exponents, fractions, roots and sums in brackets — the full-size runs of
+  every one share one y origin, left to right, and every script is smaller and
+  above it, in two dimensions and in a sentence. **`MathBuilder.product`
+  flattens what a traditional form does not bracket**: a factor that is itself
+  a product is part of this one (`a*(b*c)` is a b c; `Times[a, Times[b, c]]`
+  too, but never WL's `Times[-1, x]`, which is the negation `-x`), and a
+  negation in FRONT of the first factor is the whole product's sign —
+  `(-2*x)*E^(-x^2)` is −2 x e^{−x²}, `(-(a+b))*c` is −(a + b) c. Such a
+  product is a signed term (`WLLevel.sum`, like `-x`), so as a base or as a
+  later term of a sum it is bracketed. **What stays bracketed is what the
+  brackets mean**: a sum; a fraction beside a number (`2 (1/3)` is not 2⅓);
+  a negation anywhere but in front (`x (−y)`: `x −y` is a subtraction); a
+  power's base. Only the DISPLAY is flattened: the printer's one spelling,
+  and so the stored text and "Stored as", keep the user's brackets
+  (`(-2*x)*E^(-x^2)`), because the note must never be changed into a
+  different formula. **EVERY PLACE THAT TYPESETS WL USES THE ONE BUILDER**,
+  and `MathProductTests` reads the sources to hold it: the sentence's `wl:`
+  span (`MarkdownBlocks`), the page's ```wl block (`MarkdownPreview`) and the
+  palette's preview (`MathMenu`) are the only callers, and raised or lowered
+  text is written in `MathTypesetter` alone. **AN OUT CELL IS NOT TYPESET**:
+  `EvalOutput` writes an `out` fence of the plain text the engine printed,
+  monospace everywhere, so that it travels with the note into any other
+  editor; there is no second typesetter on the answer to fix, and setting
+  one is a feature, not a repair.
+  **WHAT IS STORED IS PLAIN WL** — `` `wl:…` `` in a sentence, a ```wl
+  fence on its own line — in `WLPrinter`'s one spelling (spaces round the
+  operators of sum level and below, none round `*` `/` `^`, brackets only
+  where needed), and CLICKING BACK INTO A RENDERED EXPRESSION IS THE
+  GENERIC CELL OPEN: a ```wl cell opens as its WL with the fences put
+  round it, the caret at the end where it landed; a sentence opens whole,
+  `wl:` span and all. Nothing here has a path of its own, and
+  `ExpressionInsertionTests` holds both.
 - **Arming is a reading of where the caret is, not a mode a click turns
   on.** `CellSeams.arm` answers it from the selection alone, and
   `textViewDidChangeSelection` is the only place the markdown pane sets
@@ -2387,17 +2604,34 @@ WriteMind/
   Editor/MarkdownSpans.swift
                           <span style> on the selection, and ⌘D's search
   Math/WLExpression.swift Wolfram Language — the canonical form maths is kept
-                          in (Sean, 2026-09-18). WLParser reads it, WLPrinter
+                          in (Sean, 2026-09-18): the tree (WLExpr), the scale
+                          of binding strength (WLLevel) and WLPrinter, which
                           writes it back in one spelling
+  Math/WLParser.swift     reads a formula — operators, patterns, parts,
+                          primes, factorials, pure functions — or says why
+                          not and where (WLSyntaxError); brackets first
+  Math/MathSymbols.swift  the glyph tables (Pi → π, \[Alpha] → α, Alpha → α,
+                          Sin → sin)
+  Math/MathBox.swift      the typesetter's DECISION: MathBox, a tree of typeset
+                          parts, and MathBuilder, the one place an expression
+                          becomes one — palette shapes and typed formulas alike
   Math/MathTypesetter.swift
-                          the glyph tables (Pi → π, \[Alpha] → α, Sin → sin)
-                          and inline maths as an AttributedString with real
-                          raised and lowered scripts
-  Math/MathView.swift     maths on its own line, in two dimensions: stacked
-                          fractions, ∑ with its bounds, √ with its roof
+                          the box on one line (an AttributedString with real
+                          raised and lowered scripts) for maths in a sentence;
+                          MathMarkup, how maths is spelled in a note and
+                          what a note can hold (`read`)
+  Math/MathLayout.swift   the box in two dimensions: measured with CoreText,
+                          one baseline per row, the fraction bar on the axis,
+                          fences to the height of their content; MathDrawing
+                          paints itself into any CGContext
+  Math/MathView.swift     maths on its own line: a Canvas over MathLayout's
+                          drawing, cached, sideways-scrolling when too wide
+  Math/MathPalette.swift  what the palette holds, as a value: the free field,
+                          the shape picked and its parts, whether it reads
   Math/MathTemplates.swift
-                          the palette — every entry writes WL with #1, #2 …
-                          filled in from its fields
+                          the palette's shapes — every entry writes WL with
+                          #1, #2 … filled in from its fields, bracketed where
+                          an operator reaches a slot
   Math/MathSelection.swift
                           whether a selection reads as maths (the palette
                           opens with it) and whether maths still holds it
@@ -2437,9 +2671,13 @@ WriteMind/
                           wheel walks along the row a tab at a time, the +
                           tab at the end is New Note, and the button on the
                           right lists everything open (Sean, 2026-09-18)
-  Views/MathMenu.swift    the maths dropdown: one scrolling pane of shapes,
-                          the fields for the one picked, the WL it writes
-                          (editable), and how it will be set
+  Views/MathMenu.swift    the maths dropdown: the expression field (Return
+                          inserts, Esc cancels), the preview or the reason
+                          it does not read, the shapes, the parts of the one
+                          picked, and how it will be set
+  Views/MathFieldCaret.swift
+                          the expression field's caret, read off and put back
+                          on its editor so a shape composes at it
   Views/SidebarView.swift the tree, flattened to the rows that show; the
                           video toggle, edit mode (duplicate and trash on
                           every row — the trash arms red on one click and

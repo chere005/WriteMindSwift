@@ -425,24 +425,55 @@ is how the code is put together.
   older version as the hidden `.drawings` is moved there when it is opened); a
   note's own copies go with it when it moves and go
   when it does.
-- **Maths, written as Wolfram Language.** The `f(x)` button opens a pane of
-  shapes — integrals with their bounds (single, double and contour), sums
-  and infinite series, Taylor series, limits including one-sided ones,
-  ordinary, partial and mixed derivatives, grad, div, curl and the
-  Laplacian, exponents, roots, fractions, matrices, the trigonometric and
-  hyperbolic functions, π, e, ∞, ℝ ℤ ℚ ℂ, ± ≈ ≡ ∝ ∀ ∃ ⇒ ⇔ ∴ ⊥ ∠ and the
-  Greek alphabet.
-  Fill in the parts, watch it set, and insert it inline or on its own line.
+- **Maths, written as Wolfram Language — type any expression.** The `f(x)`
+  button opens the maths pane with the keyboard in an **expression field**:
+  type a formula or a function — `Sin[x]^2/(1+x)`, `Sqrt[a^2+b^2]`,
+  `Integrate[Exp[-x^2], {x, -Infinity, Infinity}]`, `D[f[x], x]`,
+  `Sum[1/n^2, {n, 1, Infinity}]`, `f[x_] := x^2`, `Limit[Sin[x]/x, x -> 0]`,
+  `{{1,2},{3,4}}`, `Alpha + Pi*Theta`, plain `a^2 * b + c - d/e` — and it is
+  set as you type, in the same two-dimensional typesetting as the derivatives
+  and integrals: things multiplied side by side on one line (`−2 x e^{−x²}`,
+  with no brackets round a factor that is only a product or a sign), stacked
+  fractions on the axis of the `+` beside them,
+  powers (and `sin²(x)`), roots with their roof, brackets as tall as what
+  they hold, ∑ ∏ lim with their limits over and under, ∫ with its limits
+  beside it, derivatives in every form, matrices, `f(x)` for any function
+  applied, Greek spelled out (`Alpha`, `Theta`, `Pi`). **Return inserts,
+  Escape cancels.** An expression that does not read — a bracket never
+  closed, an operator with nothing after it, two statements on two lines
+  (they would otherwise be multiplied), a string with a backtick or a line
+  break that no note could keep — says why under the field, in red, with
+  where, and cannot be inserted: nothing broken is ever written into a
+  note. Under the preview, "Stored as …" shows the spelling the note
+  will hold when it differs from what was typed. The preview follows "On its
+  own line": set large for a line of its own, in the line of type when it
+  goes in a sentence.
+  Below the field are the **shapes** — integrals with their bounds (single,
+  double and contour), sums and infinite series, Taylor series, limits
+  including one-sided ones, ordinary, partial and mixed derivatives, grad,
+  div, curl and the Laplacian, exponents, roots, fractions, matrices, the
+  trigonometric and hyperbolic functions, π, e, ∞, ℝ ℤ ℚ ℂ, ± ≈ ≡ ∝ ∀ ∃ ⇒ ⇔
+  ∴ ⊥ ∠ and the Greek alphabet. A shape writes an expression into the same
+  field (fill in its parts and watch it set), and the field and the shapes
+  compose: a symbol or a Greek letter goes into what you typed at the caret
+  (`2`, π, `r` is `2 Pi r`) and typing goes on after it; a shape with parts
+  wraps what you typed or selected in its first part, in brackets where the
+  shape's operator needs them (`a + b` into Exponent is `(a + b)^2`, not
+  `a + b^2`), and the next shape replaces it rather than nesting it —
+  wrapping the same text again.
   What the note holds is the WL — `Integrate[x^2, {x, 0, 1}]` — in a code
-  span or a ```wl block, so the file is still plain markdown; the preview
-  typesets it. Open it over a selection that reads as maths — `x^2 + 1` —
+  span or a ```wl block, so the file is still plain markdown, in one
+  spelling (`Sin[x]^2/(1+x)` is kept as `Sin[x]^2/(1 + x)`); the preview
+  typesets it, and clicking a typeset formula opens its WL to edit. Open the
+  pane over a selection that reads as maths — `x^2 + 1`, `f[x_] := x^2` —
   and it starts from that: Insert sets exactly the selection, in the
   sentence when it sits in one, and a shape picked first wraps it (√ of
   it). Selected words are never thrown away; the maths goes after them.
   A line taken with a triple-click counts. Inside a maths block — or a
   Wolfram cell, or inline maths — what the palette writes goes in as plain
   WL where the caret is, which is how a Greek letter or a ∑ is added to
-  maths already there; inside `code` inline maths is refused.
+  maths already there; inside `code` inline maths is refused. One undo
+  takes an inserted expression back and the caret ends after it.
 - **Any camera the Mac can see.** The **Input Devices** menu in the menu bar
   lists built-in, USB, Continuity Camera and Desk View devices with a
   checkmark on the live one; plugging one in refreshes the list. The

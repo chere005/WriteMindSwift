@@ -98,6 +98,22 @@ final class MathMarkupTests: XCTestCase {
         XCTAssertNil(MathMarkup.expression(inCode: "wl:"))
     }
 
+    func testAStringThatNoMarkdownFormCanCarryIsRefusedWithAMessage() {
+        for source in ["Text[\"a`b\"]", "Text[\"line\none\"]", "\"```\"", "{\"ok\", \"a`b\"}", "Text[“a`b”]"] {
+            guard case .failure(let error) = MathMarkup.read(source) else { return XCTFail("read: \(source.debugDescription)") }
+            XCTAssertTrue(error.message.contains("backtick"), error.message)
+            XCTAssertTrue((0..<source.count).contains(error.offset), "at the string: \(error)")
+        }
+        // The note's own text is another matter: a block a person wrote with a backtick in a string still
+        // typesets — only what the palette would WRITE is held to what a note can keep.
+        XCTAssertNotNil(WLParser.parse("Text[\"a`b\"]"))
+        XCTAssertNotNil(MathTypesetter.inline("Text[\"a`b\"]"))
+        // Fine: no backtick, no line break, a backslash-n typed as two characters, an apostrophe.
+        for source in ["Text[\"a b\"]", "Text[\"a\\nb\"]", "Text[\"it's\"]", "x + 1"] {
+            guard case .success = MathMarkup.read(source) else { return XCTFail("refused: \(source)") }
+        }
+    }
+
     func testTypesettingGivesUpOnWhatIsNotAnExpression() {
         XCTAssertNil(MathTypesetter.inline("Integrate["))
         XCTAssertNotNil(MathTypesetter.inline("Integrate[x^2, {x, 0, 1}]"))
