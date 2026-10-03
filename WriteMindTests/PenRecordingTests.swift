@@ -303,12 +303,19 @@ final class PenReplayTests: XCTestCase {
     /// With the switch off, or a real tablet plugged in, a replay is not
     /// heard: it is a source like the virtual tablet.
     func testAReplayIsNotHeardWithTheSwitchOffOrARealTabletPluggedIn() {
+        // The control: with the switch on and no real tablet, the same replay is heard.
+        let (heardRig, heard) = replay()
+        heard.play(speed: PenReplay.asFastAsPossible)
+        heardRig.clock.advance(by: 1)
+        XCTAssertEqual(heardRig.phases, [.hover, .down, .up])
+
         for policy in [TabletSourcePolicy(developerOn: false, realConnected: false),
                        TabletSourcePolicy(developerOn: true, realConnected: true)] {
             let (rig, replay) = replay()
             rig.input.policy = policy
             replay.play(speed: PenReplay.asFastAsPossible)
             rig.clock.advance(by: 1)
+            XCTAssertEqual(replay.state, .finished, "it ran to the end all the same: \(policy)")
             XCTAssertEqual(rig.samples, [], "\(policy)")
         }
     }
@@ -482,7 +489,9 @@ final class PenFixtureReplayTests: XCTestCase {
 
     /// The pace of the waiting changes nothing about what is written.
     func testTheSameStrokeAtEverySpeed() throws {
-        let reference = try replayed("stroke").page.strokes.first?.points
+        let reference = try XCTUnwrap(try replayed("stroke").page.strokes.first?.points,
+                                      "the reference replay writes a stroke — or nothing is compared with nothing")
+        XCTAssertEqual(reference.count, PenFixtures.line.count)
         for speed in [0.5, 1, 4, 16] {
             let rig = try replayed("stroke", speed: speed)
             XCTAssertEqual(rig.page.strokes.first?.points, reference, "at \(speed)×")
@@ -512,12 +521,16 @@ final class PenFixtureReplayTests: XCTestCase {
         XCTAssertEqual(rig.page.strokes.count, 1, "one ⌘Z brings it back")
     }
 
+    /// What is asserted is what the replay decides — the stroke is in the note
+    /// and the eraser's path takes it, by the layer's own touching rule
+    /// (`DrawingCanvas.strokesTouched`). How the LAYER makes an erasure one
+    /// step back is `TabletEraseLayerTests`' (the rig's `RigNotes` only
+    /// stands in for it, so a step count asserted here would test the stand-in).
     func testTheLowerHoldEraseTakesTheNotesStrokeToo() throws {
         let rig = try replayed("lower-hold-erase", target: .notebook, notes: true)
         XCTAssertEqual(rig.notes?.strokes, [])
-        XCTAssertEqual(rig.notes?.store.drawingSteps, 2)
-        XCTAssertEqual(rig.notes?.store.undoDrawing(), true)
-        XCTAssertEqual(rig.notes?.strokes.count, 1)
+        let drawn = try replayed("stroke", target: .notebook, notes: true)
+        XCTAssertEqual(drawn.notes?.strokes.count, 1, "the same replay minus the eraser leaves its stroke")
     }
 
     func testTheDoublePressUndoesTheStroke() throws {
@@ -558,6 +571,9 @@ final class PenFixtureReplayTests: XCTestCase {
         for speed in [1.0, 16.0, PenReplay.asFastAsPossible] {
             let rig = try replayed("double-press-undo", speed: speed)
             XCTAssertEqual(rig.page.strokes, [], "\(speed)×")
+            // Undone, not never written: the stroke was drawn and the command took it back.
+            XCTAssertTrue(rig.page.canRedo, "\(speed)×: the stroke is a step to redo")
+            XCTAssertEqual(rig.samples.filter { $0.phase == .click(.lower) }.count, 1, "\(speed)×")
         }
     }
 }

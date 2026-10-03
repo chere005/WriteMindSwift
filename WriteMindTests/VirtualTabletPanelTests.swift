@@ -255,21 +255,40 @@ final class VirtualTabletPanelTests: XCTestCase {
                        "the pad is the tablet's turned shape, one quarter turn clockwise")
         let rep = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
-        XCTAssertGreaterThan(rep.pixelsWide, 0)
+        var colours = Set<String>()
+        for x in stride(from: 0, to: rep.pixelsWide, by: 3) {
+            for y in stride(from: 0, to: rep.pixelsHigh, by: 3) {
+                if let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) {
+                    colours.insert(String(format: "%.1f %.1f %.1f %.1f", c.redComponent, c.greenComponent,
+                                          c.blueComponent, c.alphaComponent))
+                }
+            }
+        }
+        XCTAssertGreaterThan(colours.count, 3, "the pad, its light, the controls and their text are drawn — not a blank")
     }
 
-    func testTheShowAndHideOfTheSharedPanelAreForTheAppAndLeaveNoPenBehind() {
+    /// HIDING THE PANEL, OR CLOSING IT, TAKES THE PEN AWAY: the pen is not
+    /// left hovering, near a page, with no window to take it away from.
+    func testHidingOrClosingThePanelTakesThePenAway() {
+        let clock = VirtualClock()
+        let tablet = VirtualTablet(clock: clock)
+        tablet.geometry = { (TabletExtent(width: 15200, height: 9500), 1) }
         let panel = VirtualTabletPanel()
+        panel.attach(tablet)
         XCTAssertFalse(panel.isVisible)
+
+        tablet.padMove(to: CGPoint(x: 0.5, y: 0.5))
+        XCTAssertTrue(tablet.isNear, "the premise: the pen is near")
         panel.hide()
-        XCTAssertFalse(panel.isVisible, "hiding what was never shown is nothing")
+        XCTAssertFalse(tablet.isNear, "hidden: the pen goes out of reach")
+        XCTAssertNil(tablet.padPoint)
+
+        tablet.padMove(to: CGPoint(x: 0.4, y: 0.4))
+        tablet.padDown(at: CGPoint(x: 0.4, y: 0.4))
+        XCTAssertTrue(tablet.isDown)
+        panel.windowWillClose(Notification(name: NSWindow.willCloseNotification))
+        XCTAssertFalse(tablet.isNear, "closed with the red button: the pen goes with it")
+        XCTAssertFalse(tablet.isDown, "and a nib that was down is lifted")
     }
 
-    func testTheDeveloperMenuNamesEveryThingItDoes() {
-        // The menu is a SwiftUI view in a CommandMenu; what can be checked
-        // without a menu bar is that it builds against the real controller.
-        let (controller, state) = parts()
-        let menu = TabletDeveloperMenu(tablet: controller, developer: controller.developer, appState: state)
-        XCTAssertNotNil(NSHostingView(rootView: menu))
-    }
 }

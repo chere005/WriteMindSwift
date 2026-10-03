@@ -1210,7 +1210,10 @@ CoreMind's `bin/report-status.sh`.
   the tests that hand-built samples were ported where the gesture reads
   clearer (`TabletPenGestureTests`, the button tests in `TabletNotebookTests`).
   `TabletSourceTests`, `TabletScriptTests`, `PenRecordingTests`,
-  `VirtualTabletPanelTests`.
+  `VirtualTabletPanelTests`, and `TabletEraseLayerTests`, which hosts the real
+  `DrawingCanvas` and sends it the eraser's paths — the rig's `RigNotes` only
+  stands in for the layer, so a step count asserted through the rig is the
+  stand-in's.
 - **THE MARKDOWN VIEW HAS NO FLOATING DRAWING, BUT ITS DRAWING CELLS STAY.**
   Sean, 2026-10-02: "don't show or allow drawings in markdown mode on the
   notebook itself, only pure text" — and, when the first cut took the cells out

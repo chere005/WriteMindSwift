@@ -249,6 +249,12 @@ final class TabletDoorTests: XCTestCase {
         pen.move(to: CGPoint(x: 100, y: 100))
         XCTAssertEqual(got, 0)
         XCTAssertTrue(recorder.isEmpty, "what had nowhere to go is not part of a session")
+
+        // The control: with a page on screen the same pen is heard and recorded.
+        input.pageAppeared()
+        pen.move(to: CGPoint(x: 200, y: 200))
+        XCTAssertEqual(got, 1)
+        XCTAssertFalse(recorder.isEmpty)
     }
 
     /// What is heard is what is recorded, from every source that was heard

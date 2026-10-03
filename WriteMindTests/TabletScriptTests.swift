@@ -196,6 +196,10 @@ final class TabletScriptPageTests: XCTestCase {
         rig.pen.stroke(stroke)
         XCTAssertEqual(rig.page.strokes, [])
         XCTAssertEqual(rig.samples, [])
+        // The control: the same script, switched on, writes.
+        rig.input.policy.developerOn = true
+        rig.pen.stroke(stroke)
+        XCTAssertEqual(rig.page.strokes.count, 1)
     }
 
     func testARealTabletPluggedInSilencesTheScript() {
@@ -203,6 +207,10 @@ final class TabletScriptPageTests: XCTestCase {
         rig.input.policy.realConnected = true
         rig.pen.stroke(stroke)
         XCTAssertEqual(rig.page.strokes, [])
+        // The control: unplugged again, the same script writes.
+        rig.input.policy.realConnected = false
+        rig.pen.stroke(stroke)
+        XCTAssertEqual(rig.page.strokes.count, 1)
     }
 }
 
@@ -254,17 +262,19 @@ final class TabletScriptNotebookTests: XCTestCase {
         XCTAssertNotEqual(fit.x, real.x, accuracy: 0.01, "Fit and Real size are two different mappings")
     }
 
-    func testTheLowerSwitchHeldErasesWholeStrokesOfTheNoteAsOneStep() throws {
+    func testTheLowerSwitchHeldErasesWholeStrokesOfTheNote() throws {
         let rig = TabletRig(target: .notebook, notes: true)
         let notes = try XCTUnwrap(rig.notes)
         rig.pen.stroke([(0.2, 0.5), (0.8, 0.5)])
         rig.pen.stroke([(0.2, 0.9), (0.8, 0.9)])
         XCTAssertEqual(notes.strokes.count, 2)
-        let steps = notes.store.drawingSteps
 
         rig.pen.hover(0.5, 0.3).hold(.lower) { rig.pen.down().line(to: 0.5, 0.7).up() }
-        XCTAssertEqual(notes.strokes.count, 1)
-        XCTAssertEqual(notes.store.drawingSteps, steps + 1, "one erasure, one step")
+        XCTAssertEqual(notes.strokes.count, 1, "the line the nib crossed goes, whole, and the other stays")
+        // The step the layer takes for an erasure is the layer's own
+        // (`TabletEraseLayerTests`); the rig's stand-in takes one too, and a
+        // count asserted on it would test the stand-in. What the note's undo
+        // does with it is the store's.
         XCTAssertTrue(notes.store.undoDrawing())
         XCTAssertEqual(notes.strokes.count, 2, "one ⌘Z brings it back")
     }

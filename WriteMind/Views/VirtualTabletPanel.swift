@@ -418,15 +418,21 @@ final class VirtualTabletPanel: NSObject, NSWindowDelegate {
 
     /// Show the panel, making it the first time.
     func show(tablets: TabletController, appState: AppState) {
+        attach(tablets.developer.virtual)
         if panel == nil {
             let panel = Self.makePanel(tablet: tablets.developer.virtual, developer: tablets.developer,
                                        appState: appState, input: tablets.input)
             panel.delegate = self
             panel.setFrameAutosaveName("WriteMindVirtualTablet")
             self.panel = panel
-            tablet = tablets.developer.virtual
         }
         panel?.orderFront(nil)
+    }
+
+    /// Whose pen goes out of reach with the window — `hide` and closing.
+    /// Apart from `show` so a test can have a panel with a pen and no window.
+    func attach(_ tablet: VirtualTablet) {
+        self.tablet = tablet
     }
 
     func hide() {
