@@ -111,6 +111,82 @@ the files should be hidden or visible, "visible data generally speaking".
   of a caret. The caret ends at the end of the new line; the mode is left
   alone; a drawing cell is never opened as its markdown text.
 
+### A drawing cell is static, and clicking into it is the one way to draw in it
+Sean, 2026-10-03: "drawing cells are static unless you enter click into it,
+which forces you into a drawing mode where you can only draw in that cell
+(mouse or wacom into cell (if wacom is in write on notebook mode)) otherwise
+you can select and insert like normal or page capture by selection from a
+document camera". It replaces the rule of 2026-10-02 that the cursor draws
+on a cell's paper: a drag meant to scroll or select left ink, and a pen used
+as a pointer drew at once (see the entry on drawing mode turning on only when
+asked for).
+
+- **Static.** A drawing cell shows its picture and nothing draws into it —
+  not the pen, not the cursor, not the tablet's pen — whatever the pen mode
+  or the tablet is doing. A pen stroke, a placed mark or a tablet stroke over
+  one is floating ink on the page, over the picture. The cell is still
+  selected by its bracket, moved, deleted, held with others, inserted round,
+  and receives pictures the normal way (an insert, a page captured by
+  selection from the document camera, Dock). In the markdown view it is the
+  static picture it always was and cannot be entered: the rendered page owns
+  the mode.
+- **Entering is a click.** A press on a writable cell's paper that never
+  travels (under 3 points), with the mouse in cursor mode or under the pen
+  (a pen click there is the way in, not a dot): the cell is entered and the
+  caret goes into it. Not with a shape, a mark or the arrow tool armed
+  (those do their own thing where pressed: a tick goes down on the cell,
+  floating), not with ⌘ held (the selector), and not through a floating
+  object lying over the cell, which takes the click. Under the pen a press
+  that does travel is an ordinary stroke from where it began; the click
+  leaves no dot and no empty undo step. A read-only cell, or one still
+  downloading, is never entered. With the tablet's target the notebook, the
+  pen TAPPING a cell (down and up under 3 points) enters it and leaves no
+  dot; a stroke that travels is floating ink from where the tip touched
+  down. With the target the tablet's own page the pen never touches a cell.
+- **In the mode** — shown by a tint and a firm outline on the cell (it does
+  not move), "Drawing in this cell" with a Done control on its corner, a line
+  in the status bar, and a pencil pointer over it — drawing goes ONLY into
+  that cell: a mouse drag, or the tablet's pen on the notebook. Every press
+  inside the cell is a stroke (⌘ is still the selector, inside the cell),
+  whatever floats over it; every point is held inside the cell, so a stroke
+  dragged out runs along its edge and nothing lands outside; the eraser and
+  the selection box work on that cell's strokes alone; the page's objects
+  show no hover handles. The cell grows to keep its ink, as it always did.
+- **Its own undo and redo.** Undo and redo in the mode — the keys, the menu,
+  the pen menu and the tablet pen's two buttons — take back and put back the
+  strokes made in that cell, newest first, and never touch the page or
+  another cell: a step counts as the cell's only when it changed that cell
+  alone, so at the first step that touched anything else the cell's undo
+  stops, and does nothing rather than reach past it. The tablet page's own
+  undo does not come first in a cell, and with nothing left to undo the key
+  goes nowhere (not to the typing either).
+- **It ends** on Esc, on the Done control, on a press outside the cell — and
+  one on another cell enters that one — on a click in the words, a bar or a
+  bracket, when the caret leaves the cell (an arrow key, a character typed
+  after it), when the cell folds away, goes read-only or leaves the note,
+  on another note, a pane coming or going or the markdown view, on picking
+  the pen, a shape, the arrow tool, and on every way onto the page (an
+  inserted picture or text box, a capture). A pen touch outside the cell
+  ends it and draws nothing. It does NOT end by itself between strokes.
+- **The mode can end with a press down** (Esc, ⌘P, ⌘T or a keyboard note
+  switch with the button held; the cell folding away) and nothing of that
+  press goes onto the page. A stroke under way in a cell that is still there
+  carries on, held inside the cell, and lands in it when the press ends —
+  its points are in the cell's own fractions, so letting go of the cell's
+  space mid-stroke makes a mis-scaled stroke on the page. In a cell that has
+  gone, or another note, the press is dropped and the rest of the drag does
+  nothing. The tablet's pen is the same: a stroke lands in the cell it began
+  in, or nowhere if the cell has no frame (never floating over where the
+  cell was), and its eraser and selection box stop when the mode does, since
+  both would be the page's from then on.
+- **⌘Z is the ink's after a stroke in a cell, mouse or pen**: it belongs to
+  the drawing until the next keystroke, down to where the drawing stood under
+  the stroke, so ⌘Z after Esc or Done never undoes the typing before it.
+- **Why a press is decided in one pure place**: a drag gesture cannot be
+  driven from a test here, so what a press about a cell means is a function
+  of where it began, what is under it, what tool is armed and whether ⌘ is
+  down, and the port should keep it as one too.
+
 ### Return is a line break, and ⌫ at the start of a cell does nothing
 Sean, 2026-10-02: "return should be a newline, backspace at beginning does
 nothing..". Two decisions from the cell UX pass below, the same in the
@@ -711,10 +787,12 @@ if clicking and dragging), and double tap to redo".
 - **Lower switch (nearer the nib, BTN_STYLUS 0x02)**: held as the nib goes down it
   is an ERASER, latched for the stroke; every stroke the nib's path comes within
   a small radius of is deleted WHOLE (page: ~0.014 of the page; over the notes:
-  7 points + the ink's reach, on the floating layer and in writable drawing
-  cells; pictures, shapes and arrows are left). One erasure — nib down to nib up
-  — is ONE undo step, taken at its first deletion. The switch held on after the
-  nib lifts is the eraser still.
+  7 points + the ink's reach; pictures, shapes and arrows are left). Over the
+  notes it takes the FLOATING layer's strokes only — a static drawing cell's
+  strokes are never touched — and in cell drawing mode (a cell entered) THAT
+  cell's strokes only, leaving the floating layer alone. One erasure — nib down
+  to nib up — is ONE undo step, taken at its first deletion. The switch held on
+  after the nib lifts is the eraser still.
 - **Upper switch (0x04)**: held as the nib goes down it is the selector box, as
   both switches were; both at once is the box.
 - **A tap** is a press let go in the air within 0.4 s with the nib up; **two taps
@@ -739,6 +817,62 @@ the existing hidden `.drawings` folders should move to a visible `_drawings`:
   back to and which blocks the media sweep; remove an emptied hidden folder.
 - **A bracket click selects the cell on both views**, and Return opens a held
   cell (a checklist is entered as a whole that way).
+
+### Drawing mode turns on only when asked for, and is never left on behind you
+Sean, 2026-10-03: "drawing mode seems to keep turning itself on as i'm
+trying to navigate".
+
+Drawing mode is whatever makes a press on the notes into ink or an object:
+the pen, the arrow tool, an armed shape or mark, and the tablet's pen
+writing in the notebook. One rule: a tool goes ON only by an act of the
+user's — the pen button or its key, a palette tile, the arrow tool's
+switch, the tablet's Write on: Notebook switch — and goes away on each of
+these, which were all ways of finding a tool still on:
+
+- **A launch has no tool in hand.** The pen is not remembered across a
+  launch (it is a tool in hand, not a setting like the pen's size or
+  colour); neither is the tablet's notebook target, which is the page.
+  A launch is on the markdown view, in the notebook's own mode.
+- **The tablet's notebook target is a tool in hand like the others**, and
+  is put away by the four things below, along with every other tool: the
+  nib is back on its own page afterwards, and coming back picks nothing
+  up. A mouse tool picked, a picture or text box dropped on the page and a
+  click into a drawing cell do NOT put it away — it is the nib's, and the
+  nib tapping a cell is how it enters one. No key puts it away (Esc is the
+  notes'); the footer names the switch that does.
+- **Another note takes nothing with it.** The open note changing — a tab
+  picked or closed, a note opened from the list or by a link — puts every
+  tool away. The same note again, and typing or drawing in it, do not.
+- **A pane coming or going puts every tool away**: the notes pane put
+  away, the video or the tablet's page shown or hidden, the whole window
+  given to the picture, a tablet picked or let go. Only a change counts: a
+  pane set to what it already was does nothing. The note list is not one of
+  these. The markdown view puts every tool away as before, and going back
+  to the rendered page picks nothing up.
+- **Esc puts away whatever is in hand**: the pen, the arrow tool, an armed
+  shape or mark, an entered drawing cell. It is taken only when something
+  was in hand, so with nothing up it belongs to the notes (an armed bar, a
+  block being edited). The arrow tool had no key out before. Each tool's
+  Esc is its own step in the layer's key chain; a port should test the real
+  chain with the real wiring rather than one function that nothing calls.
+- **A mark or shape still stays armed while it is being used** — the
+  rule from 2026-10-02 is unchanged: putting one down does not hand the
+  tool back. Leaving, Esc, another tool, the same tile again or a way onto
+  the page ends it, as it did.
+- **The cursor never draws outside an entered cell, and a drawing cell is
+  static.** A drag with
+  the pen up, or a pen used as a pointer, over a drawing cell used to ink
+  in it, and the pointer was a pencil over every cell on the page. Now
+  nothing draws into a drawing cell because the pen is down or the pointer
+  is over it, and the tablet's pen writing in the notebook floats its ink
+  over a cell like over any other part of the page; the click that enters a
+  cell to draw in it is described in the entry on drawing cells being static.
+- **The footer names every tool in hand**, in the accent colour, each with
+  how to put it away: "Pen: every drag draws, Esc to stop", the armed
+  shape or mark as before, "Arrow tool: drag from one thing to another,
+  Esc to stop", and "Tablet pen: writing on the notebook, pick Page on the
+  tablet's bar to stop" while the tablet is the input and the rendered page
+  is up. The last two had no word on screen at all before.
 
 ### Drawing happens on the rendered page only
 Sean, 2026-10-02: "only allow drawing in wysiwyg mode, both from wacom and
@@ -1063,12 +1197,15 @@ let the wacom control that as well.. as a separate mode". What the port
 has to copy:
 
 - **A switch, "Write on: Page | Notebook"**, on the page pane's bar and
-  nowhere else on screen (a menu may mirror it), remembered, the page by
-  default. Picking the notebook brings the notes into view if they were
-  put away. NO KEY changes it — Escape in particular stays the notes'
-  (an armed insertion bar, a block being edited, held cells, the link
-  banner): the mode is one that is lived in, and a key that sent the pen
-  home took every Escape away from the notes for as long as it was on.
+  nowhere else on screen (a menu may mirror it), the page by default and
+  NOT remembered: a launch is the page, and the notebook is put away with
+  the other tools whenever the user leaves the page (the entry "Drawing
+  mode turns on only when asked for", above). Picking the notebook brings
+  the notes into view if they were put away. NO KEY changes it — Escape
+  in particular stays the notes' (an armed insertion bar, a block being
+  edited, held cells, the link banner): the mode is one that is lived in,
+  and a key that sent the pen home took every Escape away from the notes
+  for as long as it was on.
   The switch keeps one shape and one place in both modes — it comes
   first on the bar, and the page's own controls are hidden IN THEIR
   PLACE while the pen writes in the notebook — so it never moves under

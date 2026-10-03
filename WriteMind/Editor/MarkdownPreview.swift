@@ -580,7 +580,11 @@ struct MarkdownPreview: View {
             }
             bridge.focusDrawingCellInDocument = { id in
                 guard let line = DrawingCells.lines(in: markdown).first(where: { $0.id == id })?.range else { return }
-                beginDrawing(line)
+                // NOT A CLICK IN THE NOTES (`clicked: false`): the layer's
+                // click into a cell lands here, and a click in the notes
+                // lets go of what the layer holds — which would end the
+                // cell mode the same click has just begun.
+                beginDrawing(line, clicked: false)
             }
             // An answer written under a cell while somebody is typing in
             // another one: the note changes, and everything holding a raw

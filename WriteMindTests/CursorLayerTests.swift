@@ -118,7 +118,7 @@ final class PenAcrossModesTests: XCTestCase {
             ("the arrow tool", { $0.connectActive = true }),
         ]
         for (name, pick) in picks {
-            // The pen is remembered between launches: a fresh start each.
+            // A fresh start each.
             UserDefaults.standard.removePersistentDomain(forName: suite)
             let app = state()
             XCTAssertEqual(app.mode, .editor)
@@ -159,14 +159,18 @@ final class PenAcrossModesTests: XCTestCase {
         XCTAssertEqual(app.mode, .preview, "putting a tool away is not a reason to switch views")
     }
 
-    /// The pen's mode is remembered across a launch, and a launch always
-    /// starts on the markdown view: the two are not allowed to disagree.
-    func testAPenRememberedFromLastTimeComesUpOnTheRenderedPage() {
+    /// A launch starts on the markdown view with no tool in hand, and the
+    /// pen left up last time does not come back (Sean, 2026-10-03: "drawing
+    /// mode seems to keep turning itself on as i'm trying to navigate"). It
+    /// used to be remembered, and a launch then came up with the pen down
+    /// on the rendered page, which it had pulled the notes onto — a rule
+    /// this test held until it was replaced.
+    func testAPenLeftUpLastTimeDoesNotComeBackOnTheRenderedPage() {
         let last = state()
         last.canvasMode = .pen
         let app = state()
-        XCTAssertTrue(app.penActive)
-        XCTAssertEqual(app.mode, .preview, "a launch came up with the pen over the markdown view")
+        XCTAssertFalse(app.penActive)
+        XCTAssertEqual(app.mode, .editor, "the launch is on the markdown view, with nothing to draw on")
     }
 
     /// The tablet writing in the notebook is drawing too.

@@ -129,11 +129,12 @@ struct EditorPane: View {
                                   pendingLabelEdit: store.pendingLabelEdit,
                                   onLabelEditStarted: { store.pendingLabelEdit = nil },
                                   onSelectionChanged: { appState.canvasSelection = $0 },
-                                  onUndo: { store.undoDrawing() },
-                                  onRedo: { store.redoDrawing() },
+                                  onUndo: { store.undoDrawing(inCell: appState.cellDrawing) },
+                                  onRedo: { store.redoDrawing(inCell: appState.cellDrawing) },
                                   pageOwnsUndo: { appState.pageOwnsUndo },
                                   placing: appState.placing,
                                   onDisarm: { appState.placing = nil },
+                                  onDisconnect: { appState.connectActive = false },
                                   onEscapePen: { appState.escapePen() },
                                   onEscapeBox: { TabletScribe.shared.box.key($0) == nil },
                                   tabletPicks: NotebookScribe.shared.picks.eraseToAnyPublisher(),
@@ -145,7 +146,10 @@ struct EditorPane: View {
                                   cells: $store.cells,
                                   cellFrames: drawingFrames,
                                   litCell: caretDrawing,
+                                  enteredCell: appState.cellDrawing,
                                   onCellTap: { appState.editor.focusDrawingCell($0) },
+                                  onEnterCell: { appState.enterCell($0) },
+                                  onEndCell: { appState.endCellDrawing() },
                                   onDock: { dock($0) },
                                   onMakeCell: { makeCell($0) },
                                   onCellChanged: { store.fitCell($0) },
@@ -166,7 +170,7 @@ struct EditorPane: View {
                     // note on screen — the pen is a pointer, and the page
                     // says to bring the rendered one up (`TabletPane`).
                     if appState.mode == .preview {
-                        NotebookTabletLayer(scrollOffset: scrollOffset)
+                        NotebookTabletLayer(scrollOffset: scrollOffset, cellFrames: drawingFrames)
                     }
                 }
                 .onAppear {
@@ -229,21 +233,16 @@ struct EditorPane: View {
                         Text(notice).foregroundStyle(Color.accentColor).lineLimit(1).help(notice)
                     }
                     Spacer()
-                    // WHICH MODE, in the footer. A pane that swallows
-                    // every click needs somewhere on screen that says why
-                    // it does — and the mode is remembered across a launch,
-                    // so the answer cannot be "you only just pressed it".
-                    if appState.canvasMode != .cursor {
-                        Label(appState.canvasMode.title, systemImage: appState.canvasMode.icon)
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    // And WHAT IS ARMED, for the same reason: a node or a
-                    // line stays armed after it is drawn (Sean,
+                    // WHAT IS IN HAND, in the footer: the pen, the arrow
+                    // tool, an armed shape or mark, the tablet's pen
+                    // writing in the notebook. A pane that swallows every
+                    // click needs somewhere on screen that says why it
+                    // does, and how to stop it (`AppState.toolLines`) — a
+                    // node or a line stays armed after it is drawn (Sean,
                     // 2026-10-02: "after drawing a rectangle dont exit
-                    // rectangle mode.."), and every drag on the pane is
-                    // then the shape's until it is put away.
-                    if let placing = appState.placing {
-                        Label(placing.footer, systemImage: placing.symbol)
+                    // rectangle mode.."), and every drag is then its own.
+                    ForEach(appState.toolLines) { line in
+                        Label(line.words, systemImage: line.symbol)
                             .foregroundStyle(Color.accentColor)
                             .lineLimit(1)
                     }

@@ -200,13 +200,18 @@ final class CanvasModeTests: XCTestCase {
         XCTAssertFalse(app.marksLit)
     }
 
-    func testTheModeIsRememberedTheWayThePensSizeIs() {
+    /// THE MODE IS A TOOL IN HAND, NOT A SETTING, and a launch comes up
+    /// without one. It was remembered like the pen's size until 2026-10-03
+    /// (Sean: "drawing mode seems to keep turning itself on as i'm trying
+    /// to navigate") and the launch came up with the pen down; the rule is
+    /// held in `DrawingModeLifecycleTests`.
+    func testTheModeIsNotRememberedTheWayThePensSizeIs() {
         let first = state()
         first.canvasMode = .pen
-        XCTAssertEqual(state().canvasMode, .pen, "a launch comes up where it was left")
-
-        first.canvasMode = .cursor
-        XCTAssertEqual(state().canvasMode, .cursor)
+        first.penWidth = 7
+        let next = state()
+        XCTAssertEqual(next.canvasMode, .cursor, "a launch comes up in the notebook's mode")
+        XCTAssertEqual(next.penWidth, 7, "the pen's size is a setting and is still remembered")
     }
 
     /// The part that has cost four rounds of Sean's time: whose cursor it is.
@@ -258,32 +263,26 @@ final class CanvasModeTests: XCTestCase {
         XCTAssertEqual(AppState.CanvasMode.cursor.press(with: []), .objects)
     }
 
-    /// WHAT A PRESS DOES IN EACH SPACE (docs/CROSS-PLATFORM.md: the press
-    /// table). On a drawing cell's paper the cursor draws (Sean, 2026-10-02:
-    /// "drawing cell which is cmd + 0"): the cell is for drawing in, and
-    /// making him pick the pen up for each one is the step the cell was
-    /// made to save. An object under the point — on the layer or in a
-    /// cell — is asked before the paper, and is picked up as it always was.
-    func testOnACellsPaperTheCursorDrawsOnceItHasTravelled() {
+    /// WHAT A PRESS DOES (docs/CROSS-PLATFORM.md: the press table). THE
+    /// CURSOR NEVER DRAWS. For a day it drew on a drawing cell's paper
+    /// (Sean, 2026-10-02: "drawing cell which is cmd + 0"), and a drag meant
+    /// to select or scroll left ink, and a pen used as a pointer drew at
+    /// once; this test held that rule until Sean said "drawing mode seems to
+    /// keep turning itself on as i'm trying to navigate" (2026-10-03). A
+    /// drawing cell is static, and is drawn in only when it has been
+    /// entered (`StaticDrawingCellTests`, `DrawingCellModeTests`).
+    func testTheCursorNeverDrawsWhereverThePressLands() {
         typealias Mode = AppState.CanvasMode
-        // ⌘ held: the marquee, in that space, whatever is under it.
-        XCTAssertEqual(Mode.pen.press(with: [.command], onCellPaper: true), .marquee)
-        XCTAssertEqual(Mode.cursor.press(with: [.command], onCellPaper: true), .marquee)
-        // The pen draws anywhere — into the space under its first point.
-        XCTAssertEqual(Mode.pen.press(with: [], onCellPaper: true), .draw)
-        XCTAssertEqual(Mode.pen.press(with: [], onCellPaper: false), .draw)
-        // The cursor: an object is picked up; the paper is drawn on.
-        XCTAssertEqual(Mode.cursor.press(with: [], onCellPaper: false), .objects)
-        XCTAssertEqual(Mode.cursor.press(with: [], onCellPaper: true), .paper)
-        // A press on the paper becomes a stroke once a mouse has travelled
-        // three points, and at once under a nib — whose touch IS ink. A
-        // click that never moves leaves no dot and no empty step: it puts
-        // the caret in the cell instead.
-        XCTAssertEqual(Mode.paperTravel, 3)
-        XCTAssertFalse(Mode.paperStrokes(travelled: 0, nib: false))
-        XCTAssertFalse(Mode.paperStrokes(travelled: 2.9, nib: false))
-        XCTAssertTrue(Mode.paperStrokes(travelled: 3, nib: false))
-        XCTAssertTrue(Mode.paperStrokes(travelled: 0, nib: true))
+        // ⌘ held: the marquee, whatever is under it.
+        XCTAssertEqual(Mode.pen.press(with: [.command]), .marquee)
+        XCTAssertEqual(Mode.cursor.press(with: [.command]), .marquee)
+        // The pen draws; the cursor picks an object up or lets the click
+        // through to the notebook.
+        XCTAssertEqual(Mode.pen.press(with: []), .draw)
+        XCTAssertEqual(Mode.cursor.press(with: []), .objects)
+        for modifiers: NSEvent.ModifierFlags in [[], [.shift], [.option], [.control]] {
+            XCTAssertNotEqual(Mode.cursor.press(with: modifiers), .draw, "the cursor drew with \(modifiers)")
+        }
     }
 
     /// A symbol that does not exist draws as nothing at all, and the button

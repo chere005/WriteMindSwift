@@ -144,22 +144,27 @@ struct CanvasSpace: Equatable {
     }
 
     /// WHICH SPACE A PRESS IS IN, by its first point (document points), and
-    /// the object under it there: a FLOATING object under the point first —
-    /// the layer is on top of the page; else a writable cell holding the
-    /// point, with its object under the point or none for its paper; else
-    /// the floating layer. A read-only cell, and one still downloading, is
-    /// no space at all: nothing is drawn in it. A folded cell has no frame.
+    /// the object under it there. A DRAWING CELL IS STATIC: the only cell a
+    /// press can be in is the one ENTERED (`entered`, cell drawing mode),
+    /// and inside its frame it is that cell's whatever else is under the
+    /// point — a floating object over it included, since in that mode
+    /// nothing else on the page reacts — with the cell's own object under
+    /// the point or none for its paper. Every other press, over a cell
+    /// that was not entered or none at all, is the floating layer's, with
+    /// its object under the point if there is one. A read-only cell, and one
+    /// still downloading, is no space at all; a folded cell has no frame.
     static func at(_ point: CGPoint, layer: Drawing, pane: CGSize, frames: [CellFrame],
-                   cells: [UUID: DrawingCell]) -> (space: CanvasSpaceID, item: UUID?) {
+                   cells: [UUID: DrawingCell], entered: UUID? = nil) -> (space: CanvasSpaceID, item: UUID?) {
+        if let entered,
+           let frame = frames.first(where: { $0.id == entered && $0.writable && $0.rect.contains(point) }) {
+            let space = CanvasSpace.cell(frame)
+            let drawing = cells[frame.id]?.drawing ?? Drawing()
+            let item = drawing.index(at: space.fromDocument(point), in: space.size).map { drawing.items[$0].id }
+            return (.cell(frame.id), item)
+        }
         if pane.width > 0, pane.height > 0, let index = layer.index(at: point, in: pane) {
             return (.floating, layer.items[index].id)
         }
-        guard let frame = frames.first(where: { $0.writable && $0.rect.contains(point) }) else {
-            return (.floating, nil)
-        }
-        let space = CanvasSpace.cell(frame)
-        let drawing = cells[frame.id]?.drawing ?? Drawing()
-        let item = drawing.index(at: space.fromDocument(point), in: space.size).map { drawing.items[$0].id }
-        return (.cell(frame.id), item)
+        return (.floating, nil)
     }
 }

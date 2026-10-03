@@ -5,10 +5,26 @@ is how the code is put together.
 
 - **Notes are files.** `~/Documents/WriteMind/*.md`, one per note, readable
   by anything. The title is the note's first `# heading`, or its file name.
-- **A drawing cell is a cell you draw in.** ⌘0, or **Insert ▸ Drawing Cell**
-  (or the + between two cells), puts one in the note: a blank sheet of paper
-  in the flow of the text, which you draw on with the pen exactly as you do
-  over the page — and what is drawn belongs to that cell, so it moves with the
+- **A drawing cell is a cell you draw in — once you click into it.** ⌘0, or
+  **Insert ▸ Drawing Cell** (or the + between two cells), puts one in the
+  note: a blank sheet of paper in the flow of the text. It is STATIC until
+  you enter it: it shows its picture and nothing draws into it just because
+  the pen is down or the pointer is over it; you select it by its bracket,
+  move it, delete it, hold it with others, insert round it, and a picture
+  put on the page or a page captured by selection from the document camera
+  land as they always did. **Click into it** — or tap it with the Wacom's pen
+  while the tablet writes on the notebook — and you are in **cell drawing
+  mode** for that cell: it is tinted and outlined, says "Drawing in this
+  cell" with a **Done** button on it, the footer says so too, and the mouse
+  (or the pen) draws in that cell and nowhere else, clipped to it. Its ⌘Z and
+  ⇧⌘Z (and the pen's two buttons) are the cell's own: they take back the
+  strokes made in it and never reach the page; the eraser and the selection
+  box work on that cell alone, and nothing else on the page reacts. It ends
+  on Esc, on Done, on a click outside the cell (another cell clicked is
+  entered in turn), when the caret leaves it, on another note, pane or view,
+  or when you pick the pen, a shape or the arrow tool — and not between
+  strokes. With the tablet writing on its own page the pen never draws into
+  a cell. What is drawn belongs to that cell, so it moves with the
   words, folds with its section and comes out in the PDF. In the note it is
   one line, `![](_drawings/cells/<ID>.png)`, and the drawing is that file: a
   real PNG of it in the folder `_drawings/cells` beside the note (visible, and
@@ -386,8 +402,19 @@ is how the code is put together.
   appear (move, turn, resize, delete). With the pen **down** it draws, and
   the pointer is a pencil over that pane and nowhere else. In either mode,
   hold **⌘ and drag** to pull a rectangle over the page: it takes
-  everything it *touches*, whole or not. The mode is remembered between
-  launches and the footer names it whenever the pen is down. **Drawing is
+  everything it *touches*, whole or not. The footer names the mode
+  whenever the pen is down. **Drawing mode
+  turns on only when you ask and is never left on behind you.** The pen, the
+  arrow tool, a shape or mark and the tablet's notebook mode are each put
+  on by a button or a key and by nothing else; none of them is remembered
+  across a launch, none goes with you to another note, and none stays when
+  a pane comes or goes (the notes pane put away, the video shown or hidden,
+  the window given to the picture, the tablet let go) or the markdown view
+  is up. Esc puts away whatever is in hand — the pen, the arrow tool, a
+  shape or a mark, which still stays armed while you use it — and the
+  footer names each, and how to stop it, for as long as it is on. A drawing cell is never drawn on just
+  because the pen is down or the pointer passes over it — you click into it
+  first (the first entry). **Drawing is
   on the rendered page only**: picking the pen, a shape, a mark or the
   arrow tool while the markdown view shows brings the rendered page up
   under it, ⌘T back to markdown puts the tool down, and the tablet writes
@@ -556,15 +583,21 @@ is how the code is put together.
   **⇧⌘Z** puts them back. The pen's buttons do it here too: a double press of the
   lower one, nib off the tablet, undoes the last thing drawn on the note
   and a double tap of the upper one redoes it. Hold the lower button and
-  touch the nib down to erase — every stroke of the drawing (and of a drawing
-  cell) the nib goes over is deleted whole, as one step. Hold the upper button
+  touch the nib down to erase — every stroke of the drawing the nib goes over
+  is deleted whole, as one step (in a drawing cell you have clicked into, that
+  cell's strokes and nothing else; a cell you have not entered is never
+  touched). Hold the upper button
   and drag with the nib down to pick things
   up on the drawing, exactly as a ⌘-drag does — ⌫ and the handles then
   work on them. The page is set aside, dimmed, and kept as it was; the
   switch (or the View menu) sends the pen back to it — Esc stays the
-  notes'. Picking the notebook brings the notes into view if they were
-  put away, and the page may be hidden while you write in the notes; with
-  no note on screen the pen is a pointer again, and the page says so.
+  notes' — and so does leaving the page: another note, a pane coming or
+  going (Hide Page too), the tablet let go or the markdown view put the pen
+  back on the page, and coming back picks the notebook up again only if
+  you ask. While the pen writes on the notes the footer says so and how to
+  stop it. Picking the notebook brings the notes into view if they were
+  put away; with no note on screen the pen is a pointer again, and the
+  page says so.
 - **Try the pen with no tablet plugged in.** For developing pen features:
   **Input Devices ▸ Tablet Developer ▸ Virtual Tablet** (off until you tick
   it) adds a **Virtual Tablet (developer)** to the tablets; pick it and a small

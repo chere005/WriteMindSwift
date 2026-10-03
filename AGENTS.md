@@ -666,8 +666,11 @@ CoreMind's `bin/report-status.sh`.
   notebook itself and let the wacom control that as well.. as a separate
   mode". **Write on: Page | Notebook** is a switch on the page's bar
   (`TabletBar`, `TabletTargetSwitch`) and nowhere else on screen;
-  `AppState.tabletTarget`, remembered, the page unless the notebook is
-  picked. The View menu mirrors it as it mirrors Draw — "Write on the
+  `AppState.tabletTarget`, the page unless the notebook is picked — and NOT
+  remembered across a launch, and put away with the other tools whenever
+  Sean leaves the page (`AppState.leaveThePage`: another note, a pane
+  coming or going, the tablet let go, the markdown view; the drawing-mode
+  bullet below). The View menu mirrors it as it mirrors Draw — "Write on the
   Notebook with the Tablet", no key, only while a tablet is the input —
   and both go through `AppState.writeOn`, which BRINGS THE NOTES INTO
   VIEW when the notebook is picked (leaving the whole-window page too): a
@@ -754,9 +757,10 @@ CoreMind's `bin/report-status.sh`.
   `TabletInput.aim(at:)` (fed from the app, as the turn now is too) and
   two counts — pages, and notebooks: a note open under its layer, counted
   by `NotebookTabletLayer` appearing — give `targetIsShowing`, and both
-  the funnel's swallowing and the hold on the tablet follow it. In
-  Notebook mode the page may be put away; with no note open there is
-  nothing to write on and the pen is a pointer. Switching with both up
+  the funnel's swallowing and the hold on the tablet follow it. A pane
+  coming or going — the page put away included — puts the pen back on the
+  page (`leaveThePage`); with no note open there is nothing to write on and
+  the pen is a pointer. Switching with both up
   is no change at all: the tablet stays held, for either. Switching drops
   whatever was half-done for either (`TabletScribe.dropUnderWay`): the
   lift of a stroke begun on the page lands nowhere, and the page's box
@@ -765,11 +769,11 @@ CoreMind's `bin/report-status.sh`.
   page's pane may never have been on screen. **NO KEY CHANGES THE
   TARGET**: an Esc that sent the pen back to the page was the last step
   of the layer's chain for a day, and a local monitor sees a key before
-  the notes do — so in a mode that is remembered and lived in, every Esc
-  meant for the notes (an armed seam, a block being edited, held cells,
-  the /link banner) went to the tablet instead, and with the page put
-  away the pen was silently a pointer. The switch and the View menu are
-  the way.
+  the notes do — so every Esc meant for the notes (an armed seam, a
+  block being edited, held cells, the /link banner) went to the tablet
+  instead, and with the page put away the pen was silently a pointer. The
+  switch and the View menu are the way, and the footer names the switch
+  while the nib is writing in the notebook (`AppState.toolLines`).
   **THE PAGE SET ASIDE**: in Notebook mode the sheet is dimmed with one
   line (`PageSetAside`, which takes the clicks on the sheet so no box is
   drawn on it) that follows what is on screen
@@ -987,15 +991,16 @@ CoreMind's `bin/report-status.sh`.
   "drop the cursor and select buttons.. clicking the pen outside of the
   dropdown is the toggle between pen and cursor.. in both modes holding
   cmd is how to get the selector". `AppState.CanvasMode` is that switch —
-  `cursor` and `pen`, kept in the defaults like the pen's size and colour,
-  and named in the footer whenever it is not `cursor`, because a pane that
-  swallows every click and comes up that way after a launch needs
-  somewhere on screen that says why. `penActive` is a question about the
+  `cursor` and `pen`, NOT kept in the defaults (a tool in hand is not a
+  setting: a launch comes up in `cursor` — the drawing-mode bullet), and
+  named in the footer whenever it is not `cursor`, because a pane that
+  swallows every click needs somewhere on screen that says why and how to
+  stop it. `penActive` is a question about the
   mode and is stored nowhere. ONE BUTTON on the bar says which, and
   pressing it toggles; the cursor and the marquee each had one beside it,
-  which was three buttons for two answers. A remembered `select` from
-  before decodes to nothing and `CanvasMode(rawValue:) ?? .cursor` gives
-  the pane back to the notebook. **Esc puts the pen down** (Sean,
+  which was three buttons for two answers. Nothing reads the mode back from
+  the defaults any more, so an old build's `select` or `pen` is never seen.
+  **Esc puts the pen down** (Sean,
   2026-10-02: "esc should exit pen mode") — `AppState.escapePen()`, the
   one writer beside `togglePen`, asked from `DrawingCanvas.handleKey`
   AFTER a label, a style bar, an armed shape, a crop and the tablet
@@ -1101,7 +1106,8 @@ CoreMind's `bin/report-status.sh`.
   `endErasing` (one erasure = one history step, taken at the first deletion) via
   `TabletWriting.erasing`/`.erased`; over the notes `NotebookWriting` sends
   `NotebookErase` paths through `NotebookScribe.erases` and `DrawingCanvas.erase`
-  deletes the floating strokes and a writable cell's, whole, as one drawing step
+  deletes the floating layer's strokes — or, with a drawing cell entered, THAT
+  cell's alone (a static cell's are never touched) — whole, as one drawing step
   with ⌘Z claimed (`onCursorInk`). `TabletEraserTests`, `TabletPenTests`.
 - **THE PEN DEVELOPS WITH NO TABLET: ONE DOOR, THREE SOURCES, A SCRIPT.** Sean,
   2026-10-03: "make sure i can develop wacom features without a device plugged
@@ -1246,9 +1252,9 @@ CoreMind's `bin/report-status.sh`.
   `placing` (a shape or a mark) and `writeOn(.notebook)` each call it, so
   no button or key has to remember to; it is `toggleMode`, and the place
   and the cursor go with it. `toggleMode` into markdown calls
-  `putToolsAway`, and going forward again picks nothing up. A launch with
-  the pen remembered comes up on the rendered page (the init sets `mode`;
-  an observer does not run in an init). `EditorPane` mounts
+  `putToolsAway`, and going forward again picks nothing up. A launch comes
+  up on the markdown view with no tool in hand (it used to remember the
+  pen and come up on the rendered page, which is gone with it). `EditorPane` mounts
   `NotebookTabletLayer` only when `mode == .preview`: with it away the
   funnel has no note on screen, the pen is a pointer, and the page's
   veil says to bring the rendered page up (`TabletPane.setAsideLine`).
@@ -1304,6 +1310,218 @@ CoreMind's `bin/report-status.sh`.
   ghost of a box over the node it is about to pick. A placement press
   ends a label being typed and an arrow's style bar, as any press on the
   layer does, so the next box follows the last label straight away.
+- **DRAWING MODE TURNS ON ONLY WHEN ASKED FOR, AND IS NEVER LEFT ON BEHIND
+  YOU.** Sean, 2026-10-03: "drawing mode seems to keep turning itself on as
+  i'm trying to navigate". Drawing mode is whatever makes a press on the
+  notes into ink or an object — the pen, the arrow tool, an armed shape or
+  mark, the tablet's nib in Notebook mode — and the way a tool goes ON is
+  an act of Sean's and nothing else: the pen button and ⌘P
+  (`AppState.togglePen`), a palette tile (`AppState.arm`), the arrow tool's
+  own switch in the shapes popover, and the Write on: Notebook switch.
+  `DrawingModeLifecycleTests.testNothingTurnsAToolOnButTheButtonsThatAskForIt`
+  reads every source and fails on a new line that writes a tool on — and on
+  a new caller of `togglePen`, `arm`, `writeOn` or the arrow tool's toggle
+  outside the files that ask for them — so the list stays this short. What was found leaving one on, each with a test:
+  **(1) A LAUNCH CAME UP WITH THE PEN** — `canvasMode` was remembered like
+  the pen's size and `AppState.init` dragged the notes onto the rendered
+  page to show it; it is a tool in hand and not a setting, and is no
+  longer written down or read back (a launch is the notebook's mode on the
+  markdown view). **(2) THE TABLET'S NOTEBOOK TARGET WAS REMEMBERED TOO**,
+  so the first ⌘T onto the rendered page made every touch of the nib ink.
+  It is a drawing mode like the rest: not remembered (a launch is the page),
+  and in a session put away with the other tools whenever Sean leaves the
+  page (`AppState.leaveThePage` — every tool put away and the nib back on
+  its own page — on each of the four ways below), with the footer line
+  naming the switch that stops it. A mouse tool picked, a picture or text
+  box dropped on the page (`putToolsAway`) and entering a cell leave it
+  alone: it is the NIB's, and the nib tapping a cell is how the mode is
+  entered for the nib. **(3) ANOTHER NOTE KEPT
+  THE TOOL**: a pen, the arrow tool or a mark left armed went with Sean to
+  the next note and drew on his first click there. `AppState.watchNotes(of:)`
+  (called from the app's `.task`, so the tests go through the same way)
+  leaves the page when the open note changes — a tab picked or
+  closed, a note opened — and not for the same note again or a change in
+  it. **(4) A PANE COMING OR GOING** — the notes pane put away
+  (`showEditor`), the video shown or hidden (`showCamera`), the window
+  given to the picture (`cameraFullWindow`), a tablet picked or let go
+  (`inputSource`) — left the tool armed for the first click when the
+  notes came back; each setter leaves the page (`leaveThePage`) and
+  only on a CHANGE: `@Published`'s `didSet` fires on a write of the value
+  it already had, and `toggleCameraFullWindow` writes `showCamera = true`
+  on its way in. The sidebar is not a pane the notes are drawn beside and
+  does not. The markdown view did, both ways: ⌘T onto it leaves the page
+  (every tool down, the nib's notebook with them) and ⌘T back picks
+  nothing up. **(5) ESC LET GO OF THE
+  PEN AND A SHAPE BUT NOT THE ARROW TOOL**, which then had no way out but
+  its own switch: the layer's chain has a step of its own for it
+  (`DrawingCanvas.onDisconnect`, after a label, a style bar and an armed
+  shape, in `KeyInputs` with them — `CanvasKeyTests`), and what Esc does
+  to each tool is held to the REAL wiring — a real Esc through the real
+  `EditorPane`, its closures and its `AppState` (`EscapeWiringTests`);
+  there is no `AppState` function for the key, and the first cut's one had
+  no caller outside its own tests. No key puts the nib's notebook away
+  (the rule in the tablet bullet). **(6) A DRAWING
+  CELL WAS A PEN OF ITS OWN**: in cursor mode a drag, or a nib touching,
+  on a cell's paper drew in it and the pointer was a pencil over every
+  cell on the page (Sean, 2026-10-02: "drawing cell which is cmd + 0"); a
+  drag meant to scroll or select left ink. The cursor never draws outside
+  an entered cell (`CanvasMode.press` has an answer for a cell only for the
+  one entered, `press(inEnteredCell:)`), a drawing cell is
+  STATIC and the only cell a press can be in is one that was entered
+  (`CanvasSpace.at(entered:)`), and the tablet's nib floats over a cell
+  like anywhere else (`NoteStore.inkFromTablet(_:intoCell:)`); the cell
+  mode that enters one is the next bullet. **A MARK STILL STAYS ARMED while it is used** — the
+  rule above is as it was — and nothing a mark going down does lets go of
+  it (`testAMarkStaysArmedThroughEverythingItsOwnUseDoes`); only leaving,
+  Esc, another tool, the same tile again, or a way onto the page does.
+  **THE FOOTER NAMES EVERY TOOL IN HAND** (`AppState.toolLines`): the pen
+  ("Pen: every drag draws, Esc to stop"), an armed shape or mark, and the
+  two that took the pane with nothing on screen to say so — the arrow
+  tool, and the tablet's pen writing in the notebook ("Tablet pen:
+  writing on the notebook, pick Page on the tablet's bar to stop", only
+  while the tablet is the input and the rendered page is up, which is when
+  the nib is ink). One list, one
+  `ForEach` in `EditorPane`'s footer, each line the accent colour and
+  naming how it is put away; the bar's lit buttons and the pointer are
+  as they were.
+- **A DRAWING CELL IS STATIC, AND CLICKING INTO IT IS THE ONE WAY TO DRAW IN
+  IT.** Sean, 2026-10-03: "drawing cells are static unless you enter click
+  into it, which forces you into a drawing mode where you can only draw in
+  that cell (mouse or wacom into cell (if wacom is in write on notebook
+  mode)) otherwise you can select and insert like normal or page capture by
+  selection from a document camera". It REPLACES the rule of 2026-10-02
+  that the cursor draws on a cell's paper (the bullet above is why it had
+  to go), and every rule about it is in `Drawing/CellDrawing.swift`, pure,
+  or in `AppState`. **STATIC**: a cell shows its picture and nothing draws
+  into it — not the pen, not the cursor, not the tablet's nib — whatever
+  the pen mode is doing; it is held by its bracket, moved, deleted, held
+  with others, inserted around and handed pictures (an insert, a capture
+  by selection from the camera, Dock) exactly as before. **ENTERING** is a
+  CLICK: a press on a writable cell's paper that never travelled
+  (`CellDrawing.clickTravel`, 3 points), with the mouse, in cursor mode OR
+  under the pen (a pen click there is the way in, not a dot), and NOT with
+  a shape, a mark or the arrow tool armed (they do their own thing where
+  they are pressed — a tick goes down ON the cell, floating), not with ⌘
+  (the marquee) and not through a floating object lying over the cell.
+  `CellDrawing.contact` is the one function that says what a press is
+  about a cell (`.click`, `.drawing`, `.leaving`, `.none`) and the canvas's
+  `begin` asks it; the layer's hit shape takes every writable cell's paper
+  (`paperTaken`) ONLY to see whether the press is a click, so the notebook
+  has every press anywhere else. Under the pen a press on a cell is held as
+  `cellClick` until it has travelled and then the stroke begins from where
+  the press did — no dot, no step — and at its end a click lets go of what
+  was picked, puts the caret in the cell (`onCellTap` →
+  `focusDrawingCell` → `beginDrawing(clicked: false)`: NOT a click in the
+  notes, which lets go of what the layer holds and would end the mode the
+  same click has just begun) and enters it (`onEnterCell` →
+  `AppState.enterCell`). **THE STATE** is `AppState.cellDrawing: UUID?` —
+  not a `CanvasMode`: it takes one cell and the notebook keeps every click
+  round it (`canvasOwnsPane` stays false). ONE TOOL AT A TIME, both ways:
+  each tool's setter and `putToolsAway` end it and `enterCell` puts the
+  tools away. The rendered page only: `enterCell` returns on the markdown
+  view and the layer is not mounted there, so a cell in the source pane is
+  the static picture it always was. `testACellIsEnteredOnlyByAClickIntoIt`
+  reads every source for who calls it (the layer's click, the nib's tap).
+  **IN THE MODE** every press inside the entered frame is the cell's
+  (`CanvasSpace.at(entered:)` — a floating object over the cell is not
+  reached, "nothing else on the page reacts to the pen"), the press is a
+  stroke (`CanvasMode.press(inEnteredCell:)`; ⌘ is still the marquee) and
+  EVERY POINT IS HELD INSIDE THE CELL (`CellDrawing.hold`, applied to each
+  sample: x in 0…1, y in 0…height÷width of the cell's own fractions, so a
+  stroke dragged out runs along the edge and leaves nothing outside); hover
+  handles are off and the pointer is the pencil over the cell
+  (`overEntered`); the tablet's eraser and marquee act on that cell alone.
+  IT SHOWS: a tint and a 2-point accent line round the cell (drawn by
+  `render`, the cell does not move), "Drawing in this cell" and a Done
+  control in its top right (`CellDrawingBadge`, SwiftUI shapes and text — no
+  hosted NSView over the notes, the eighth cause) and a line in the footer
+  (`toolLines`). **LEAVING IS GUARANTEED**, every way through
+  `AppState.endCellDrawing`: Esc (the layer's chain, after a label, a style
+  bar and the page's box), Done, a press outside the cell (`.leaving`: the
+  canvas leaves, asks again with nothing entered, so a click on another
+  cell enters THAT one), a click in the words, a bar or a bracket (the
+  `deselectToken` bump), the CARET leaving the cell (`litCell` going from
+  the entered cell to anything else — an arrow key, a character typed
+  after it), the cell folding away, going read-only or leaving the note
+  (`CellDrawing.enterable`, off `cellFrames`), another note, a pane or the
+  video coming or going, ⌘T onto markdown, another tool, and every way onto
+  the page (`putToolsAway`). It does NOT end between strokes: a stroke
+  landing, the text being typed or the drawing changing is not a way out
+  (`testItDoesNotEndByItselfBetweenStrokes`). **IT CAN END WITH A PRESS DOWN
+  (Esc, ⌘P, ⌘T or a keyboard note switch with the button held; the cell
+  folding away), AND NOTHING OF THAT PRESS GOES ONTO THE PAGE** (review,
+  2026-10-03). A press under way in a cell that is still there stays THE
+  CELL'S until it ends — its points are in the cell's own fractions, and
+  the first cut left the layer's space at once, so the rest of the stroke
+  was appended in pane fractions to a stroke begun in cell fractions and
+  written to the floating layer as junk — held inside it and landing in
+  it, the layer's space coming back after it (`CellDrawing.departure`,
+  `DrawingCanvas.leave(cell:cellThere:)`, `leaveWhenPressEnds`); with the
+  cell gone, or the note another, the press is dropped and the rest of the
+  drag does nothing (that one press leaves the single empty step
+  its stroke took as it began: one ⌘Z that changes nothing). The same
+  glue is held by `CellPressGlueTests`, which reads the canvas — the three
+  handlers that end the cell as the space ask `leave`, and a press ends
+  only through `pressEnded()` — since the drag cannot be run. The nib's stroke does the same: it lands in the cell it
+  began in (`finishedInCell`), and `NoteStore.inkFromTablet(_:intoCell:)`
+  REFUSES a cell with no writable frame — it used to fall through to the
+  floating layer, a stroke held in a cell's rect landing as ink over the
+  page with a step of its own. The tablet's eraser and marquee begun in
+  the cell, which the canvas scopes by the cell ENTERED, would be the
+  PAGE'S for the rest of the touch once the mode ended: they stop with it
+  (`NotebookScribe.place`'s `didSet` — the erasure is ended so its one step
+  closes — and a touch that began OUTSIDE the cell, the way out, is not
+  touched by it: its lift on another cell still enters that one). `drop()`
+  ends an erasure it drops. **⌘Z IS THE INK'S AFTER A STROKE IN A CELL,
+  WHOEVER DREW IT**: the mouse's stroke begins with `beginInk`, which tells
+  `onCursorInk` (`AppState.inkedNote(above:)`) in a cell before it takes
+  its step, as a cursor-mode stroke into a cell did before the mode and as
+  the nib's landing does — without it ⌘Z after Esc or Done undid the
+  typing before the stroke, silently (`CellInkClaimsUndoTests`; the
+  gesture that calls it cannot be run, so `CellPressGlueTests` reads the
+  canvas and fails if a stroke begins without it). **THE NIB**: with the
+  tablet's target the notebook the nib TAPPING a cell enters it and in the
+  mode writes into it; with the target the page it never touches a cell
+  (the notebook is handed no samples at all). `NotebookWriting` is walked
+  sample by sample: `NotebookPlace` carries `cells` (the writable frames,
+  document points) and `entered`; a touch over a static cell shows no ink
+  until it has travelled three points, and lifted before that is
+  `.entered(id)` — no dot, the caret goes in as a click's does — while one
+  that travels is floating ink from where it went down; in the mode a
+  touch inside the entered cell is `.finishedInCell(stroke, id)` with every
+  point held (`NotebookPlace.strokePoint(_:heldIn:)`), and a touch
+  OUTSIDE it is `.left` and nothing of it is ink, a box or an erasure (a
+  tap of it on another cell enters that one, as a click does). The scribe
+  hands them to the app (`writes(into:telling:)`:
+  `NoteStore.inkFromTablet(_:intoCell:)` rehomes the stroke into the cell,
+  grows it, one step, ⌘Z claimed); the live ink is clipped to the cell
+  the stroke began in (`NotebookLiveInk.clip`, then `NotebookScribe.touchClip`:
+  it stays clipped there if the mode ends under the nib, as it lands there). **ITS OWN UNDO** — "onto its own drawing
+  history so undo/redo works inside it": there is still ONE stack of
+  whole-drawing snapshots, and `NoteStore.undoDrawing(inCell:)` /
+  `redoDrawing(inCell:)` take or put back a step only when it changed THAT
+  CELL AND NOTHING ELSE (`canUndoDrawing(inCell:)`: the floating layer and
+  every other cell equal across the step, a cell a state has no entry for
+  read as what its file held when it was read, as `restore` does). So in a
+  cell ⌘Z takes back the strokes made in it, newest first, and stops at
+  the first step that touched the page or another cell — it does not reach
+  past it, and nothing on the page moves. Everything that undoes asks:
+  ⌘Z and ⇧⌘Z (the key monitor, which also skips the tablet page's claim and
+  swallows the key with nothing left to undo, and the Edit menu, which
+  checks the cell first), ⌥⌘Z and ⇧⌥⌘Z, the pen menu's buttons and the
+  tablet pen's two buttons. **A TRAP: a SwiftUI drag cannot be driven from a
+  test** (measured 2026-10-03: a synthesized mouse reaches the hosting
+  view's `mouseDown` and SwiftUI never runs the `DragGesture` — the window
+  is never key and the test host cannot be made the active app without
+  taking Sean's focus), so what a press does is decided in pure functions
+  (`CellDrawing`, `CanvasSpace.at`, `NotebookWriting`) and the gesture is
+  thin glue round them; read the glue when it changes. Tests:
+  `DrawingCellModeTests.swift` (the pure rules, the state machine, and
+  `CellPressGlueTests`, which reads the canvas's call sites),
+  `DrawingCellTabletTests.swift` (the nib, the scribe's wiring, a cell's
+  undo, the mode ending under the nib, ⌘Z after a stroke), `CanvasKeyTests`
+  (Esc and ⌘Z through the real key monitor) and `EscapeWiringTests` (Esc
+  through the real editor pane).
 - **A group is a shared id, and every rule about it is in `CanvasGroups`.**
   Sean, 2026-09-20: "toggle grouping with the button on the screen or
   ctrl+g". `group: UUID?` sits on `Stroke`, `ImageItem` and `ShapeItem`
@@ -1334,9 +1552,8 @@ CoreMind's `bin/report-status.sh`.
   cells (`PaneFrames.stored`, ~22 ms, then a cold `shown`, ~11 ms). It is
   `Drawing.manipulated` now — one copy, one write.
   The arrow tool and an armed placement are NOT modes: they take the pane
-  until they are put away — the arrow tool until it is switched off, a
-  node or a line until Esc or another tool, a mark for one click (the
-  rule above) — so picking either puts the mode back to `cursor`, picking
+  until they are put away — the arrow tool until Esc or it is switched off, a
+  node, a line or a mark until Esc or another tool (the rule above) — so picking either puts the mode back to `cursor`, picking
   a mode puts them away, and each puts the other away. TWO READERS, and
   everything else asks one of them rather than spelling the flags out
   again — `canvasOwnsPane` (do the clicks reach the notebook: the seams
@@ -2542,7 +2759,9 @@ WriteMind/
   AppState.swift          UI state: sidebar shown, editor/preview mode, pen
                           on/off, pen width, colour and tablet tool, the
                           tablet page's own pen, where the tablet writes
-                          (all persisted), and the EditorBridge the
+                          (all persisted but the pen on/off and where the
+                          tablet writes: those are tools in hand, and a
+                          launch has none), and the EditorBridge the
                           toolbar talks through
   TestHost.swift          the unit-test host keeps out of ~/Documents
                           and off the camera
@@ -2683,12 +2902,20 @@ WriteMind/
                           ink, marquee intersection (touching is enough), and
                           CanvasEdit — the move/scale/rotate maths a group and
                           a single object share. Pure, and tested
+  Drawing/CellDrawing.swift
+                          cell drawing mode, pure: what a press is about a
+                          drawing cell (a click enters a static one, a press
+                          inside the entered one draws, outside it leaves),
+                          a click's travel, a point held inside the cell,
+                          which cells can be in the mode, and what becomes
+                          of a press the mode ends under
   Drawing/DrawingCanvas.swift
                           the layer: one Canvas, plus the handles. With the
-                          pen up it takes the whole pane and draws; with the
-                          pen down its contentShape is only the objects, so
-                          every other click reaches the text. ⌘ makes the
-                          whole pane a marquee
+                          cursor it takes only the objects on it (and a
+                          writable cell's paper, to see a click into it);
+                          under the pen it takes the whole pane and draws;
+                          in a cell entered it draws there and nowhere else.
+                          ⌘ makes the whole pane a marquee
   Drawing/CursorLayer.swift
                           the pencil (and open/closed hand) cursor, as a real
                           AppKit cursor rect over the text view — mounted

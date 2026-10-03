@@ -34,11 +34,13 @@ final class CanvasSpaceTests: XCTestCase {
         XCTAssertEqual(floating.toDocument(document), document)
     }
 
-    /// Which space a press is in: a FLOATING object under the point first —
-    /// the layer is on top of the page — else a writable cell holding the
-    /// point, with its object or its paper; else the floating layer. A
-    /// read-only cell is no space, and a folded cell has no frame at all.
-    func testAFloatingObjectBeatsACellAndACellsObjectBeatsItsPaper() {
+    /// Which space a press is in, IN CELL DRAWING MODE — the one cell
+    /// entered holds every point inside its frame, a floating object over it
+    /// included (nothing else on the page reacts), with its own object under
+    /// the point or its paper; every point outside it, and every press with
+    /// no cell entered, is the floating layer's (`StaticDrawingCellTests`).
+    /// A read-only cell is no space, and a folded cell has no frame at all.
+    func testTheEnteredCellHoldsItsFrameAndItsObjectBeatsItsPaper() {
         // A floating stroke across the cell, at y = 330 on the page.
         let floating = Stroke(colorHex: "#000000", width: 4,
                               points: [CGPoint(x: 0.05, y: 0.55), CGPoint(x: 0.5, y: 0.55)])
@@ -48,30 +50,38 @@ final class CanvasSpaceTests: XCTestCase {
         let inked = Stroke(colorHex: "#000000", width: 4,
                            points: [CGPoint(x: 0.25, y: 0.15), CGPoint(x: 0.3, y: 0.15)])
         let cells = [frame.id: DrawingCell(width: 400, aspect: 0.3, drawing: Drawing(strokes: [inked]))]
-        func at(_ x: CGFloat, _ y: CGFloat, frames: [CellFrame]) -> (space: CanvasSpaceID, item: UUID?) {
-            CanvasSpace.at(CGPoint(x: x, y: y), layer: layer, pane: pane, frames: frames, cells: cells)
+        let entering = frame.id
+        func at(_ x: CGFloat, _ y: CGFloat, frames: [CellFrame],
+                entered: UUID?) -> (space: CanvasSpaceID, item: UUID?) {
+            CanvasSpace.at(CGPoint(x: x, y: y), layer: layer, pane: pane, frames: frames, cells: cells,
+                           entered: entered)
         }
 
-        let onFloating = at(200, 330, frames: [frame])
-        XCTAssertEqual(onFloating.space, .floating, "the layer is on top of the page")
-        XCTAssertEqual(onFloating.item, floating.id)
+        let onFloating = at(200, 330, frames: [frame], entered: entering)
+        XCTAssertEqual(onFloating.space, .cell(frame.id), "a floating object over the entered cell is not reached")
+        XCTAssertNil(onFloating.item, "the cell's paper, not the object over it")
+        let notEntered = at(200, 330, frames: [frame], entered: nil)
+        XCTAssertEqual(notEntered.space, .floating, "the layer is on top of a static cell")
+        XCTAssertEqual(notEntered.item, floating.id)
 
-        let onInk = at(103, 345, frames: [frame])
+        let onInk = at(103, 345, frames: [frame], entered: entering)
         XCTAssertEqual(onInk.space, .cell(frame.id))
         XCTAssertEqual(onInk.item, inked.id, "the cell's own object")
 
-        let onPaper = at(250, 380, frames: [frame])
+        let onPaper = at(250, 380, frames: [frame], entered: entering)
         XCTAssertEqual(onPaper.space, .cell(frame.id))
         XCTAssertNil(onPaper.item, "the paper")
 
-        let off = at(600, 100, frames: [frame])
+        let off = at(600, 100, frames: [frame], entered: entering)
         XCTAssertEqual(off.space, .floating)
         XCTAssertNil(off.item)
 
         var readOnly = frame
         readOnly.writable = false
-        XCTAssertEqual(at(250, 380, frames: [readOnly]).space, .floating, "nothing is drawn in a read-only cell")
-        XCTAssertEqual(at(250, 380, frames: []).space, .floating, "a folded cell has no frame and is never picked")
+        XCTAssertEqual(at(250, 380, frames: [readOnly], entered: entering).space, .floating, "nothing is drawn in a read-only cell")
+        XCTAssertEqual(at(250, 380, frames: [], entered: entering).space, .floating, "a folded cell has no frame and is never picked")
+        XCTAssertEqual(at(250, 380, frames: [frame], entered: UUID()).space, .floating,
+                       "a cell that is not the one entered holds nothing")
     }
 
     /// AN OBJECT MOVED BETWEEN SPACES STAYS WHERE IT WAS ON THE PAGE: every

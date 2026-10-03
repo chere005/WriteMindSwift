@@ -624,6 +624,55 @@ final class NoteStore: ObservableObject {
         return true
     }
 
+    /// UNDO AND REDO INSIDE A CELL (cell drawing mode, `CellDrawing`): the
+    /// cell's own — they step through the strokes of that cell and never reach
+    /// the page or another cell. The drawing has ONE stack, a whole-drawing
+    /// snapshot a step, and a step is in the cell when taking it back or
+    /// putting it back changes THAT CELL AND NOTHING ELSE. So in the cell ⌘Z
+    /// takes back the strokes made in it, newest first, for as long as the
+    /// newest step on the stack is one of them; at a step that touched the
+    /// page — drawn on it after the cell was, a dock, a clear — it does
+    /// nothing, rather than reach past it, and ⇧⌘Z puts back only what was
+    /// taken back there. A nil `id` is the whole drawing's, as it always was.
+    func canUndoDrawing(inCell id: UUID?) -> Bool {
+        guard let id else { return canUndoDrawing }
+        guard let previous = drawingHistory.last else { return false }
+        return step(from: previous, to: DrawingState(layer: drawing, cells: cells), isOnlyIn: id)
+    }
+
+    func canRedoDrawing(inCell id: UUID?) -> Bool {
+        guard let id else { return canRedoDrawing }
+        guard let next = drawingFuture.last else { return false }
+        return step(from: DrawingState(layer: drawing, cells: cells), to: next, isOnlyIn: id)
+    }
+
+    @discardableResult
+    func undoDrawing(inCell id: UUID?) -> Bool {
+        guard canUndoDrawing(inCell: id) else { return false }
+        return undoDrawing()
+    }
+
+    @discardableResult
+    func redoDrawing(inCell id: UUID?) -> Bool {
+        guard canRedoDrawing(inCell: id) else { return false }
+        return redoDrawing()
+    }
+
+    /// The step from `before` to `after` changed the cell `id` and nothing
+    /// else: the floating layer is as it was, and so is every other cell. A
+    /// cell a state has no entry for is what its file held when it was read
+    /// (`restore` puts it back to that), so a cell read since the step was
+    /// taken is not a change.
+    private func step(from before: DrawingState, to after: DrawingState, isOnlyIn id: UUID) -> Bool {
+        guard before.layer == after.layer else { return false }
+        func held(_ state: DrawingState, _ other: UUID) -> DrawingCell? {
+            state.cells[other] ?? cellLoaded[other]
+        }
+        return Set(before.cells.keys).union(after.cells.keys).union(cells.keys).allSatisfy {
+            $0 == id || held(before, $0) == held(after, $0)
+        }
+    }
+
     /// A step of the drawing put back: the layer, and the cells. A cell the
     /// step has nothing of was not part of it — read after it was taken, or
     /// first drawn in after it — and goes back to what its file held when
@@ -644,20 +693,27 @@ final class NoteStore: ObservableObject {
     /// takes the stroke, and one given up half-way (the target changed, the
     /// notes went) leaves no empty step behind it. False with no note open.
     ///
-    /// BEGUN IN A DRAWING CELL, IT IS THE CELL'S: routed by its first point
-    /// against the cells' frames on the pane, moved into the cell's own
-    /// fractions point for point with every pressure kept
-    /// (`CanvasSpace.rehome`), and the cell grows to keep it — the same
-    /// step. Anywhere else it floats, as it always did.
+    /// A DRAWING CELL IS STATIC: a stroke goes into one only when it is told
+    /// which (`entered`, the cell in cell drawing mode — Sean, 2026-10-03:
+    /// "drawing cells are static unless you enter click into it"), moved
+    /// into the cell's own fractions point for point with every pressure
+    /// kept (`CanvasSpace.rehome`), the cell growing to keep it — the same
+    /// step. Every other stroke floats, whatever is under it, a cell's
+    /// picture included.
+    ///
+    /// A STROKE TOLD A CELL LANDS IN THAT CELL OR NOWHERE. One begun in a cell
+    /// whose frame has gone by the time the nib lifts — it folded away, went
+    /// read-only, left the note — used to fall through to the floating layer,
+    /// and a stroke held inside a cell's rect landed as ink over the page
+    /// where the cell had been, with a step of its own (review, 2026-10-03:
+    /// never continued onto the page). It is refused, and takes no step.
     @discardableResult
-    func inkFromTablet(_ stroke: Stroke) -> Bool {
+    func inkFromTablet(_ stroke: Stroke, intoCell entered: UUID? = nil) -> Bool {
         guard selectedNote != nil else { return false }
-        beginDrawingChange()
         let pane = paneSize
-        if let first = stroke.points.first,
-           let frame = cellFrames.first(where: {
-               $0.writable && $0.rect.contains(CGPoint(x: first.x * pane.width, y: first.y * pane.height))
-           }) {
+        if let entered {
+            guard let frame = cellFrames.first(where: { $0.id == entered && $0.writable }) else { return false }
+            beginDrawingChange()
             var cell = cells[frame.id] ?? .empty(width: Double(frame.width))
             cell.drawing.items.append(CanvasSpace.rehome(.stroke(stroke), from: .floating(pane: pane),
                                                          to: .cell(frame)))
@@ -665,6 +721,7 @@ final class NoteStore: ObservableObject {
             fitCell(frame.id)
             return true
         }
+        beginDrawingChange()
         drawing.items.append(contentsOf: landed([.stroke(stroke)]))
         return true
     }

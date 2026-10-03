@@ -34,16 +34,16 @@ struct PenMenu: View {
             Divider()
 
             HStack(spacing: 8) {
-                Button { store.undoDrawing() } label: {
+                Button { store.undoDrawing(inCell: appState.cellDrawing) } label: {
                     Label("Undo", systemImage: "arrow.uturn.backward")
                 }
-                .disabled(!store.canUndoDrawing)
+                .disabled(!store.canUndoDrawing(inCell: appState.cellDrawing))
                 .help("Undo the last thing that happened on the drawing layer — a stroke, a move, a delete (⇧⌘Z is the text's undo)")
 
-                Button { store.redoDrawing() } label: {
+                Button { store.redoDrawing(inCell: appState.cellDrawing) } label: {
                     Label("Redo", systemImage: "arrow.uturn.forward")
                 }
-                .disabled(!store.canRedoDrawing)
+                .disabled(!store.canRedoDrawing(inCell: appState.cellDrawing))
 
                 Spacer()
                 Text(objectCount)

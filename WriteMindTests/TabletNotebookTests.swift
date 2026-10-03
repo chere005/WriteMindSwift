@@ -605,12 +605,18 @@ final class TabletTargetTests: XCTestCase {
 
     private func state() -> AppState { AppState(defaults: UserDefaults(suiteName: suite)!) }
 
-    func testThePageUntilTheNotebookIsPickedAndThePickIsRemembered() {
+    /// The page until the notebook is picked — and the pick holds for the
+    /// session only. It was remembered across a launch until 2026-10-03,
+    /// when Sean found drawing turning itself on ("drawing mode seems to
+    /// keep turning itself on as i'm trying to navigate"): the first ⌘T
+    /// onto the rendered page made the pen write ink in it
+    /// (`DrawingModeLifecycleTests`).
+    func testThePageUntilTheNotebookIsPickedAndThePickIsNotRemembered() {
         let app = state()
         XCTAssertEqual(app.tabletTarget, .page)
         app.writeOn(.notebook)
         XCTAssertEqual(app.tabletTarget, .notebook)
-        XCTAssertEqual(state().tabletTarget, .notebook, "remembered")
+        XCTAssertEqual(state().tabletTarget, .page, "not remembered: a launch is the page")
         UserDefaults(suiteName: suite)!.set("whiteboard", forKey: "tabletTarget")
         XCTAssertEqual(state().tabletTarget, .page, "a target this build does not know is the page")
     }

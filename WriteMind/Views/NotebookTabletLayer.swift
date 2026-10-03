@@ -24,6 +24,10 @@ struct NotebookTabletLayer: View {
     @EnvironmentObject private var tablet: TabletController
     /// How far the text under the layer has scrolled (`EditorPane`).
     let scrollOffset: CGFloat
+    /// Where the drawing cells are on the pane that is up (`CellFrame`), in
+    /// document points: what a tap of the nib enters, and the entered cell is
+    /// what it writes into (`NotebookPlace.cells`).
+    var cellFrames: [CellFrame] = []
     /// The tablet's size, read off the funnel only when it CHANGES.
     @State private var extent = TabletExtent.fallback
     /// Where the notes were last measured here, to hand back to the scribe
@@ -40,10 +44,12 @@ struct NotebookTabletLayer: View {
                                       aspect: TabletMapping.aspect(of: extent, quarterTurns: turns),
                                       note: store.selectedNote?.id, quarterTurns: turns,
                                       scale: appState.notebookScale,
-                                      millimetres: TabletMapping.millimetres(of: extent, quarterTurns: turns))
+                                      millimetres: TabletMapping.millimetres(of: extent, quarterTurns: turns),
+                                      cells: cellFrames.filter(\.writable), entered: appState.cellDrawing)
             ZStack(alignment: .topLeading) {
                 if appState.tabletWritesInNotebook {
-                    NotebookLiveInk(scribe: scribe, scrollOffset: scrollOffset)
+                    NotebookLiveInk(scribe: scribe, scrollOffset: scrollOffset,
+                                    clip: place.cells.first { $0.id == place.entered }?.rect)
                     NotebookPenGuide(input: input, area: place.area)
                 }
             }
@@ -87,6 +93,11 @@ struct NotebookTabletLayer: View {
 private struct NotebookLiveInk: View {
     @ObservedObject var scribe: NotebookScribe
     let scrollOffset: CGFloat
+    /// The entered cell's rect, in document points: the stroke under the nib
+    /// is shown clipped to it, as it will be kept. A stroke that began in a
+    /// cell stays clipped to THAT cell (`NotebookScribe.touchClip`) when the
+    /// mode ends under the nib, as it lands there.
+    var clip: CGRect?
     /// The note's paper, so the stroke under the nib is shown as it will
     /// be once it lands (`InkPaths.shownHex`).
     @Environment(\.colorScheme) private var colorScheme
@@ -94,9 +105,11 @@ private struct NotebookLiveInk: View {
     var body: some View {
         let stroke = scribe.stroke
         let marquee = scribe.marquee
+        let held = scribe.touchClip ?? clip
         let paper = InkPaths.notePaperHex(dark: colorScheme == .dark)
         Canvas { context, size in
             context.translateBy(x: 0, y: -scrollOffset)
+            if let held { context.clip(to: Path(held)) }
             if let stroke { DrawingCanvas.paintLive(stroke, in: &context, size: size, paper: paper) }
             if let marquee { DrawingCanvas.paintMarquee(marquee, in: &context) }
         }
