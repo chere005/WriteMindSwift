@@ -381,17 +381,17 @@ is how the code is put together.
   appear (move, turn, resize, delete). With the pen **down** it draws, and
   the pointer is a pencil over that pane and nowhere else. In either mode,
   hold **⌘ and drag** to pull a rectangle over the page: it takes
-  everything it *touches*, whole or not. The mode is remembered between
-  launches and the footer names it whenever the pen is down. **Drawing mode
+  everything it *touches*, whole or not. The footer names the mode
+  whenever the pen is down. **Drawing mode
   turns on only when you ask and is never left on behind you.** The pen, the
   arrow tool, a shape or mark and the tablet's notebook mode are each put
   on by a button or a key and by nothing else; none of them is remembered
   across a launch, none goes with you to another note, and none stays when
   a pane comes or goes (the notes pane put away, the video shown or hidden,
-  the window given to the picture) or the markdown view is up. Esc puts away
-  whatever is in hand — the pen, the arrow tool, a shape or a mark, which
-  still stays armed while you use it — and the footer names it, and how to
-  stop it, for as long as it is on. A drawing cell is never drawn on just
+  the window given to the picture, the tablet let go) or the markdown view
+  is up. Esc puts away whatever is in hand — the pen, the arrow tool, a
+  shape or a mark, which still stays armed while you use it — and the
+  footer names each, and how to stop it, for as long as it is on. A drawing cell is never drawn on just
   because the pen is down or the pointer passes over it — you click into it
   first (the first entry). **Drawing is
   on the rendered page only**: picking the pen, a shape, a mark or the
@@ -537,9 +537,13 @@ is how the code is put together.
   up on the drawing, exactly as a ⌘-drag does — ⌫ and the handles then
   work on them. The page is set aside, dimmed, and kept as it was; the
   switch (or the View menu) sends the pen back to it — Esc stays the
-  notes'. Picking the notebook brings the notes into view if they were
-  put away, and the page may be hidden while you write in the notes; with
-  no note on screen the pen is a pointer again, and the page says so.
+  notes' — and so does leaving the page: another note, a pane coming or
+  going (Hide Page too), the tablet let go or the markdown view put the pen
+  back on the page, and coming back picks the notebook up again only if
+  you ask. While the pen writes on the notes the footer says so and how to
+  stop it. Picking the notebook brings the notes into view if they were
+  put away; with no note on screen the pen is a pointer again, and the
+  page says so.
 - **A bar you can put away a piece at a time.** The toolbar is in
   sections — Style, Structure, Insert, Maths, Flow Chart, Capture — and the
   grip at the end of each one folds it down to a single icon; right-click

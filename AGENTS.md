@@ -666,7 +666,10 @@ CoreMind's `bin/report-status.sh`.
   mode". **Write on: Page | Notebook** is a switch on the page's bar
   (`TabletBar`, `TabletTargetSwitch`) and nowhere else on screen;
   `AppState.tabletTarget`, the page unless the notebook is picked — and NOT
-  remembered across a launch (the drawing-mode bullet below). The View menu mirrors it as it mirrors Draw — "Write on the
+  remembered across a launch, and put away with the other tools whenever
+  Sean leaves the page (`AppState.leaveThePage`: another note, a pane
+  coming or going, the tablet let go, the markdown view; the drawing-mode
+  bullet below). The View menu mirrors it as it mirrors Draw — "Write on the
   Notebook with the Tablet", no key, only while a tablet is the input —
   and both go through `AppState.writeOn`, which BRINGS THE NOTES INTO
   VIEW when the notebook is picked (leaving the whole-window page too): a
@@ -753,9 +756,10 @@ CoreMind's `bin/report-status.sh`.
   `TabletInput.aim(at:)` (fed from the app, as the turn now is too) and
   two counts — pages, and notebooks: a note open under its layer, counted
   by `NotebookTabletLayer` appearing — give `targetIsShowing`, and both
-  the funnel's swallowing and the hold on the tablet follow it. In
-  Notebook mode the page may be put away; with no note open there is
-  nothing to write on and the pen is a pointer. Switching with both up
+  the funnel's swallowing and the hold on the tablet follow it. A pane
+  coming or going — the page put away included — puts the pen back on the
+  page (`leaveThePage`); with no note open there is nothing to write on and
+  the pen is a pointer. Switching with both up
   is no change at all: the tablet stays held, for either. Switching drops
   whatever was half-done for either (`TabletScribe.dropUnderWay`): the
   lift of a stroke begun on the page lands nowhere, and the page's box
@@ -764,11 +768,11 @@ CoreMind's `bin/report-status.sh`.
   page's pane may never have been on screen. **NO KEY CHANGES THE
   TARGET**: an Esc that sent the pen back to the page was the last step
   of the layer's chain for a day, and a local monitor sees a key before
-  the notes do — so in a mode that is remembered and lived in, every Esc
-  meant for the notes (an armed seam, a block being edited, held cells,
-  the /link banner) went to the tablet instead, and with the page put
-  away the pen was silently a pointer. The switch and the View menu are
-  the way.
+  the notes do — so every Esc meant for the notes (an armed seam, a
+  block being edited, held cells, the /link banner) went to the tablet
+  instead, and with the page put away the pen was silently a pointer. The
+  switch and the View menu are the way, and the footer names the switch
+  while the nib is writing in the notebook (`AppState.toolLines`).
   **THE PAGE SET ASIDE**: in Notebook mode the sheet is dimmed with one
   line (`PageSetAside`, which takes the clicks on the sheet so no box is
   drawn on it) that follows what is on screen
@@ -1199,35 +1203,48 @@ CoreMind's `bin/report-status.sh`.
   (`AppState.togglePen`), a palette tile (`AppState.arm`), the arrow tool's
   own switch in the shapes popover, and the Write on: Notebook switch.
   `DrawingModeLifecycleTests.testNothingTurnsAToolOnButTheButtonsThatAskForIt`
-  reads every source and fails on a new line that writes a tool on, so the
-  list stays this short. What was found leaving one on, each with a test:
+  reads every source and fails on a new line that writes a tool on — and on
+  a new caller of `togglePen`, `arm`, `writeOn` or the arrow tool's toggle
+  outside the files that ask for them — so the list stays this short. What was found leaving one on, each with a test:
   **(1) A LAUNCH CAME UP WITH THE PEN** — `canvasMode` was remembered like
   the pen's size and `AppState.init` dragged the notes onto the rendered
   page to show it; it is a tool in hand and not a setting, and is no
   longer written down or read back (a launch is the notebook's mode on the
   markdown view). **(2) THE TABLET'S NOTEBOOK TARGET WAS REMEMBERED TOO**,
-  so the first ⌘T onto the rendered page made every touch of the nib ink;
-  it holds for the session and a launch is the page. **(3) ANOTHER NOTE KEPT
+  so the first ⌘T onto the rendered page made every touch of the nib ink.
+  It is a drawing mode like the rest: not remembered (a launch is the page),
+  and in a session put away with the other tools whenever Sean leaves the
+  page (`AppState.leaveThePage` — every tool put away and the nib back on
+  its own page — on each of the four ways below), with the footer line
+  naming the switch that stops it. A mouse tool picked, a picture or text
+  box dropped on the page (`putToolsAway`) and entering a cell leave it
+  alone: it is the NIB's, and the nib tapping a cell is how the mode is
+  entered for the nib. **(3) ANOTHER NOTE KEPT
   THE TOOL**: a pen, the arrow tool or a mark left armed went with Sean to
   the next note and drew on his first click there. `AppState.watchNotes(of:)`
   (called from the app's `.task`, so the tests go through the same way)
-  puts every tool away when the open note changes — a tab picked or
+  leaves the page when the open note changes — a tab picked or
   closed, a note opened — and not for the same note again or a change in
   it. **(4) A PANE COMING OR GOING** — the notes pane put away
   (`showEditor`), the video shown or hidden (`showCamera`), the window
   given to the picture (`cameraFullWindow`), a tablet picked or let go
   (`inputSource`) — left the tool armed for the first click when the
-  notes came back; each setter puts the tools away (`putToolsAway`) and
+  notes came back; each setter leaves the page (`leaveThePage`) and
   only on a CHANGE: `@Published`'s `didSet` fires on a write of the value
   it already had, and `toggleCameraFullWindow` writes `showCamera = true`
   on its way in. The sidebar is not a pane the notes are drawn beside and
-  does not. The markdown view already did, both ways: ⌘T onto it puts
-  every tool down and ⌘T back picks nothing up. **(5) ESC LET GO OF THE
+  does not. The markdown view did, both ways: ⌘T onto it leaves the page
+  (every tool down, the nib's notebook with them) and ⌘T back picks
+  nothing up. **(5) ESC LET GO OF THE
   PEN AND A SHAPE BUT NOT THE ARROW TOOL**, which then had no way out but
-  its own switch: `AppState.escapeTool()` puts away whatever is in hand,
-  and the layer's chain asks it as a step of its own
+  its own switch: the layer's chain has a step of its own for it
   (`DrawingCanvas.onDisconnect`, after a label, a style bar and an armed
-  shape, in `KeyInputs` with them — `CanvasKeyTests`). **(6) A DRAWING
+  shape, in `KeyInputs` with them — `CanvasKeyTests`), and what Esc does
+  to each tool is held to the REAL wiring — a real Esc through the real
+  `EditorPane`, its closures and its `AppState` (`EscapeWiringTests`);
+  there is no `AppState` function for the key, and the first cut's one had
+  no caller outside its own tests. No key puts the nib's notebook away
+  (the rule in the tablet bullet). **(6) A DRAWING
   CELL WAS A PEN OF ITS OWN**: in cursor mode a drag, or a nib touching,
   on a cell's paper drew in it and the pointer was a pencil over every
   cell on the page (Sean, 2026-10-02: "drawing cell which is cmd + 0"); a
@@ -1244,8 +1261,9 @@ CoreMind's `bin/report-status.sh`.
   ("Pen: every drag draws, Esc to stop"), an armed shape or mark, and the
   two that took the pane with nothing on screen to say so — the arrow
   tool, and the tablet's pen writing in the notebook ("Tablet pen:
-  writing on the notebook", only while the tablet is the input and the
-  rendered page is up, which is when the nib is ink). One list, one
+  writing on the notebook, pick Page on the tablet's bar to stop", only
+  while the tablet is the input and the rendered page is up, which is when
+  the nib is ink). One list, one
   `ForEach` in `EditorPane`'s footer, each line the accent colour and
   naming how it is put away; the bar's lit buttons and the pointer are
   as they were.

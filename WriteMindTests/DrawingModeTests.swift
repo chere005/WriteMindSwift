@@ -20,10 +20,12 @@ import XCTest
 //     tablet's page shown, the window given to the picture — left it armed
 //     for when the notes came back — `testAPaneComingOrGoing…`.
 //   * ESC LET GO OF THE PEN AND A SHAPE BUT NOT THE ARROW TOOL —
-//     `testEscape…` and `CanvasKeyTests`.
-//   * THE TABLET'S NOTEBOOK TARGET was remembered across a launch, so the
-//     first ⌘T onto the rendered page made the pen write ink —
-//     `testTheTabletsNotebookIsNotRemembered…`.
+//     `EscapeWiringTests` (the real pane) and `CanvasKeyTests` (the chain).
+//   * THE TABLET'S NOTEBOOK TARGET is a tool in hand like the rest: it was
+//     remembered across a launch, so the first ⌘T onto the rendered page made
+//     the pen write ink (`testTheTabletsNotebookIsNotRemembered…`), and in a
+//     session it outlived a note switch, a pane, the markdown view and the
+//     tablet itself (`testTheTabletsNotebook…`).
 //   * A DRAWING CELL WAS A PEN OF ITS OWN: in cursor mode a drag, or a nib
 //     touching, on a cell's paper drew in it, and the pointer was a pencil
 //     over every cell on the page — `DrawingCellModeTests`.
@@ -103,6 +105,117 @@ final class DrawingModeLifecycleTests: XCTestCase {
                        "a launch must not make the pen write in the notebook")
         defaults.set("notebook", forKey: "tabletTarget")
         XCTAssertEqual(AppState(defaults: defaults).tabletTarget, .page, "nor a value an older build left")
+    }
+
+    /// THE TABLET'S NOTEBOOK TARGET IS A DRAWING MODE LIKE ANY OTHER, and so it
+    /// is put away with the others (Sean, 2026-10-03: nothing is left on behind
+    /// him): by a note switch, a pane coming or going, the tablet itself going
+    /// and a trip through the markdown view. Left on, the first nib touch after
+    /// any of them was ink in the note with nothing picked since, and nothing
+    /// on screen said how to stop it.
+    func testTheTabletsNotebookIsPutAwayWithTheOtherTools() throws {
+        func inNotebook() -> AppState {
+            let app = state()
+            app.follow(tabletPicked: true)
+            app.writeOn(.notebook)
+            XCTAssertEqual(app.tabletTarget, .notebook)
+            XCTAssertTrue(app.tabletWritesInNotebook)
+            return app
+        }
+        let ways: [(String, (AppState) -> Void)] = [
+            ("the notes pane going", { $0.showEditor = false }),
+            ("the video pane going", { $0.showCamera = false }),
+            ("the whole window given to the page", { $0.cameraFullWindow = true }),
+            ("the tablet let go", { $0.follow(tabletPicked: false) }),
+            ("a trip to the markdown view", { $0.toggleMode() }),
+        ]
+        for (name, leave) in ways {
+            let app = inNotebook()
+            leave(app)
+            XCTAssertEqual(app.tabletTarget, .page, "the tablet went on writing in the notebook after \(name)")
+            XCTAssertFalse(app.tabletWritesInNotebook, name)
+            // And coming back picks nothing up: the first touch is the page's.
+            if app.mode == .editor { app.toggleMode() }
+            app.follow(tabletPicked: true)
+            XCTAssertEqual(app.tabletTarget, .page, "coming back from \(name) wrote in the notebook")
+            XCTAssertEqual(app.toolLines, [], name)
+        }
+
+        // The video shown again is a pane coming.
+        let app = inNotebook()
+        app.showCamera = false
+        app.writeOn(.notebook)
+        app.showCamera = true
+        XCTAssertEqual(app.tabletTarget, .page, "the video pane coming left the notebook picked")
+
+        // Not ways off the page: the same note again, the sidebar, and the
+        // tablet picked again when it already is the input.
+        let still = inNotebook()
+        still.showSidebar.toggle()
+        still.follow(tabletPicked: true)
+        still.showCamera = true
+        XCTAssertEqual(still.tabletTarget, .notebook, "nothing changed that is a way off the page")
+    }
+
+    /// WHAT DOES NOT PUT IT AWAY: it is the NIB's and not the mouse's, so a
+    /// mouse tool picked, a picture or a text box dropped on the page and a
+    /// click into a cell leave it alone — the nib TAPPING a drawing cell is how
+    /// it enters one (`NotebookScribe.onEnterCell`), and a tablet that stopped
+    /// writing in the notebook the moment it did could not write in the cell.
+    func testTheTabletsNotebookSurvivesWhatIsTheMousesToDo() {
+        let app = state()
+        app.follow(tabletPicked: true)
+        app.writeOn(.notebook)
+        let cell = UUID()
+        app.enterCell(cell)
+        XCTAssertEqual(app.cellDrawing, cell)
+        XCTAssertEqual(app.tabletTarget, .notebook, "entering a cell put the nib's notebook away")
+        app.canvasMode = .pen
+        app.connectActive = true
+        app.arm(.shape(.rectangle))
+        app.putToolsAway()
+        XCTAssertEqual(app.tabletTarget, .notebook, "the mouse's tools went, and so did the nib's")
+        app.endCellDrawing()
+        XCTAssertEqual(app.tabletTarget, .notebook)
+    }
+
+    /// Another note under the nib takes nothing with it.
+    func testTheTabletsNotebookIsPutAwayByASwitchOfNotes() throws {
+        let (store, first, second) = try twoNotes()
+        let app = state()
+        app.watchNotes(of: store)
+        app.follow(tabletPicked: true)
+        app.writeOn(.notebook)
+        store.openTab(first)
+        store.text += "typed\n"
+        XCTAssertEqual(app.tabletTarget, .notebook, "the same note, and a change in it, is no switch")
+        store.openTab(second)
+        XCTAssertEqual(app.tabletTarget, .page, "the nib wrote in the next note, with nothing picked there")
+        XCTAssertEqual(app.toolLines, [])
+    }
+
+    /// Picking the notebook has to survive the moves it makes to show it: the
+    /// notes pane brought back, the window given back, the rendered page
+    /// brought up. Each of those is the same setter a pane coming would use,
+    /// and putting the tablet away there would undo the pick it is serving.
+    func testPickingTheNotebookSurvivesTheMovesItMakesToShowIt() {
+        let putAway: [(String, (AppState) -> Void)] = [
+            ("the notes pane put away", { $0.showEditor = false }),
+            ("the window given to the page", { $0.cameraFullWindow = true }),
+            ("the markdown view", { _ in }),
+        ]
+        for (name, setUp) in putAway {
+            let app = state()
+            app.follow(tabletPicked: true)
+            setUp(app)
+            app.writeOn(.notebook)
+            XCTAssertEqual(app.tabletTarget, .notebook, "picking the notebook with \(name) put it away again")
+            XCTAssertTrue(app.showEditor, name)
+            XCTAssertFalse(app.cameraFullWindow, name)
+            XCTAssertEqual(app.mode, .preview, name)
+            XCTAssertEqual(app.toolLines.map(\.words),
+                           ["Tablet pen: writing on the notebook, pick Page on the tablet's bar to stop"], name)
+        }
     }
 
     // MARK: - Navigating
@@ -218,40 +331,29 @@ final class DrawingModeLifecycleTests: XCTestCase {
 
     // MARK: - Esc
 
-    /// Esc puts away whatever tool is in hand — the pen, the arrow tool, an
-    /// armed shape or mark — and is taken only when there was one, so with
-    /// none up it is the notebook's.
-    func testEscapePutsAwayWhateverToolIsInHand() {
-        let app = state()
-        XCTAssertFalse(app.escapeTool(), "nothing in hand: the key is not ours")
-        for (name, pick) in tools {
-            pick(app)
-            XCTAssertTrue(app.escapeTool(), "Esc did not take \(name)")
-            XCTAssertFalse(app.canvasOwnsPane, "Esc left \(name) on")
-            XCTAssertFalse(app.escapeTool(), "a second Esc has nothing to put away")
-        }
-    }
+    // Esc is held to the REAL wiring — the layer's key monitor and the editor
+    // pane's own closures — in `EscapeWiringTests`; there is no AppState
+    // function for it to be tested through.
 
     // MARK: - Only an explicit act turns one on
 
     /// THE WHOLE LIST OF WAYS A TOOL GOES ON, read off the sources, so a new
-    /// path that turns one on by itself fails here: the pen button and ⌘P
-    /// (`togglePen`), a palette tile (`arm`) and the arrow tool's own switch
-    /// (a `Toggle` on `connectActive`, which is no assignment). Outside
-    /// those, everything that writes the tool state writes it OFF.
+    /// path that turns one on by itself fails here — in two halves. THE
+    /// ASSIGNMENTS: the pen button and ⌘P (`togglePen`), a palette tile
+    /// (`arm`), the Write on: Notebook switch (`writeOn`) and the arrow tool's
+    /// own switch (a `Toggle` on `connectActive`, which is no assignment) are
+    /// the only lines that write a tool ON; everything else that writes the
+    /// tool state writes it OFF. THE CALLERS, below, for what those four are
+    /// asked by.
     func testNothingTurnsAToolOnButTheButtonsThatAskForIt() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "WriteMind", directoryHint: .isDirectory)
-        let sources = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }) ?? []
+        let sources = try appSources()
         XCTAssertGreaterThan(sources.count, 50)
         let assignment = try NSRegularExpression(
-            pattern: #"\b(canvasMode|connectActive|placing)\s*=\s*([^=\n][^\n]*)$"#)
+            pattern: #"\b(canvasMode|connectActive|placing|tabletTarget)\s*=\s*([^=\n][^\n]*)$"#)
         let allowed: Set<String> = [
             "func togglePen() { canvasMode = penActive ? .cursor : .pen }",
             "placing = placing == placement ? nil : placement",
+            "if tabletTarget != target { tabletTarget = target }",
         ]
         var writers: [String] = []
         for file in sources {
@@ -268,30 +370,60 @@ final class DrawingModeLifecycleTests: XCTestCase {
                 guard !before.hasSuffix("let"), !before.hasSuffix("var") else { continue }
                 var value = line[valueRange].trimmingCharacters(in: .whitespaces)
                 value = value.trimmingCharacters(in: CharacterSet(charactersIn: " },)"))
-                let off = ["nil", "false", ".cursor"].contains(value)
+                let off = ["nil", "false", ".cursor", ".page"].contains(value)
                 if !off && !allowed.contains(line) { writers.append("\(file.lastPathComponent):\(index + 1): \(line)") }
             }
         }
         XCTAssertEqual(writers, [], "a tool is turned on by something that is not a button or a key")
     }
 
+    /// THE CALLERS of the four functions that put a tool in hand: the pen
+    /// button and the View menu's Draw (⌘P), the palettes' tiles, and the two
+    /// places that hold the Write on switch. A call from anywhere else — a
+    /// view's body, a timer, a hook — is a tool turned on without an act of
+    /// Sean's, and the assignment scan above cannot see it, since the line
+    /// that writes the tool is inside the function.
+    func testOnlyTheButtonsAndKeysThatAskForAToolCallTheFunctionsThatPutOneInHand() throws {
+        let sources = try appSources()
+        let callers: [(call: String, files: [String])] = [
+            ("togglePen(", ["TopBar.swift", "WriteMindApp.swift"]),
+            ("appState.arm(", ["ShapeMenu.swift"]),
+            ("writeOn(", ["TabletPane.swift", "WriteMindApp.swift"]),
+        ]
+        var found: [String: Set<String>] = [:]
+        for file in sources {
+            for raw in try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n") {
+                let line = raw.trimmingCharacters(in: .whitespaces)
+                guard !line.hasPrefix("//"), !line.hasPrefix("func ") else { continue }
+                for (call, _) in callers where line.contains(call) { found[call, default: []].insert(file.lastPathComponent) }
+            }
+        }
+        for (call, files) in callers {
+            XCTAssertEqual(found[call] ?? [], Set(files), "\(call) is called from somewhere it was not meant to be")
+        }
+    }
+
     /// And the one switch that turns a tool on without an assignment is the
     /// arrow tool's own toggle, in the shapes palette.
     func testTheArrowToolIsSwitchedOnOnlyByItsOwnToggle() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appending(path: "WriteMind", directoryHint: .isDirectory)
-        let sources = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "swift" }) ?? []
         var bindings: [String] = []
-        for file in sources {
+        for file in try appSources() {
             for (index, line) in (try String(contentsOf: file, encoding: .utf8)).components(separatedBy: "\n").enumerated()
             where line.contains("$appState.connectActive") {
                 bindings.append("\(file.lastPathComponent):\(index + 1)")
             }
         }
         XCTAssertEqual(bindings.map { String($0.split(separator: ":")[0]) }, ["ShapeMenu.swift"])
+    }
+
+    /// Every Swift source of the app.
+    private func appSources() throws -> [URL] {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "WriteMind", directoryHint: .isDirectory)
+        return (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "swift" }) ?? []
     }
 
     // MARK: - Seeing it
@@ -324,23 +456,53 @@ final class DrawingModeLifecycleTests: XCTestCase {
     }
 
     /// The tablet's pen writing in the notebook is a mode of its own, and it
-    /// is named while it is live: a tablet is the input, the notebook is its
-    /// target, and the rendered page is up for it to write on.
+    /// is named while it is live — with how to stop it: a tablet is the input,
+    /// the notebook is its target, and the rendered page is up for it to write
+    /// on. It is a tool in hand like the others, so the markdown view puts it
+    /// away and coming back picks nothing up.
     func testTheTabletWritingInTheNotebookIsNamedWhileItIsLive() {
         let app = state()
         app.follow(tabletPicked: true)
         XCTAssertEqual(app.toolLines, [], "the page is the target: the notes' footer has nothing to say")
         app.writeOn(.notebook)
         XCTAssertEqual(app.mode, .preview)
-        XCTAssertEqual(app.toolLines.map(\.words), ["Tablet pen: writing on the notebook"])
+        XCTAssertEqual(app.toolLines.map(\.words),
+                       ["Tablet pen: writing on the notebook, pick Page on the tablet's bar to stop"])
 
+        app.writeOn(.page)
+        XCTAssertEqual(app.toolLines, [], "the way out the footer names")
+
+        app.writeOn(.notebook)
         app.toggleMode()
         XCTAssertEqual(app.toolLines, [], "over the markdown view the pen is a pointer, and nothing is written")
         app.toggleMode()
-        XCTAssertEqual(app.toolLines.map(\.words), ["Tablet pen: writing on the notebook"])
+        XCTAssertEqual(app.toolLines, [], "and the rendered page again picks nothing up")
 
+        app.writeOn(.notebook)
         app.follow(tabletPicked: false)
         XCTAssertEqual(app.toolLines, [], "no tablet is the input")
+    }
+
+    /// EACH LINE NAMES HOW IT IS PUT AWAY — the claim AGENTS.md and
+    /// docs/CROSS-PLATFORM.md make of the footer, held to every line it can
+    /// show at once.
+    func testEveryLineNamesHowItIsPutAway() {
+        let app = state()
+        app.follow(tabletPicked: true)
+        app.writeOn(.notebook)
+        app.canvasMode = .pen
+        var lines = app.toolLines
+        app.connectActive = true
+        lines += app.toolLines
+        app.arm(.shape(.check))
+        lines += app.toolLines
+        app.enterCell(UUID())
+        lines += app.toolLines
+        XCTAssertGreaterThanOrEqual(lines.count, 4)
+        for line in lines {
+            XCTAssertTrue(line.words.contains("stop") || line.words.contains("finish"),
+                          "\"\(line.words)\" says nothing about how to put it away")
+        }
     }
 
     /// A symbol that does not exist draws as nothing at all.

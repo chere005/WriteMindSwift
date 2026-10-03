@@ -259,11 +259,11 @@ final class CellDrawingStateTests: XCTestCase {
         }
     }
 
-    /// EVERY WAY OUT.
+    /// EVERY WAY OUT, but Esc — which is a key, and is sent through the real
+    /// editor pane in `EscapeWiringTests`.
     func testEveryWayOutLeavesTheCell() throws {
         let doneControl: (String, (AppState) -> Void) = ("the Done control", { $0.endCellDrawing() })
         let ways: [(String, (AppState) -> Void)] = [
-            ("Esc", { XCTAssertTrue($0.escapeTool(), "Esc was not taken while a cell was entered") }),
             doneControl,
             ("markdown", { $0.toggleMode() }),
             ("the notes pane going", { $0.showEditor = false }),
@@ -278,7 +278,6 @@ final class CellDrawingStateTests: XCTestCase {
             XCTAssertEqual(app.cellDrawing, cell)
             leave(app)
             XCTAssertNil(app.cellDrawing, "\(name) left the cell entered")
-            XCTAssertFalse(app.escapeTool(), "and a second Esc has nothing to take")
         }
         // Another note.
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

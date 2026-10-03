@@ -476,6 +476,13 @@ these, which were all ways of finding a tool still on:
   launch (it is a tool in hand, not a setting like the pen's size or
   colour); neither is the tablet's notebook target, which is the page.
   A launch is on the markdown view, in the notebook's own mode.
+- **The tablet's notebook target is a tool in hand like the others**, and
+  is put away by the four things below, along with every other tool: the
+  nib is back on its own page afterwards, and coming back picks nothing
+  up. A mouse tool picked, a picture or text box dropped on the page and a
+  click into a drawing cell do NOT put it away — it is the nib's, and the
+  nib tapping a cell is how it enters one. No key puts it away (Esc is the
+  notes'); the footer names the switch that does.
 - **Another note takes nothing with it.** The open note changing — a tab
   picked or closed, a note opened from the list or by a link — puts every
   tool away. The same note again, and typing or drawing in it, do not.
@@ -486,9 +493,11 @@ these, which were all ways of finding a tool still on:
   these. The markdown view puts every tool away as before, and going back
   to the rendered page picks nothing up.
 - **Esc puts away whatever is in hand**: the pen, the arrow tool, an armed
-  shape or mark. It is taken only when something was in hand, so with
-  nothing up it belongs to the notes (an armed bar, a block being
-  edited). The arrow tool had no key out before.
+  shape or mark, an entered drawing cell. It is taken only when something
+  was in hand, so with nothing up it belongs to the notes (an armed bar, a
+  block being edited). The arrow tool had no key out before. Each tool's
+  Esc is its own step in the layer's key chain; a port should test the real
+  chain with the real wiring rather than one function that nothing calls.
 - **A mark or shape still stays armed while it is being used** — the
   rule from 2026-10-02 is unchanged: putting one down does not hand the
   tool back. Leaving, Esc, another tool, the same tile again or a way onto
@@ -503,9 +512,9 @@ these, which were all ways of finding a tool still on:
 - **The footer names every tool in hand**, in the accent colour, each with
   how to put it away: "Pen: every drag draws, Esc to stop", the armed
   shape or mark as before, "Arrow tool: drag from one thing to another,
-  Esc to stop", and "Tablet pen: writing on the notebook" while the tablet
-  is the input and the rendered page is up. The last two had no word on
-  screen at all before.
+  Esc to stop", and "Tablet pen: writing on the notebook, pick Page on the
+  tablet's bar to stop" while the tablet is the input and the rendered page
+  is up. The last two had no word on screen at all before.
 
 ### Drawing happens on the rendered page only
 Sean, 2026-10-02: "only allow drawing in wysiwyg mode, both from wacom and

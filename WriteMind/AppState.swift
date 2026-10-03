@@ -152,19 +152,19 @@ final class AppState: ObservableObject {
     /// coming or going is a way off the page: a tool left armed through it
     /// was there, waiting, for the first click when the notes came back
     /// (Sean, 2026-10-03: "drawing mode seems to keep turning itself on as
-    /// i'm trying to navigate"). Every one puts the tools away
-    /// (`putToolsAway`); one that is set to what it already was is no
-    /// change.
+    /// i'm trying to navigate"). Every one leaves the page
+    /// (`leaveThePage`: every tool put away, and the tablet's pen back on its
+    /// own page); one that is set to what it already was is no change.
     @Published var showEditor: Bool {
         didSet {
             defaults.set(showEditor, forKey: Keys.showEditor)
-            if !showEditor, oldValue { putToolsAway() }
+            if !showEditor, oldValue { leaveThePage() }
         }
     }
     @Published var showCamera: Bool {
         didSet {
             defaults.set(showCamera, forKey: Keys.showCamera)
-            if showCamera != oldValue { putToolsAway() }
+            if showCamera != oldValue { leaveThePage() }
         }
     }
     @Published var penWidth: Double { didSet { defaults.set(penWidth, forKey: Keys.penWidth) } }
@@ -182,14 +182,18 @@ final class AppState: ObservableObject {
     /// WHERE THE TABLET'S PEN WRITES: its own page, or straight into the
     /// note (Sean, 2026-10-02: "do the same for drawing mode in the notebook
     /// itself and let the wacom control that as well.. as a separate
-    /// mode"). The page unless the notebook is picked, and THE NOTEBOOK IS
-    /// NOT REMEMBERED: it is a drawing mode — every touch of the nib on the
-    /// rendered page is ink in it — and one that came back with a launch
-    /// made the pen write the first time ⌘T brought the page up, with
-    /// nothing picked that session (Sean, 2026-10-03: "drawing mode seems
-    /// to keep turning itself on"). Changed through `writeOn` (the switch
-    /// on the page's bar, and the View menu) and nothing else — no key; the
-    /// funnel is handed it from the app (`TabletInput.aim`).
+    /// mode"). The page unless the notebook is picked, and THE NOTEBOOK IS A
+    /// DRAWING MODE LIKE ANY OTHER: every touch of the nib on the rendered
+    /// page is ink in it, so it is NOT REMEMBERED across a launch (it made
+    /// the pen write the first time ⌘T brought the page up, with nothing
+    /// picked that session — Sean, 2026-10-03: "drawing mode seems to keep
+    /// turning itself on"), and within a session it is put away with the
+    /// other tools whenever Sean leaves the page: another note, a pane
+    /// coming or going, the tablet let go, the markdown view
+    /// (`leaveThePage`), and shown in the footer while it is on
+    /// (`toolLines`). Turned ON through `writeOn` (the switch on the page's
+    /// bar, and the View menu) and nothing else — no key; the funnel is
+    /// handed it from the app (`TabletInput.aim`).
     @Published var tabletTarget: TabletTarget = .page
     /// How the tablet lands on the notes in Notebook mode: the whole of it
     /// on the visible notes, or a millimetre for a millimetre (Sean,
@@ -201,7 +205,7 @@ final class AppState: ObservableObject {
     /// writer (`follow(tabletPicked:)`, fed by the tablet controller) and
     /// is never stored: the pick is what is remembered.
     @Published private(set) var inputSource: InputSource = .camera {
-        didSet { if inputSource != oldValue { putToolsAway() } }
+        didSet { if inputSource != oldValue { leaveThePage() } }
     }
     /// What shape the viewfinder is (Sean, 2026-09-21: "add aspect ratio
     /// control"). Remembered, like the turn and the zoom beside it: the
@@ -392,15 +396,18 @@ final class AppState: ObservableObject {
         if cellDrawing != nil { cellDrawing = nil }
     }
 
-    /// EVERY TOOL PUT AWAY — the pen, the arrow tool, an armed shape, and a
-    /// drawing cell entered — for
+    /// EVERY TOOL OF THE MOUSE PUT AWAY — the pen, the arrow tool, an armed
+    /// shape, and a drawing cell entered — for
     /// something dropped on the page to be typed in or picked up: a text
     /// box or a picture from the bar or the Insert menu, a capture from
     /// the camera or the tablet. Each of those put the pen down already;
     /// a shape left armed would take the click that finishes the text box,
     /// or picks up the picture, and put a rectangle down instead. Every
     /// one of them comes through here (`CanvasModeTests` reads the
-    /// sources for it).
+    /// sources for it). THE TABLET'S NOTEBOOK TARGET IS NOT PUT AWAY HERE: it
+    /// is the nib's, and the nib can write round a picture just dropped, or
+    /// tap into a cell (`enterCell`); it goes when Sean leaves the page
+    /// (`leaveThePage`).
     func putToolsAway() {
         canvasMode = .cursor
         connectActive = false
@@ -408,19 +415,33 @@ final class AppState: ObservableObject {
         endCellDrawing()
     }
 
+    /// SEAN LEFT THE PAGE — another note, a pane coming or going, the tablet
+    /// let go, the markdown view — and NOTHING IS LEFT ON BEHIND HIM: every
+    /// tool put away, and the tablet's pen back on its own page, where the
+    /// first nib touch on his return is not ink in the note (Sean,
+    /// 2026-10-03: "drawing mode seems to keep turning itself on as i'm
+    /// trying to navigate"). The pen, the arrow tool and an armed mark were
+    /// put away on these already; the tablet's Notebook target is a drawing
+    /// mode like them and stayed on through all four.
+    func leaveThePage() {
+        putToolsAway()
+        if tabletTarget != .page { tabletTarget = .page }
+    }
+
     /// ANOTHER NOTE TAKES NOTHING WITH IT. A pen, the arrow tool or a mark
     /// left armed went to the next note, where every click made to find
     /// the place drew something (Sean, 2026-10-03: "drawing mode seems to
     /// keep turning itself on as i'm trying to navigate"): the open note
     /// changing — a tab picked, a tab closed, a note opened from the
-    /// sidebar — puts every tool away. The same note again is no change,
+    /// sidebar — leaves the page (`leaveThePage`: every tool put away, the
+    /// tablet's notebook too). The same note again is no change,
     /// and nothing typed or drawn in it is one.
     @MainActor
     func watchNotes(of store: NoteStore) {
         noteWatch = store.$selection
             .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] _ in self?.putToolsAway() }
+            .sink { [weak self] _ in self?.leaveThePage() }
     }
 
     private var noteWatch: AnyCancellable?
@@ -438,7 +459,8 @@ final class AppState: ObservableObject {
     /// shows when it is on"). The pen and an armed shape were named before;
     /// the arrow tool and the tablet's pen writing in the notebook were not,
     /// and each takes the pane as completely. In the order the bar lights
-    /// them, and each names how it is put away.
+    /// them, and each names how it is put away (`DrawingModeLifecycleTests`
+    /// holds every line to it).
     var toolLines: [ToolLine] {
         var lines: [ToolLine] = []
         if penActive { lines.append(ToolLine(words: canvasMode.footer, symbol: canvasMode.icon)) }
@@ -451,21 +473,14 @@ final class AppState: ObservableObject {
             lines.append(ToolLine(words: "Drawing in a cell: Esc or Done to finish", symbol: "pencil.tip.crop.circle"))
         }
         // The nib writes ink in the note only while the rendered page is up
-        // and the notes are on screen — everywhere else it is a pointer.
+        // and the notes are on screen — everywhere else it is a pointer. It
+        // has no key (an Esc meant for the notes would be taken by it,
+        // `TabletTarget`), so it names the switch.
         if tabletWritesInNotebook, mode == .preview, notesInView {
-            lines.append(ToolLine(words: "Tablet pen: writing on the notebook", symbol: "pencil.tip.crop.circle"))
+            lines.append(ToolLine(words: "Tablet pen: writing on the notebook, pick Page on the tablet's bar to stop",
+                                  symbol: "pencil.tip.crop.circle"))
         }
         return lines
-    }
-
-    /// ESC PUTS AWAY WHATEVER TOOL IS IN HAND — the pen, the arrow tool, an
-    /// armed shape or mark (Sean, 2026-10-02: "esc should exit pen mode";
-    /// the arrow tool had no way out but its own switch). True when there
-    /// was one, so with none up the key is the notebook's.
-    func escapeTool() -> Bool {
-        guard canvasOwnsPane || cellDrawing != nil else { return false }
-        putToolsAway()
-        return true
     }
 
     /// Whether anything on the drawing layer is picked. The canvas keeps
@@ -799,7 +814,7 @@ final class AppState: ObservableObject {
     /// answer being drawn on the picture is not good enough for the first
     /// second of a launch.
     @Published var cameraFullWindow = false {
-        didSet { if cameraFullWindow, !oldValue { putToolsAway() } }
+        didSet { if cameraFullWindow, !oldValue { leaveThePage() } }
     }
 
     func toggleCameraFullWindow() {
@@ -820,11 +835,12 @@ final class AppState: ObservableObject {
         }
         // The drawing belongs to the note and shows in both views, but it
         // is drawn on the rendered page only (`showRenderedPage`): coming
-        // back to markdown puts every tool down, and going forward again
-        // does not pick one up.
+        // back to markdown leaves the page — every tool down, the tablet's
+        // notebook with them — and going forward again does not pick one
+        // up.
         if mode == .editor {
             blockEditing = false
-            putToolsAway()
+            leaveThePage()
         }
     }
 }
