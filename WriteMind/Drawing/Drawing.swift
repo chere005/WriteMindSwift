@@ -304,6 +304,27 @@ struct Drawing: Codable, Equatable {
         items.indices.reversed().first { !items[$0].isHidden && items[$0].hitTest(point, in: size) }
     }
 
+    /// This drawing with everything in `snapshot` moved, scaled and turned
+    /// about `pivot` from where it stood when the gesture began — worked out
+    /// on ONE copy, because the canvas writes the result back once. On the
+    /// rendered page every write is mapped back through the markdown pane's
+    /// cells, and writing the drawing once per held object took five
+    /// seconds a frame for a group of two hundred (Sean, 2026-10-02: "object
+    /// grouping is really slow"). Arrows attached to what moved follow.
+    func manipulated(_ snapshot: [UUID: ItemTransform], translate: CGVector = .zero, scale: Double = 1,
+                     rotate: Double = 0, about pivot: CGPoint, in size: CGSize) -> Drawing {
+        var next = self
+        for index in next.items.indices {
+            let item = next.items[index]
+            guard let original = snapshot[item.id] else { continue }
+            next.items[index].transform = CanvasEdit.transform(
+                item, from: original, translate: translate, scale: scale, rotate: rotate,
+                about: pivot, in: size)
+        }
+        next.reconnect(in: size)
+        return next
+    }
+
     /// Everything that is actually on the pane.
     var visibleItems: [CanvasItem] { items.filter { !$0.isHidden } }
 

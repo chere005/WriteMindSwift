@@ -88,7 +88,10 @@ struct DrawingCanvas: View {
         case drawing
         case moving
         case handle
-        case marquee(start: CGPoint, additive: Bool)
+        /// `pick` is the object a ⌘ press landed on: released without
+        /// moving it is the Finder's ⌘-click, one object into or out of
+        /// what is held (`commandRelease`).
+        case marquee(start: CGPoint, additive: Bool, pick: UUID?)
         case connecting(from: CGPoint, node: UUID?)
         case placing(from: CGPoint)
         case idle
@@ -473,7 +476,15 @@ struct DrawingCanvas: View {
     /// (Sean, 2026-09-18: "edit buttons on an image selection should only
     /// appear after the image is clicked").
     private var handleIDs: Set<UUID> {
-        if !selection.isEmpty { return CanvasGroups.whole(selection, in: drawing.items) }
+        Self.handled(selection: selection, hovered: hovered, in: drawing)
+    }
+
+    /// The selection is what it says — whole groups when a click or a
+    /// marquee picked them, one object when ⌘ did, a part of a group when
+    /// several were (a subgroup, Sean, 2026-10-02) — so the handles, ⌫ and
+    /// ⌃G act on it as it is and never on the groups it came from.
+    nonisolated static func handled(selection: Set<UUID>, hovered: UUID?, in drawing: Drawing) -> Set<UUID> {
+        if !selection.isEmpty { return selection }
         if let hovered, let item = drawing[id: hovered], item.image == nil { return [hovered] }
         return []
     }
@@ -819,7 +830,7 @@ struct DrawingCanvas: View {
                 case .moving:
                     apply(translate: CGVector(dx: value.translation.width, dy: value.translation.height),
                           in: size)
-                case .marquee(let start, _):
+                case .marquee(let start, _, _):
                     marquee = CanvasGeometry.rect(from: start, to: doc(value.location))
                 case .connecting(let start, _):
                     // ⇧ holds an arrow to an axis while it is dragged, and
@@ -888,11 +899,16 @@ struct DrawingCanvas: View {
                         placePreview = nil
                         beginLabel(id)
                     }
-                case .marquee(let start, let additive):
+                case .marquee(let start, let additive, let pick):
+                    marquee = nil
+                    if let flipped = Self.commandRelease(pick: pick, from: start, to: doc(value.location),
+                                                         held: selection) {
+                        selection = flipped
+                        break
+                    }
                     let rect = CanvasGeometry.rect(from: start, to: doc(value.location))
                     selection = Self.marqueePicked(rect, in: drawing, size: size,
                                                    adding: additive ? selection : nil)
-                    marquee = nil
                 default:
                     break
                 }
@@ -944,8 +960,16 @@ struct DrawingCanvas: View {
         // from ⌘ or a bare click did.
         let additive = flags.contains(.shift)
         if press == .marquee {
-            if !additive { selection = [] }
-            interaction = .marquee(start: point, additive: additive)
+            // ⌘ ON AN OBJECT INCLUDES MORE: what is held stays held, a click
+            // takes that one object in or out — a group's member on its own,
+            // a subgroup (Sean, 2026-10-02: "quick/easy to select a subgroup
+            // and include more with holding cmd") — and a drag from it is a
+            // marquee that adds to what is held. Over empty paper it is the
+            // marquee it always was.
+            let pick = drawing.index(at: point, in: size).map { drawing.items[$0].id }
+            let keeps = additive || pick != nil
+            if !keeps { selection = [] }
+            interaction = .marquee(start: point, additive: keeps, pick: pick)
             marquee = CGRect(origin: point, size: .zero)
             return
         }
@@ -1024,15 +1048,10 @@ struct DrawingCanvas: View {
     }
 
     private func apply(translate: CGVector = .zero, scale: Double = 1, rotate: Double = 0, in size: CGSize) {
-        for index in drawing.items.indices {
-            let item = drawing.items[index]
-            guard let original = snapshot[item.id] else { continue }
-            drawing.items[index].transform = CanvasEdit.transform(
-                item, from: original, translate: translate, scale: scale, rotate: rotate,
-                about: pivot, in: size)
-        }
-        // Attached arrows follow whatever moved.
-        drawing.reconnect(in: size)
+        // One read and ONE write (`Drawing.manipulated`). Attached arrows
+        // follow whatever moved.
+        drawing = drawing.manipulated(snapshot, translate: translate, scale: scale, rotate: rotate,
+                                      about: pivot, in: size)
     }
 
     private func deleteSelection() {
@@ -1223,6 +1242,15 @@ struct DrawingCanvas: View {
     static func dragEnd(_ to: CGPoint, from: CGPoint,
                         modifiers: NSEvent.ModifierFlags = NSEvent.modifierFlags) -> CGPoint {
         CanvasGeometry.onAxis(to, from: from, locked: modifiers.contains(.shift))
+    }
+
+    /// The end of a ⌘ press that began on an object: the selection with that
+    /// ONE object flipped in or out when the press never moved (a click), nil
+    /// when it was dragged — that is a marquee, and picks as one.
+    nonisolated static func commandRelease(pick: UUID?, from: CGPoint, to: CGPoint,
+                                           held: Set<UUID>) -> Set<UUID>? {
+        guard let pick, !CanvasPlacement.isDrag(from: from, to: to) else { return nil }
+        return CanvasGroups.flipped(pick, in: held)
     }
 
     /// WHAT A MARQUEE PICKS, wherever it was dragged — ⌘ under the pen, ⌘

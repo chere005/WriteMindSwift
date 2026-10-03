@@ -1051,9 +1051,21 @@ CoreMind's `bin/report-status.sh`.
   to do — a key monitor that swallows a key it did not use is how typing
   dies. One toggle both ways: two or more not-already-one-group become a
   group, a whole group comes apart, and a group plus something loose
-  GROUPS (it swallows, so bigger groups are built without unpicking the
-  smaller ones first) — which is why `grouped` also re-labels members that
-  were not themselves picked, or half a group would be left behind.
+  GROUPS. **A SUBGROUP, 2026-10-02** (Sean: "quick/easy to select a subgroup
+  and include more with holding cmd"): the selection is now EXACT — a
+  click or a marquee still grows to whole groups (`whole`), but nothing grows
+  it afterwards (`DrawingCanvas.handled` no longer calls `whole`), so ⌘-click
+  (`flipped`: one object in or out, `commandRelease` on the end of a ⌘ press
+  that began on an object and never moved) can hold a group's members on
+  their own, and a ⌘-drag from an object ADDS to what is held (over empty
+  paper it is the marquee it was, replacing). `grouped` therefore takes only
+  what is picked — the swallow-the-rest rule is gone — and `ungrouped` frees
+  only what is picked; `tidied` lets go a group left with one member.
+  **Moving a held group was five seconds a frame on the rendered page**
+  (210 members): `apply` wrote `drawing.items[i]` once per member, and each
+  write through the page's binding is mapped back through the markdown pane's
+  cells (`PaneFrames.stored`, ~22 ms, then a cold `shown`, ~11 ms). It is
+  `Drawing.manipulated` now — one copy, one write.
   The arrow tool and an armed placement are NOT modes: they take the pane
   until they are put away — the arrow tool until it is switched off, a
   node or a line until Esc or another tool, a mark for one click (the

@@ -355,8 +355,12 @@ is how the code is put together.
   only a name they share. (The rendered page shows a group moved by its
   top-left corner, so there a member can settle a few points over when it
   joins or leaves one; the markdown, which is what is saved, never moves.)
-  Pick a group and something loose together and ⌃G makes one bigger group
-  of the lot, so groups nest by swallowing rather than by stacking.
+  **⌘-click takes one object into or out of what is held** — a group's
+  member on its own, so a few letters of a word make a subgroup — and a ⌘-drag
+  that starts on an object adds what it touches to what is held. ⌃G over part
+  of a group makes that part a group and leaves the rest in the old one (a
+  group of one is no group); over a group and something loose it makes one
+  bigger group of exactly those.
   The pen button itself is still the pen, on and off; its menu also picks
   the size and the colour (a circular colour well plus six swatches). ⌘Z
   undoes a stroke while the pen is up — ⇧⌘Z puts it back — and Undo Drawing

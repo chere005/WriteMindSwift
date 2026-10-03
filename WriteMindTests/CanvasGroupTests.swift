@@ -88,16 +88,20 @@ final class CanvasGroupTests: XCTestCase {
         XCTAssertNil(out[2].group, "what was not picked keeps out of it")
     }
 
-    func testGroupingSwallowsASmallerGroupWhole() throws {
-        // A member that was not itself picked still comes along, or it
-        // would be left in a group whose other half has gone.
+    /// A group is what is picked. Part of a group picked with a loose thing
+    /// makes a new group of exactly those, and what is left behind in the
+    /// old one stays there — a subgroup can be made out of a group, and the
+    /// old rule that dragged the rest along with it is gone with the
+    /// selections that were always whole (`GroupSelectionTests`).
+    func testGroupingPartOfAGroupWithALooseThingTakesOnlyWhatWasPicked() throws {
         let id = UUID()
-        let items = [stroke(id), picture(id), node()]
+        let items = [stroke(id), picture(id), node(), node(id)]
         let out = CanvasGroups.grouped(Set([items[0].id, items[2].id]), in: items)
         let first = try XCTUnwrap(out[0].group)
-        XCTAssertEqual(out[1].group, first)
         XCTAssertEqual(out[2].group, first)
         XCTAssertNotEqual(first, id, "a new group, not the old one")
+        XCTAssertEqual(out[1].group, id, "what was not picked stays where it was")
+        XCTAssertEqual(out[3].group, id)
     }
 
     func testGroupingMovesNothing() {

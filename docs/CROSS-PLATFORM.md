@@ -205,6 +205,23 @@ sidebar".
   only through a FIELD editor, never a select-all down the responder chain
   (it selected the whole note).
 
+### Subgroups: ⌘-click picks one object, and a drag of a group is one write
+Sean, 2026-10-02: "object grouping is really slow. optimize that.. it should
+also be quick/easy to select a subgroup and include more with holding cmd".
+- **The selection is exact.** A click or a marquee grows to whole groups once,
+  when it picks; nothing grows it again afterwards (handles, delete and the
+  group key act on exactly what is held). ⌘-click on an object flips that ONE
+  object in or out of the selection, a group's member on its own; a ⌘-drag
+  that starts on an object adds what it touches; over empty paper a ⌘-drag is
+  the marquee, replacing.
+- **Grouping takes what is picked and no more**: part of a group makes a group
+  of that part and the rest keeps the old one; a group left with one member is
+  let go. Ungrouping a part frees just that part.
+- **Speed**: a transform of the selection (move, scale, turn) is worked out on
+  one copy of the drawing and written ONCE. Where the page maps writes back
+  through another layout, a write per member is quadratic — it was 4.9 s a
+  frame for a 210-member group.
+
 ### Drawing happens on the rendered page only
 Sean, 2026-10-02: "only allow drawing in wysiwyg mode, both from wacom and
 from the pen cursor tool". It reverses 2026-09-19's "drawing should be

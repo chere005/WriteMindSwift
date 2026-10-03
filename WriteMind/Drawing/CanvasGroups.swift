@@ -24,6 +24,17 @@ enum CanvasGroups {
         return picked.union(items.filter { $0.group.map(groups.contains) == true }.map(\.id))
     }
 
+    /// ⌘-CLICK: this ONE object into what is held, or out of it if it is
+    /// already there — a member of a group on its own, not grown to the
+    /// group (Sean, 2026-10-02: "quick/easy to select a subgroup and
+    /// include more with holding cmd"). A plain click is the one that picks
+    /// a whole group (`whole`).
+    static func flipped(_ id: UUID, in held: Set<UUID>) -> Set<UUID> {
+        var held = held
+        if held.remove(id) == nil { held.insert(id) }
+        return held
+    }
+
     /// What ⌃G (and the button beside the selection) would do next.
     enum Toggle: Equatable {
         /// Put these in a new group.
@@ -60,33 +71,50 @@ enum CanvasGroups {
         return .group
     }
 
-    /// `items` with everything picked put into one new group. Anything
-    /// already in another group is taken out of it and into this one, so
-    /// the object is in exactly one group at a time.
+    /// `items` with everything picked put into one new group — exactly what
+    /// is picked and no more: part of a group makes a group of that part and
+    /// leaves the rest in the old one (a subgroup, Sean, 2026-10-02), so the
+    /// object is in exactly one group at a time. Whatever that leaves as a
+    /// group of one is let go (`tidied`).
     static func grouped(_ picked: Set<UUID>, in items: [CanvasItem], id: UUID = UUID()) -> [CanvasItem] {
         guard toggle(picked, in: items) == .group else { return items }
-        // The groups being swallowed whole, so a member that was not itself
-        // picked still comes along rather than being left in a group whose
-        // other half has gone.
-        let swallowed = Set(items.filter { picked.contains($0.id) }.compactMap(\.group))
-        return items.map { item in
+        let left = Set(items.filter { picked.contains($0.id) }.compactMap(\.group))
+        let out = items.map { item -> CanvasItem in
             var item = item
-            guard picked.contains(item.id) || item.group.map(swallowed.contains) == true else { return item }
+            guard picked.contains(item.id) else { return item }
             // A connector carries no group; setting one is a no-op there.
             item.group = id
             return item
         }
+        return tidied(out, groups: left)
     }
 
-    /// `items` with the picked group taken apart. Only the groups actually
-    /// picked are undone; anything else keeps its own.
+    /// `items` with what is picked taken out of its groups: the whole group
+    /// when the whole group is picked, which is what a click gives; and just
+    /// the part when only a part is (a subgroup). A group of one left behind
+    /// is let go too.
     static func ungrouped(_ picked: Set<UUID>, in items: [CanvasItem]) -> [CanvasItem] {
         let groups = Set(items.filter { picked.contains($0.id) }.compactMap(\.group))
         guard !groups.isEmpty else { return items }
+        let out = items.map { item -> CanvasItem in
+            var item = item
+            guard picked.contains(item.id), item.group != nil else { return item }
+            item.group = nil
+            return item
+        }
+        return tidied(out, groups: groups)
+    }
+
+    /// A group of one cannot be made and is no group: whatever one of these
+    /// `groups` has left, a single member, is let go.
+    private static func tidied(_ items: [CanvasItem], groups: Set<UUID>) -> [CanvasItem] {
+        var counts: [UUID: Int] = [:]
+        for item in items { if let group = item.group, groups.contains(group) { counts[group, default: 0] += 1 } }
+        let single = Set(counts.filter { $0.value == 1 }.keys)
+        guard !single.isEmpty else { return items }
         return items.map { item in
             var item = item
-            guard item.group.map(groups.contains) == true else { return item }
-            item.group = nil
+            if let group = item.group, single.contains(group) { item.group = nil }
             return item
         }
     }
