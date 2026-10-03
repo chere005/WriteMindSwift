@@ -58,6 +58,8 @@ final class FoldingLayoutManager: NSLayoutManager {
     let folding = FoldingState()
     /// The note's drawing cells: where their lines are and what they show.
     let drawings = CellLines()
+    /// Told after the drawing cells are painted (`paintDrawingCells`).
+    var onPainted: (() -> Void)?
 
     /// After an edit, and before anything is laid out, the drawing lines
     /// are read again — the typesetter has to know which lines they are

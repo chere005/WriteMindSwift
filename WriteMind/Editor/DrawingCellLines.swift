@@ -121,5 +121,10 @@ extension FoldingLayoutManager {
                                      paper: paper, media: drawings.shown.media)
             DrawingCellPainter.outline(rect, lit: drawings.lit == line.id, in: context)
         }
+        // What is painted is where the cell is. The frames the layer over
+        // the pane was told are re-read now, so a layout that settled after
+        // the last time they were measured — a heading restyled, a marker
+        // hidden — is never left a few points off what is on screen.
+        onPainted?()
     }
 }

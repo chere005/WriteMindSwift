@@ -2115,6 +2115,10 @@ struct MarkdownPreview: View {
             return (NSRange(location: range.location + lead + inside.location, length: inside.length), false)
         case .item(let words):
             return (NSRange(location: words.location + inside.location, length: inside.length), false)
+        case .drawing(let line):
+            // A drawing cell has no words to be in: what is inserted is a
+            // cell of its own, beside it, as at a bar.
+            return (NSRange(location: NSMaxRange(line), length: 0), true)
         case .none:
             if let first = held.min(by: { $0.location < $1.location }) { return (first, false) }
             let end = MarkdownParser.positioned(from: markdown).first.map { NSMaxRange($0.range) } ?? 0
@@ -2141,7 +2145,7 @@ struct MarkdownPreview: View {
         guard !edit.replacement.contains("\n") else { return nil }
         let start: Int
         switch cursor {
-        case .none: return nil
+        case .none, .drawing: return nil
         case .cell(let range): start = range.location + (fence.map { ($0.open as NSString).length + 1 } ?? 0)
         case .item(let words): start = words.location
         }
@@ -2221,6 +2225,7 @@ struct MarkdownPreview: View {
                 switch was {
                 case .cell(let range): beginEditing(range, caret: .at(caret))
                 case .item(let words): openItem(words, caret: .at(caret))
+                case .drawing(let line): cursor = .drawing(line)
                 case .none:
                     cursor = .none
                     selectedCells = held

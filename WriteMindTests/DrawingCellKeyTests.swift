@@ -223,8 +223,8 @@ final class DrawingCellKeyHostedTests: XCTestCase {
         let commands: [(String, CellTypes.Kind, (EditorBridge) -> Void)] = [
             ("⌘1", .heading(.title), { $0.heading(.title) }),
             ("⌘4", .heading(.section), { $0.heading(.section) }),
-            ("⌘8", .code, { $0.codeBlock() }),
-            ("⌘9", .evaluation(.wolfram), { _ = $0.evaluationCellAtBar(.wolfram) }),
+            ("⌘8", .code(.plain), { $0.codeBlock(.plain) }),
+            ("⌘9", .evaluation(.wolfram), { $0.evaluationCell(.wolfram) }),
             ("dots", .list(.dots), { $0.bullets() }),
             ("numbered", .list(.numbered), { $0.list(.numbered) }),
             ("quote", .quote, { $0.quote() }),

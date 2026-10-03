@@ -192,6 +192,10 @@ struct MarkdownTextView: NSViewRepresentable {
         context.coordinator.documentID = documentID
         context.coordinator.watchScrolling(of: scroll)
         context.coordinator.show(drawingCells, in: tv)
+        (tv.layoutManager as? FoldingLayoutManager)?.onPainted = { [weak coordinator = context.coordinator, weak tv] in
+            guard let coordinator, let tv else { return }
+            coordinator.tellDrawingFrames(in: tv)
+        }
         // The cursor, read on the way out of this pane by ⌘T.
         bridge.paneCaret = { [weak tv] in
             guard let tv else { return EditorBridge.Carried(caret: nil, text: "") }
@@ -702,7 +706,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
         /// Where the drawing cells are, told to the layer over this pane —
         /// only when one has moved, which on most keystrokes none has.
-        private func tellDrawingFrames(in tv: NSTextView) {
+        func tellDrawingFrames(in tv: NSTextView) {
             let frames = MarkdownTextView.drawingFrames(in: tv)
             guard CellFrame.moved(drawingFrames, frames) else { return }
             drawingFrames = frames

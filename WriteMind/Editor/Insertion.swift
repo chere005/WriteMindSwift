@@ -501,7 +501,7 @@ enum Insertion {
     private static func isMadeOfLines(_ block: MarkdownBlock) -> Bool {
         switch block {
         case .heading, .bullets, .dashes, .todos, .numbered, .quote: return true
-        case .paragraph, .code, .rule, .blank: return false
+        case .paragraph, .code, .rule, .blank, .drawing: return false
         }
     }
 

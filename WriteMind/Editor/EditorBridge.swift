@@ -629,6 +629,10 @@ final class EditorBridge {
     /// and the caret — the bar's offset while the bar is the cursor — so
     /// both panes give one answer; a refusal is a line in the footer.
     private func insert(_ thing: Insertion.Thing) {
+        // A drawing cell has no words to put a code block or a maths cell
+        // in: with the cursor on one, the insertion is the cell AFTER it,
+        // as at the bar under it (`DrawingCells`).
+        if let line = drawingCellAtCursor { armBar(under: line) }
         if let insertInDocument { insertInDocument(thing); return }
         guard let tv = textView else { return }
         let bar = (tv as? PasteAwareTextView)?.armedSeam
