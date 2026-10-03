@@ -256,6 +256,22 @@ struct BlockEditor: NSViewRepresentable {
             MarkerHiding.outside(newRange, of: hiding.furnitureRanges)
         }
 
+        /// AN EDIT OVER MARKERS TAKES THEM WHOLE, as it does in the markdown
+        /// pane (`MarkerDeletion`): a selection that cuts half of a code span
+        /// takes the other tick with it, and typing over "`fo" in "`foo`"
+        /// leaves "xo", not "xo`". This editor had no such rule, so the two
+        /// disagreed (Sean, 2026-10-03: "cursor behavior around backticks is
+        /// very weird"). A key that deletes what is beside the caret takes
+        /// just that, as there. Not in a code cell, whose text is code.
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange,
+                      replacementString: String?) -> Bool {
+            guard language == nil, hiding.isEnabled else { return true }
+            let beside = (textView as? PasteAwareTextView)?.isRunningCommand == true
+                && textView.selectedRange().length == 0
+            return !textView.applyMarkerDeletion(range: affectedCharRange, replacement: replacementString,
+                                                 completingPairs: !beside)
+        }
+
         /// The caret moved: the line it left hides its markers again, the
         /// one it arrived on shows them.
         func textViewDidChangeSelection(_ notification: Notification) {

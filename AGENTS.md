@@ -1848,6 +1848,96 @@ CoreMind's `bin/report-status.sh`.
   cell); ⌫ just behind a heading's furniture on the rendered page takes
   the furniture (`MarkerHiding.furnitureBehind`). A blank cell is the
   note's own empty lines, and ⌫ in one takes a line as it always has.
+- **A BACKTICK IS A CHARACTER LIKE ANY OTHER TO THE CARET AND THE KEYS, IN
+  BOTH EDITORS — AND NOTHING IS TAKEN THAT WAS NOT SEEN.** Sean, 2026-10-03:
+  "cursor behavior around backticks is very weird, fix that". Found by
+  driving the markdown pane and the rendered page's cell editor headlessly
+  with the keys and clicks that reach them (`BacktickCaretTests`: `TickPane`
+  and `TickCell` are the two surfaces wired as the app wires them — the
+  marker hiding IS the layout manager's delegate), and every item was a
+  measured failure before. None of it is backtick-specific in the machinery
+  (a hidden `**` did the same), all of it was loudest on a code span.
+  **(1) A SELECTION SHOWS THE MARKERS AT BOTH ENDS.** The hiding showed the
+  paragraph the selection STARTS in, and a selection grows at its END:
+  ⇧→ walked into a line whose markers were still zero-width, and AppKit
+  steps an `…AndModifySelection` over a run of zero-advance glyphs as ONE
+  place — one press took the newline and the backtick after it (or the
+  backtick and the `wl:`, four characters), and the next press took them
+  BACK, so a selection could not be pushed through a line with a code span
+  in it, in either editor. (Plain ←/→, ⌫ and ⌦ were measured and are fine:
+  only the extending commands step wrong.) `NSTextView.
+  paragraphsShowingTheirMarkers` is the rule: the caret's paragraph, and for
+  a selection the one its far end is in; while a KEY is running
+  (`PasteAwareTextView.isRunningCommand`, set round `doCommand`) the end is
+  the real end, and before an extending command the paragraphs either side
+  are shown for the length of that command and no longer (`doCommand`, a
+  pre-step and a post-step — the neighbour is hidden again unless the caret
+  went into it). A selection of WHOLE LINES made any other way (a triple
+  click ends at the start of the line after, which it did not take) ends on
+  the line it took: the next section must not pop its hashes out (the bar's
+  rule, above); and while the MOUSE is down (`isTrackingMouse`) only the
+  start is shown — a line that changes width under a held button puts the
+  pointer over another character, and a wrap that changes can flip it
+  between two lines for ever — the ends show when the button comes up.
+  `MarkerHiding.revealedParagraphs` is the list; `revealed` is its first.
+  **(2) THE SECOND CLICK OF A DOUBLE CLICK IS AIMED AT THE TEXT THE FIRST ONE
+  SAW.** The first click shows its line's markers, which moves every word in
+  it, and the second was read against the layout the first left: a double
+  click on "bar" in "`foo` bar" took "foo", on the f of "foo" the backtick.
+  `PasteAwareTextView.mouseDown` hides the revealed paragraphs again before
+  a click with `clickCount > 1` is read; the selection it makes shows the
+  line. Measured with real events (a release queued, then `mouseDown`).
+  **(3) ⌫ AND ⌦ TAKE THE ONE CHARACTER NEXT TO THE CARET.** `MarkerDeletion`
+  completed a pair that a delete cut in half, and a key's delete went
+  through it: ⌫ after a closing backtick took the OPENING one at the far
+  end of the span, ⌦ before an opening one took the closing one. Pair
+  completion is for a SELECTION, which can be cut across syntax nobody can
+  see; a key deleting beside the caret (`isRunningCommand`, empty selection)
+  is `completingPairs: false` — the caret's own line shows every marker, so
+  nothing is left half-open out of sight, and what is left is on screen. A
+  multi-character marker is still taken whole when a delete clips it (⌫
+  after `**` takes both stars). **A FENCE LINE IS NOT A MARKER PAIR**: the
+  whole of "```python" is one `.marker` run, and every delete that touched a
+  letter of its language — ⌫ at its end, typing over "yth" — was widened to
+  the entire line. `MarkerDeletion` only reads INLINE syntax now
+  (`MarkerHiding.isWholeLine` is the one test, shared with `hideable`). **A
+  `wl:` SPAN'S PAIR IS ITS TWO BACKTICKS**: `pairs(in:)` matched the `wl:`
+  marker with the CLOSING tick, so taking either one took the other and left
+  the opening backtick standing — a stray tick that pairs with the next one
+  in the paragraph and swallows what is between. **THE RENDERED PAGE'S
+  EDITOR WIDENS TOO** (`NSTextView.applyMarkerDeletion`, one function for
+  both, never in a code cell — its text is code, and `x ** y ** z` is not
+  bold): a selection that cut half a span left the other tick standing
+  there, where the markdown pane took it with it; typing over "`fo" in
+  "`foo`" left "xo`".
+  **(4) THE TWO LINE BREAKS THAT MAKE A FENCE ARE NOT TAKEN BY A KEY.**
+  ⌫ at the start of the first line of code (or ⌦ at the end of the fence
+  line) joined that line onto the fence — "```pythonx = 1" — and the first
+  line of the program became the language; ⌫ at the start of the closing
+  fence (or ⌦ at the end of the last line of code) joined the ``` onto the
+  code, which is no fence, so the block ran on and took the rest of the
+  note. `FenceLines.breaks`: the break that ends an opening fence line and the
+  one in front of a closing one, asked only for a key's delete with an empty
+  selection — undo puts one back, a selection that takes one is the user's
+  own choice, and the rendered page's code editor has no fence line in it.
+  The key does NOTHING there, as ⌫ at the start of a cell does nothing
+  (the rule above); the newline that ends an EMPTY first line of code is
+  code's and goes. **(5) TWO BACKTICKS WITH NOTHING BETWEEN THEM ARE TEXT.**
+  "``" was read as an empty code span and both ticks hid when the caret left
+  the line — type two, move on, and they were gone; the rendered page draws
+  them (`MarkdownInline` is Foundation's, i.e. cmark's reading). The same for
+  the first two of a "```" in a sentence and for a tick typed in front of a
+  span's own ("``foo`" is all text there too). `MarkdownSourceStyle.runs` and
+  `spans` skip a match with no content. The span grammar is still two
+  regular expressions and not cmark's backtick-string rule (a tick typed
+  AFTER a span's closing tick leaves the span styled here and plain on the
+  page) — not touched.
+  **NOT DONE, and not found broken:** typing "```" opens a fence that
+  swallows the rest of the note until it is closed (cmark's rule, and the
+  styling follows it on every keystroke); ⌥→ stops at each backtick (a
+  backtick is a word of its own to AppKit, as in any editor); the rendered
+  page's own typing of "```" in a paragraph cell was not driven (a SwiftUI
+  view; nothing here hosts it).
 - **The bar has to fit the pane it lives in.** It is inside the editor pane,
   so its width is whatever the split gives it, and an HStack that does not
   fit overflows in BOTH directions — the first cut pushed Bold out under the
@@ -2190,6 +2280,17 @@ WriteMind/
                           the block's markdown styled as it is typed: markers
                           fade, bold is bold, headings are their size, maths
                           and links are coloured. Runs are pure and tested
+  Editor/MarkerHiding.swift
+                          the markers that vanish (a layout-manager delegate:
+                          zero-advance glyphs); the caret's paragraph and a
+                          selection's two ends keep theirs, and the cell
+                          editor's furniture stays hidden on its own line too
+  Editor/MarkerDeletion.swift
+                          a delete over markers takes whole markers, and a
+                          SELECTION that cuts a pair in half takes the other
+                          half; one function for both editors
+  Editor/FenceLines.swift the two line breaks that make a fenced block, which
+                          a key does not take. Pure, tested
   Drawing/Drawing.swift   the objects on the drawing layer: Stroke
                           (normalised 0…1 points, hex colour, width, and
                           for ink a pressure per point and the tool),

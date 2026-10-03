@@ -149,7 +149,14 @@ enum MarkdownSourceStyle {
 
         // Code first, because what is inside it is not markdown at all.
         for match in Patterns.code.matches(in: source, range: NSRange(location: 0, length: ns.length)) {
-            guard isFree(match.range) else { continue }
+            // Two backticks with nothing between them are two backticks, as
+            // the rendered page draws them — not an empty span whose ticks
+            // vanish when the caret leaves the line (Sean, 2026-10-03:
+            // "cursor behavior around backticks is very weird"): type "``",
+            // move on, and both were gone. The same for the first two of a
+            // "```" inside a sentence, and for a tick typed in front of a
+            // span's own ("``foo`").
+            guard isFree(match.range), match.range.length > 2 else { continue }
             let inner = match.range(at: 1)
             let text = inner.length > 0 ? ns.substring(with: inner) : ""
             runs.append(Run(range: NSRange(location: match.range.location, length: 1), kind: .marker))
@@ -257,7 +264,8 @@ enum MarkdownSourceStyle {
                               kind: .code))
         }
         for match in Patterns.code.matches(in: source, range: all)
-        where !spans.contains(where: { NSIntersectionRange($0.range, match.range).length > 0 }) {
+        where match.range.length > 2
+            && !spans.contains(where: { NSIntersectionRange($0.range, match.range).length > 0 }) {
             let inner = match.range(at: 1)
             let maths = ns.substring(with: inner).hasPrefix(MathMarkup.inlinePrefix)
             let prefix = maths ? (MathMarkup.inlinePrefix as NSString).length : 0

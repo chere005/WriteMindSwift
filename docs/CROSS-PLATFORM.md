@@ -141,6 +141,63 @@ markdown view and the rendered one:
   the marker. A cell of empty lines is the note's own, and ⌫ in it takes a
   line as it always has.
 
+### The cursor and the delete keys around a backtick (and any hidden marker)
+Sean, 2026-10-03: "cursor behavior around backticks is very weird, fix that".
+Found by driving both editing surfaces (the markdown view and the rendered
+page's cell editor) with the keys and clicks that reach them; none of it is
+specific to a backtick, all of it was loudest on a code span. The rules are
+for any editor that hides inline markers on the lines the caret is not on:
+- **A selection shows the markers at BOTH of its ends** (not only where it
+  starts). A selection grows at its far end, and the platform's own
+  one-character step over a run of zero-width characters takes them as one
+  place: ⇧→ into a line that opens with a hidden backtick took the newline
+  and the backtick in one press and the next press gave them back, so a
+  selection could not be extended through a line with a code span in it (a
+  `wl:` span is four hidden characters in one step). Plain arrows, ⌫ and ⌦
+  across hidden characters were fine; only the selection-extending keys
+  needed it. So: before a key that extends a selection runs, show the lines
+  at its ends and the lines either side of them, and show only the ends'
+  lines once it has run; the line a key moved the caret to is shown anyway.
+- **Not for a selection made with the mouse.** While the button is held only
+  the start's line is shown — a line that changes width under a held button
+  puts the pointer over another character — and the far end's when it is
+  let go. A selection of whole lines (a triple click) ends at the start of
+  the next line without showing that line's markers; made with the keys it
+  does show them, because the caret really is there.
+- **A double click takes the word under the pointer.** The first click shows
+  its line's markers, which moves every word in the line; the second click is
+  read against the layout the FIRST saw: hide the line again for the length of
+  a click that is the second or later, and let the selection it makes show it.
+  (On "`foo` bar", a double click on "bar" took "foo" and on the f of "foo"
+  took the backtick.)
+- **⌫ and ⌦ take the one character beside the cursor.** Completing a pair
+  that a delete cuts in half (the other tick of a span goes with the first) is
+  for a SELECTION, which can cut across syntax out of sight; a key beside the
+  caret is on a line that shows every marker, so it takes exactly what it
+  touches. A marker of several characters (`**`, `~~`, `## `) is still never
+  cut in half: a delete that clips one takes all of it. In BOTH editors, and
+  a selection that cuts half a span takes the other tick in both (the rendered
+  page's editor used to leave it). Never in a code cell: its text is code.
+- **A `wl:` maths span pairs its two backticks.** The `wl:` is just in front
+  of the maths and pairs with nothing; taking the prefix, or either tick, must
+  not leave a lone backtick behind to pair with the next one.
+- **A fence line is not a marker pair.** Typing in "```python" — ⌫ at its end,
+  or typing over some of the letters — changes exactly that, never the whole
+  line.
+- **The two line breaks that make a fence are not taken by a key**: the one
+  that ends the opening fence line and the one in front of the closing fence
+  line. ⌫ at the start of the first line of code and ⌦ at the end of the fence
+  line do nothing (the first line of the program was becoming the language);
+  ⌫ at the start of the closing fence and ⌦ at the end of the last line of
+  code do nothing (the fence stopped being one and the block took the rest of
+  the note). Not for a selection or undo, and not for the newline that ends
+  an EMPTY first line of code, which is code's. A rendered code editor that
+  holds the code alone has none of this to do.
+- **Two backticks with nothing between them are text**, drawn as two backticks
+  and never hidden, as are the first two of "```" in a sentence and a tick
+  typed in front of a span's own tick ("``foo`" is all text): a span has to
+  hold something. "` `" holds a space and is a span.
+
 ### Keys at the insertion bar, and cells held by their brackets
 Sean, 2026-10-02: "do a thorough test of cell selection and input insertion
 ux behavior...". What a test pass across both views settled, each the same in
