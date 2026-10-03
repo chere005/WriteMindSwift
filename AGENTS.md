@@ -1466,20 +1466,81 @@ CoreMind's `bin/report-status.sh`.
   when not), with "Stored as …" when the note will hold a different
   spelling. RETURN INSERTS, ESCAPE CANCELS (`onExitCommand`, and the
   popover's own). **Broken maths is never inserted**: the field says why in
-  red (`WLParser.read` returns the reason and where — "Missing "]" — the
-  "[" at position 10 is never closed", brackets checked first and on their
-  own, then "Expected an expression after "+"", an unterminated string or
-  comment, "|x|" with the hint that WL writes Abs[x]) and Insert and
-  Return refuse (a beep) — and `Insertion` refuses too
-  (`Refusal.mathsDoesNotParse`, said in the footer, in every context:
-  bar, block, span, selection), because the palette is not the only caller
-  and `WLPrinter.canonical` leaves what it cannot read as it was typed.
+  red (`MathMarkup.read`, over `WLParser.read`, returns the reason and
+  where — "Missing "]" — the "[" at position 10 is never closed", brackets
+  checked first and on their own, then "Expected an expression after "+"",
+  an unterminated string or comment, "|x|" with the hint that WL writes
+  Abs[x]) and Insert and Return refuse (a beep) — and `Insertion` refuses
+  too (`Refusal.mathsDoesNotParse`, said in the footer, in every context:
+  bar, block, span, selection), because the palette is not the only caller.
+  **TWO MORE THINGS A NOTE CANNOT HOLD ARE REFUSED THE SAME WAY** (the
+  review of 2026-10-03, and Sean's rulings on it). (1) *More than one
+  expression.* A new line between two complete expressions OUTSIDE every
+  bracket ends the statement, as in a Wolfram notebook — it is never white
+  space, because white space between two things is a product: `a = 1⏎b = 2`
+  read as `a = ((1·b) = 2)`, was set as "a = 1b = 2" and was written into the
+  note as that, a different formula from the one typed. Now it is "Maths
+  holds one expression, and a new line starts a second one (position N):
+  join them with ";" or insert them one at a time." (`Token.lineBreakBefore`,
+  set by the lexer from white space only — a line break inside a comment or a
+  string is none — and read by the parser where an expression is complete
+  and the next token is on a new line with no bracket open: that is also
+  `a⏎+ b`, which WL reads as two statements). An operator left hanging
+  (`a +⏎b`), a `;` between, and anything inside a bracket (`Integrate[⏎…⏎]`,
+  `{1,⏎2}`, `m[[1,⏎2]]`) is one expression over as many lines as it likes.
+  A hand-written ```wl block of two statements is therefore shown as typed,
+  with the reason as its tooltip, like any maths that does not read.
+  (2) *A string a note cannot carry.* The WL is stored as TEXT, in a code
+  span or a fence: a backtick in a string ends the span, and a line break
+  then ``` closes the fence early (a blank line ends the span's paragraph).
+  `MathMarkup.read` refuses a string literal with a backtick or a line break
+  in it — "The string at position N has a backtick or a line break in it, and
+  a note cannot keep that — write it another way (a line break is \n)" — and
+  it is the ONE reader the palette and `Insertion` both use, so nothing
+  reaches the note unescaped. It is only the WRITING that is held to it:
+  `WLParser.read`, which typesets what a note already holds, still reads such
+  a string, so a note that has one is not suddenly shown as source.
   The shapes are below the field and each WRITES AN EXPRESSION INTO IT
-  (`MathPalette.choose`); typing in the field lets the shape go, since its
-  parts no longer describe the text. A shape wraps what is in the first
-  slot's way: the selection the palette opened over, or what was typed
-  and reads as maths — and a shape's own output is replaced by the next
-  shape, never nested, so browsing does not stack them. SEEDED FROM A
+  (`MathPalette.choose`) — **AND THE FIELD AND THE SHAPES COMPOSE**, Sean's
+  ruling on the review (before it a shape overwrote the field: `2`, π, `r`
+  could not make `2 Pi r`, and a formula typed was gone with the next
+  shape). A shape with NO PARTS (a Greek letter, a constant, a symbol) is
+  written INTO what is typed AT THE CARET, with a space either side where it
+  would run into its neighbour (`2`, π, then `r` is `2 Pi r`: the space after
+  is what keeps the next typed letter from being `Pir`) and the caret after
+  it; this holds for text that does not read yet, which is what a half-typed
+  formula is. A shape WITH PARTS wraps the field in its first part — what was
+  typed or selected and reads as maths — and the next shape REPLACES the
+  previous shape's output, never nests it; what was wrapped is remembered
+  (`MathPalette.subject`, the selection the palette opened over or the typed
+  maths the first shape took) so the next shape, and the same one twice, wrap
+  it too — the first cut forgot it after one shape, and `x^2+1`, √, |x| came
+  out `Abs[x]`. Typing in the field forgets it, and lets the shape go (its
+  parts no longer describe the text). Over text that does not read there is
+  nothing to wrap: the shape is written in at the caret with its own
+  suggestions and nothing typed is lost. **THE SELECTION IN THE FIELD IS
+  NEVER WRITTEN OVER** (`MathPalette.writing`): the field's editor selects
+  all of its text when it takes the keyboard, so a click on a symbol would
+  have thrown away what the palette was seeded with; it goes in at the END of
+  the selection. The caret comes from the field's editor (`Views/
+  MathFieldCaret.swift`: a `TextField` has no selection to bind on macOS 14),
+  only when that editor holds EXACTLY the palette's text — a part field's
+  editor or the note's own text view is never taken for it — and is put back
+  after the write by retrying a few times (the write reaches the editor a
+  turn or two late); the view remembers the last selection the editor
+  announced, in case a click on a shape takes the keyboard from the field.
+  **A SLOT AN OPERATOR REACHES IS BRACKETED** (`MathTemplate.wl`): a slot
+  standing alone between the brackets and commas of an argument list takes
+  its text as it is; any other (the base of `#1^#2`, either side of
+  `#1 == #2`, the `x` of `x -> 0`) goes in as `(text)` and the whole is
+  written in the canonical spelling, which takes back the brackets that were
+  not needed — `a + b` into the exponent is `(a + b)^2` and not `a + b^2`
+  (found in review: the palette wrote another formula, with no warning, from
+  a selection and from typed text alike), and `x` is `x^2`. It holds for a
+  part typed into a shape's field too. Slots are filled in ONE pass over the
+  form, because replacing `#1` and then `#2` would read a `#2` of the user's
+  own (a pure function `#1 + #2 &` typed into a slot) as the second slot.
+  SEEDED FROM A
   SELECTION as before (`MathSelection`), which now also reads `=`, `:=`,
   `n!`, `x²`, `f'[x]`, `#^2 &` as maths — and still refuses `f(x) = 2x`
   (a name with a bracket right after it is function notation WL does not
@@ -2378,7 +2439,8 @@ WriteMind/
   Math/MathTypesetter.swift
                           the box on one line (an AttributedString with real
                           raised and lowered scripts) for maths in a sentence;
-                          MathMarkup, how maths is spelled in a note
+                          MathMarkup, how maths is spelled in a note and
+                          what a note can hold (`read`)
   Math/MathLayout.swift   the box in two dimensions: measured with CoreText,
                           one baseline per row, the fraction bar on the axis,
                           fences to the height of their content; MathDrawing
@@ -2389,7 +2451,8 @@ WriteMind/
                           the shape picked and its parts, whether it reads
   Math/MathTemplates.swift
                           the palette's shapes — every entry writes WL with
-                          #1, #2 … filled in from its fields
+                          #1, #2 … filled in from its fields, bracketed where
+                          an operator reaches a slot
   Math/MathSelection.swift
                           whether a selection reads as maths (the palette
                           opens with it) and whether maths still holds it
@@ -2433,6 +2496,9 @@ WriteMind/
                           inserts, Esc cancels), the preview or the reason
                           it does not read, the shapes, the parts of the one
                           picked, and how it will be set
+  Views/MathFieldCaret.swift
+                          the expression field's caret, read off and put back
+                          on its editor so a shape composes at it
   Views/SidebarView.swift the tree, flattened to the rows that show; the
                           video toggle, edit mode (duplicate and trash on
                           every row — the trash arms red on one click and

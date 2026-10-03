@@ -43,13 +43,43 @@ struct MathTemplate: Identifiable, Equatable {
 
     /// The WL this writes. A slot left empty falls back to what it suggested —
     /// an empty integrand is a slip, not an intention.
+    ///
+    /// A slot an OPERATOR reaches — the base of `#1^#2`, either side of
+    /// `#1 == #2`, the `x` of `x -> 0` — is put in brackets before it goes
+    /// in and the result is written in the one canonical spelling, which
+    /// takes back the brackets that were not needed: `a + b` as a base is
+    /// `(a + b)^2`, not `a + b^2` (the review of 2026-10-03: wrapping a
+    /// typed or selected sum in the exponent shape wrote another formula, with
+    /// no warning), and `x` is `x^2`. A slot that stands alone between the
+    /// brackets and commas of an argument list needs none. Each `#n` is
+    /// replaced ONCE, in one pass over the form, so a slot's text that has a
+    /// `#2` of its own in it (a pure function `#1 + #2 &`) is never read as
+    /// the second slot.
     func wl(_ values: [String]) -> String {
-        var out = form
-        for (index, slot) in slots.enumerated() {
-            let typed = index < values.count
-                ? values[index].trimmingCharacters(in: .whitespacesAndNewlines) : ""
-            out = out.replacingOccurrences(of: "#\(index + 1)", with: typed.isEmpty ? slot.initial : typed)
+        var out = ""
+        var reached = false
+        var index = form.startIndex
+        while index < form.endIndex {
+            let character = form[index]
+            let digits = form.index(after: index)
+            let end = form[digits...].firstIndex(where: { !$0.isNumber }) ?? form.endIndex
+            guard character == "#", digits < end, let number = Int(form[digits..<end]),
+                  (1...slots.count).contains(number) else {
+                out.append(character)
+                index = form.index(after: index)
+                continue
+            }
+            let slot = number - 1
+            let typed = slot < values.count ? values[slot].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            let text = typed.isEmpty ? slots[slot].initial : typed
+            let before = form[..<index].last { !$0.isWhitespace }
+            let after = form[end...].first { !$0.isWhitespace }
+            let alone = (before == nil || "([{,".contains(before!)) && (after == nil || ")]},".contains(after!))
+            out += alone ? text : "(" + text + ")"
+            reached = reached || !alone
+            index = end
         }
+        if reached, let read = WLParser.parse(out) { return WLPrinter.source(read) }
         return out
     }
 

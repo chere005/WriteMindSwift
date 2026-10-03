@@ -18,6 +18,10 @@ struct MathMenu: View {
 
     @State private var palette = MathPalette()
     @FocusState private var typing: Bool
+    /// The caret as the field last said it, with the text it said it for: a
+    /// click on a shape may take the keyboard from the field, and the shape
+    /// still goes in where the caret was.
+    @State private var lastSelection: (text: String, range: NSRange)?
 
     private var expression: Binding<String> {
         Binding(get: { palette.expression }, set: { palette.type($0) })
@@ -52,7 +56,7 @@ struct MathMenu: View {
                     ForEach(MathTemplate.Group.allCases) { group in
                         Section {
                             ForEach(MathTemplate.group(group)) { template in
-                                Button { palette.choose(template) } label: {
+                                Button { pick(template) } label: {
                                     Text(template.glyph)
                                         .font(.system(size: 12, design: .serif))
                                         .lineLimit(1)
@@ -118,6 +122,23 @@ struct MathMenu: View {
             // asked for in the same breath is not given.
             DispatchQueue.main.async { typing = true }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSTextView.didChangeSelectionNotification)) { note in
+            if let editor = note.object as? NSTextView, editor.isFieldEditor, editor.string == palette.expression {
+                lastSelection = (editor.string, editor.selectedRange())
+            }
+        }
+    }
+
+    /// A shape picked: it composes with what is in the field at the caret
+    /// (`MathPalette.choose`), the keyboard goes back to the field and the
+    /// caret to after what was written — so typing goes on.
+    private func pick(_ shape: MathTemplate) {
+        let text = palette.expression
+        let live = MathFieldCaret.selection(holding: text, in: NSApp.keyWindow)
+        let remembered = lastSelection.flatMap { $0.text == text ? $0.range : nil }
+        palette.choose(shape, selection: live ?? remembered)
+        typing = true
+        if let caret = palette.caret { MathFieldCaret.settle(caret, holding: palette.expression) }
     }
 
     /// WHAT WILL BE INSERTED, set the way it will be set: two-dimensional on
