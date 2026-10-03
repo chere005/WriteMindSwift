@@ -164,4 +164,22 @@ final class CanvasSpaceTests: XCTestCase {
         XCTAssertFalse(CellFrame.moved([frame], [frame]))
         XCTAssertFalse(CellFrame.moved([], []))
     }
+
+    /// Drawing is on the rendered page only: over the markdown pane a cell
+    /// takes no ink, and a press on its paper is the text's.
+    func testACellTakesNoInkOverTheMarkdownPane() {
+        let id = UUID()
+        let frame = CellFrame(id: id, line: NSRange(location: 0, length: 10),
+                              rect: CGRect(x: 10, y: 10, width: 200, height: 100), scale: 1, width: 200,
+                              writable: true)
+        let pane = CGSize(width: 400, height: 400)
+        let point = CGPoint(x: 50, y: 50)
+        let rendered = CellFrame.forLayer([frame], rendered: true)
+        XCTAssertEqual(CanvasSpace.at(point, layer: Drawing(), pane: pane, frames: rendered, cells: [:]).space,
+                       .cell(id))
+        let markdown = CellFrame.forLayer([frame], rendered: false)
+        XCTAssertEqual(CanvasSpace.at(point, layer: Drawing(), pane: pane, frames: markdown, cells: [:]).space,
+                       .floating, "the paper is not the layer's over the markdown pane")
+        XCTAssertEqual(markdown.map(\.rect), [frame.rect], "still where it is")
+    }
 }

@@ -209,8 +209,10 @@ struct MarkdownPreview: View {
     /// How wide the page's content is: a drawing cell is shown in the
     /// column this leaves, and its frame for the layer has to say so.
     @State private var pageWidth: CGFloat = 0
-    /// The drawing cells' frames as last told.
-    @State private var toldFrames: [CellFrame] = []
+    /// The drawing cells' frames as last told — nil until the first time:
+    /// a page tells what it has once, even nothing, because the pane it
+    /// replaced may have left frames of its own with the layer.
+    @State private var toldFrames: [CellFrame]?
     /// A seam the page has to bring into view — the one under an answer a
     /// run has just written, so the bar is somewhere the eye can find.
     @State private var bringIntoView: SeamRow?
@@ -1715,7 +1717,7 @@ struct MarkdownPreview: View {
               let cells = measured ?? Self.cells(of: items.map { ($0.id, rowHeights[$0.id]) }) else { return }
         let frames = Self.drawingFrames(blocks: items.map { ($0.id, $0.range, $0.block) }, cells: cells,
                                         column: max(0, pageWidth - Self.sideInset * 2), shown: drawingCells)
-        guard CellFrame.moved(toldFrames, frames) else { return }
+        if let told = toldFrames, !CellFrame.moved(told, frames) { return }
         toldFrames = frames
         onDrawingFrames(frames)
     }

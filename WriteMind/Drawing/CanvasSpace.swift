@@ -163,3 +163,20 @@ struct CanvasSpace: Equatable {
         return (.cell(frame.id), item)
     }
 }
+
+extension CellFrame {
+    /// The frames as the drawing layer is to see them. A cell is drawn in on
+    /// the rendered page only, as everything is (Sean, 2026-10-02: "only
+    /// allow drawing in wysiwyg mode"): over the markdown pane its frames
+    /// are read-only, so a press on a cell's paper reaches the text and
+    /// nothing is inked there, while the cell is still held, moved and
+    /// shown.
+    static func forLayer(_ frames: [CellFrame], rendered: Bool) -> [CellFrame] {
+        guard !rendered else { return frames }
+        return frames.map { frame in
+            var held = frame
+            held.writable = false
+            return held
+        }
+    }
+}

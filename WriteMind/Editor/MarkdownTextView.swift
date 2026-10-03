@@ -647,7 +647,10 @@ struct MarkdownTextView: NSViewRepresentable {
         private var lastHidden: [NSRange] = []
         /// The drawing cells' frames as last told, and the cell the caret
         /// was last said to be in.
-        private var drawingFrames: [CellFrame] = []
+        /// Nil until the first time — a pane tells what it has once, even
+        /// nothing, because the page that is gone may have left frames of its
+        /// own with the layer (`EditorPane.forgetFrames`).
+        private var drawingFrames: [CellFrame]?
         private var caretDrawing: UUID?
         weak var gutter: NotebookGutter?
         weak var insertions: CellInsertions?
@@ -708,7 +711,7 @@ struct MarkdownTextView: NSViewRepresentable {
         /// only when one has moved, which on most keystrokes none has.
         func tellDrawingFrames(in tv: NSTextView) {
             let frames = MarkdownTextView.drawingFrames(in: tv)
-            guard CellFrame.moved(drawingFrames, frames) else { return }
+            if let told = drawingFrames, !CellFrame.moved(told, frames) { return }
             drawingFrames = frames
             // A turn late: this runs inside a view update, and what it
             // tells is SwiftUI state.

@@ -5,6 +5,18 @@ is how the code is put together.
 
 - **Notes are files.** `~/Documents/WriteMind/*.md`, one per note, readable
   by anything. The title is the note's first `# heading`, or its file name.
+- **A drawing cell is a cell you draw in.** ⌘0, or **Insert ▸ Drawing Cell**
+  (or the + between two cells), puts one in the note: a blank sheet of paper
+  in the flow of the text, which you draw on with the pen exactly as you do
+  over the page — and what is drawn belongs to that cell, so it moves with the
+  words, folds with its section and comes out in the PDF. In the note it is
+  one line, `![](_drawings/cells/<ID>.png)`, and the drawing is that file: a
+  real PNG of it in the folder `_drawings/cells` beside the note (visible, and
+  yours — WriteMind never deletes anything in it), with the strokes kept inside
+  the picture so it can be drawn in again. Any other app shows the picture.
+  Drawing in a cell is on the rendered page, like all drawing; in the
+  markdown view a cell is shown and held, and a press on its paper is the
+  text's. A handle at its bottom stretches it taller or shorter.
 - **Double-click a note or a section in the sidebar to rename it where it
   stands.** The name becomes a field with its words selected; Return (or
   clicking away) renames, Esc leaves it as it was. A name another note

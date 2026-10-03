@@ -125,7 +125,7 @@ struct EditorPane: View {
                                   // what it was put beside.
                                   scrollOffset: scrollOffset,
                                   cells: $store.cells,
-                                  cellFrames: drawingFrames,
+                                  cellFrames: CellFrame.forLayer(drawingFrames, rendered: appState.mode == .preview),
                                   litCell: caretDrawing,
                                   onCellTap: { appState.editor.focusDrawingCell($0) },
                                   onCellChanged: { store.fitCell($0) },
@@ -294,11 +294,13 @@ struct EditorPane: View {
     }
 
     /// Another note, or the other mode: nothing measured for the last one
-    /// is this one's — the cells' frames included, until the pane coming
-    /// up tells its own.
+    /// is this one's. NOT the cells' frames: this runs after the pane that
+    /// has come up has told its own, and clearing them here left the layer
+    /// with none — a stroke on a cell then floated over it instead of going
+    /// in. A new pane tells its frames the first time it measures, even
+    /// when it has no cell, so they are always the pane's that is up.
     private func forgetFrames() {
         frames.forget()
-        told(drawingFrames: [])
         caretDrawing = nil
     }
 
