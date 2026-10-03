@@ -1880,11 +1880,12 @@ CoreMind's `bin/report-status.sh`.
   five-event drag down the page and one up it: one `didChangeSelection`, at
   the release — `testAMouseSelectionIsAnnouncedOnceWhenTheButtonComesUp`
   holds the premise), so no line changes width under a held pointer in either
-  direction and both ends show when it is let go. A first cut kept "only the
-  start's line while the mouse is down" (`isTrackingMouse`); that is the end
-  under the pointer in an UPWARD drag, the premise it was written for never
-  happens, and it is gone. If AppKit ever announces mid-drag, keep the
-  paragraphs that were showing AT THE PRESS while the button is down.
+  direction and both ends show when it is let go. The first cut kept "only
+  the start's line while the mouse is down" (`isTrackingMouse`): wrong for an
+  UPWARD drag, where the start is the end under the pointer, and written for
+  a premise that never happens — so it is gone. If AppKit ever announces
+  mid-drag, keep the paragraphs that were showing AT THE PRESS while the
+  button is down.
   `MarkerHiding.revealedParagraphs` is the list; `revealed` is its first.
   **(2) THE SECOND CLICK OF A DOUBLE CLICK IS AIMED AT THE TEXT THE FIRST ONE
   SAW.** The first click shows its line's markers, which moves every word in
