@@ -333,6 +333,8 @@ struct NotebookWriting {
     /// The entered cell the touch under way began in (every touch inside it,
     /// a stroke, the eraser's or the marquee's), nil for any other touch.
     var cellTouch: UUID? { cell?.id }
+    /// Where the cell is that the touch under way began in (document points).
+    var cellRect: CGRect? { cell?.rect }
     /// The touch under way is the eraser's, or the marquee's.
     var isErasing: Bool { eraseLast != nil }
     var isSelecting: Bool { marqueeStart != nil }
@@ -406,6 +408,10 @@ final class NotebookScribe: ObservableObject {
             }
         }
     }
+    /// Where the stroke under the nib is held, as it is drawn live: the cell it
+    /// began in, which is held to its end even when the mode ends under the
+    /// nib (it lands there, `finishedInCell`).
+    var touchClip: CGRect? { writing.cellRect }
     /// What the pen writes with: the NOTEBOOK's pen — `AppState.penTool`,
     /// `penColorHex`, `penWidth` — never the page's.
     var ink = TabletInk(colorHex: AppState.presetColors[0], width: 3)

@@ -94,7 +94,9 @@ private struct NotebookLiveInk: View {
     @ObservedObject var scribe: NotebookScribe
     let scrollOffset: CGFloat
     /// The entered cell's rect, in document points: the stroke under the nib
-    /// is shown clipped to it, as it will be kept.
+    /// is shown clipped to it, as it will be kept. A stroke that began in a
+    /// cell stays clipped to THAT cell (`NotebookScribe.touchClip`) when the
+    /// mode ends under the nib, as it lands there.
     var clip: CGRect?
     /// The note's paper, so the stroke under the nib is shown as it will
     /// be once it lands (`InkPaths.shownHex`).
@@ -103,10 +105,11 @@ private struct NotebookLiveInk: View {
     var body: some View {
         let stroke = scribe.stroke
         let marquee = scribe.marquee
+        let held = scribe.touchClip ?? clip
         let paper = InkPaths.notePaperHex(dark: colorScheme == .dark)
         Canvas { context, size in
             context.translateBy(x: 0, y: -scrollOffset)
-            if let clip { context.clip(to: Path(clip)) }
+            if let held { context.clip(to: Path(held)) }
             if let stroke { DrawingCanvas.paintLive(stroke, in: &context, size: size, paper: paper) }
             if let marquee { DrawingCanvas.paintMarquee(marquee, in: &context) }
         }

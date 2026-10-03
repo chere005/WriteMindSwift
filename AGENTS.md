@@ -1379,8 +1379,9 @@ CoreMind's `bin/report-status.sh`.
   tap of it on another cell enters that one, as a click does). The scribe
   hands them to the app (`writes(into:telling:)`:
   `NoteStore.inkFromTablet(_:intoCell:)` rehomes the stroke into the cell,
-  grows it, one step, ⌘Z claimed); the live ink is clipped to the entered
-  rect (`NotebookLiveInk.clip`). **ITS OWN UNDO** — "onto its own drawing
+  grows it, one step, ⌘Z claimed); the live ink is clipped to the cell
+  the stroke began in (`NotebookLiveInk.clip`, then `NotebookScribe.touchClip`:
+  it stays clipped there if the mode ends under the nib, as it lands there). **ITS OWN UNDO** — "onto its own drawing
   history so undo/redo works inside it": there is still ONE stack of
   whole-drawing snapshots, and `NoteStore.undoDrawing(inCell:)` /
   `redoDrawing(inCell:)` take or put back a step only when it changed THAT

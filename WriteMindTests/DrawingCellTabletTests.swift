@@ -437,6 +437,26 @@ final class CellModeEndsUnderTheNibTests: XCTestCase {
         XCTAssertNil(state.cellDrawing, "and the mode did not come back for it")
     }
 
+    /// THE LIVE INK STAYS WHERE THE STROKE IS HELD: shown clipped to the cell
+    /// the stroke began in, for as long as the nib is down, whether or not the
+    /// mode is still on — otherwise the rest of it ran out of the cell on
+    /// screen and jumped back into it when the nib lifted.
+    func testTheLiveInkStaysClippedToItsCellWhenTheModeEndsUnderTheNib() {
+        XCTAssertNil(notebook.touchClip, "nothing under the nib")
+        down(inA)
+        XCTAssertEqual(notebook.touchClip, cellA.rect)
+        state.endCellDrawing()
+        syncPlace()
+        drag(CGPoint(x: 600, y: 520))
+        XCTAssertEqual(notebook.touchClip, cellA.rect, "the live ink ran out of its cell when the mode ended")
+        up(CGPoint(x: 600, y: 520))
+        XCTAssertNil(notebook.touchClip, "and nothing is held once the nib is up")
+        // A stroke on the page is not held anywhere.
+        down(onPage)
+        XCTAssertNil(notebook.touchClip)
+        up(onPage)
+    }
+
     /// A STROKE WHOSE CELL IS GONE LANDS NOWHERE — not floating over the page
     /// where the cell was, which is where `inkFromTablet` put it for want of a
     /// cell to put it in. No step is left behind either.
