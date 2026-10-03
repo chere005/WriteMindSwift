@@ -42,6 +42,15 @@ import Combine
 // kind (`TabletSample.Phase.click`), by either route. What it does is the
 // scribe's to say (`TabletScribe.command`).
 //
+// THE RAW ROUTE HAS ONE DOOR, AND MORE THAN THE TABLET USES IT (Sean,
+// 2026-10-03: "make sure i can develop wacom features without a device
+// plugged in"): `receive` takes a raw pen report from a `TabletSource` —
+// the real HID reader, the virtual tablet, a replayed recording — tagged
+// with what it is, lets in the real tablet always and the stand-ins only
+// when a developer switched them on and no real tablet is plugged in
+// (`TabletSourcePolicy`), and reads it with the same `WacomPenPacket` the
+// tablet's own reports are read with (TabletSource.swift).
+//
 // Everything that decides anything — the reading of one event, the mapping
 // onto the page, the rotation, the pen's state from one event to the next —
 // is pure and tested with synthetic samples. Only the monitors are not.
@@ -616,6 +625,17 @@ final class TabletInput: ObservableObject {
     private var global: Any?
     private var seen: Set<String> = []
     private var widened = false
+
+    /// WHO MAY SPEAK through `receive`: the real tablet always, the virtual
+    /// one and a replay only while a developer has them switched on and no
+    /// real tablet is plugged in (`TabletSourcePolicy`). Off, and the real
+    /// device not connected, is a release user's flow: nothing but the real
+    /// tablet is ever heard.
+    var policy = TabletSourcePolicy()
+    /// Writing the session down, while a developer records one
+    /// (`PenRecorder`): everything `receive` lets in and the driver's
+    /// events the funnel takes.
+    var recorder: PenRecorder?
     /// Asked by the global route: events going to other applications count
     /// only while WriteMind is in front, or a pen used in another app would
     /// write on this page.
@@ -710,8 +730,36 @@ final class TabletInput: ObservableObject {
             noteWhileSeized(event, at: reading.timestamp, from: route, rawSince: rawSince)
             return nil
         }
+        recorder?.record(.reading(reading), at: reading.timestamp, from: .driver)
         feed(reading)
         return nil
+    }
+
+    /// THE ONE DOOR EVERY SOURCE ENTERS BY (Sean, 2026-10-03: "make sure i
+    /// can develop wacom features without a device plugged in"): the real
+    /// tablet's HID reports (`TabletController`), the virtual tablet's
+    /// pad, a replayed recording — each says its events here, tagged with
+    /// what it is, and what is said is the tablet's own word, a raw pen
+    /// report, read by the same `WacomPenPacket`, fed to the same pen. A
+    /// source the policy does not admit is not heard, and neither is
+    /// anything while the target is not on screen; what is heard is
+    /// recorded when a developer is recording, before it is read, so a
+    /// recording is what a replay has to put back.
+    ///
+    /// A report that is not exactly a pen report is none of the pen's
+    /// business here — the controller logs the first of them in hex.
+    func receive(_ event: PenStreamEvent, at time: TimeInterval, from source: TabletSourceKind) {
+        guard policy.admits(source), isCapturing else { return }
+        switch event {
+        case .report(let bytes):
+            guard let packet = WacomPenPacket(bytes) else { return }
+            recorder?.record(event, at: time, from: source)
+            raw(packet.reading(at: time))
+        case .reading(let reading):
+            let stamped = TabletReading(kind: reading.kind, timestamp: time, native: reading.native)
+            recorder?.record(.reading(stamped), at: time, from: source)
+            raw(stamped)
+        }
     }
 
     /// TWO LINES AT MOST: the first event of the driver's to arrive while

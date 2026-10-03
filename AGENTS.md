@@ -9,7 +9,8 @@ right, a sidebar of notes that are plain `.md` files in `~/Documents/WriteMind`.
 Native SwiftUI + AppKit, one Xcode project, no web layer, no server, no package
 manager, no dependencies. The README is deliberately short: the tour is
 `docs/FEATURES.md`, building and shipping is `docs/BUILDING.md`, the open
-list is `docs/TODO.md`, what the cross-platform port has still to pick up
+list is `docs/TODO.md`, developing the Wacom pen with no tablet is
+`docs/WACOM-DEV.md`, what the cross-platform port has still to pick up
 from here is `docs/CROSS-PLATFORM.md` (Sean, 2026-09-21: "keep a log of
 things we're working on for the cross platform app to eventually
 implement" — one entry per noticeable change, in the same commit as the
@@ -1102,6 +1103,87 @@ CoreMind's `bin/report-status.sh`.
   `NotebookErase` paths through `NotebookScribe.erases` and `DrawingCanvas.erase`
   deletes the floating strokes and a writable cell's, whole, as one drawing step
   with ⌘Z claimed (`onCursorInk`). `TabletEraserTests`, `TabletPenTests`.
+- **THE PEN DEVELOPS WITH NO TABLET: ONE DOOR, THREE SOURCES, A SCRIPT.** Sean,
+  2026-10-03: "make sure i can develop wacom features without a device plugged
+  in". `docs/WACOM-DEV.md` is the how-to; this is the rule and the traps.
+  **ONE DOOR**: `TabletInput.receive(_:at:from:)` takes a `PenStreamEvent` — a
+  raw 10-byte pen report, which `WacomPenPacket` reads exactly as it reads the
+  tablet's, or for the driver's fallback route a `TabletReading` — tagged with a
+  `TabletSourceKind` (`hid`, `driver`, `virtual`, `replay`), and runs it through
+  the same `raw` → `feed` → `TabletPen` → `TabletSample` the real tablet goes
+  through. A `TabletSource` (kind + `door`) is connected with
+  `TabletInput.attach`; the controller's HID reader is `HIDTabletSource`, whose
+  `report` still does what is HID's alone (the log, the unreadable burst) and
+  then `emit`s. **WHO MAY SPEAK** is one value, `TabletSourcePolicy`: hid and
+  driver always; virtual and replay only with `developerOn && !realConnected` —
+  THE REAL DEVICE WINS the moment it is plugged in, and the stand-ins are OFF
+  unless a developer ticked Input Devices ▸ Tablet Developer ▸ Virtual Tablet
+  (`TabletDeveloper.virtualEnabled`, remembered, default off). `TabletController.list`
+  is the one writer of `input.policy`; the gate is in `receive` ONLY — `feed` and
+  `raw` called directly (the tests of `TabletPen` itself) are not gated, by design.
+  **THE VIRTUAL TABLET** is a tablet in the list (`TabletDevice.virtual`, "Virtual
+  Tablet (developer)", the CTL-472's field, `Status.virtual`) while the policy
+  admits it and a real one is not plugged in: picking it asks and opens nothing
+  (`evaluate` returns before Input Monitoring), it is NEVER REMEMBERED
+  (`lastTabletID` is not written, so a launch never comes up virtual and the real
+  pick before it stays), a real tablet plugged in while it is the input takes the
+  pen after `settle` (`plugged`), the switch turned off while it is the input turns
+  the tablet off, and leaving it lets go of its pen (`rawEnded` — raw readings
+  make the funnel swallow the driver's events, which the real tablet's fallback
+  needs). `VirtualPen` is the pen: a `PenFrame` (where, tip, pressure, switches,
+  near) turned into reports; STAMPS ONLY INCREASE (0.5 ms minimum — to `TabletPen` a
+  repeated stamp is one report seen by two routes); switches are held by a latch,
+  a key or a tap, any of the three; a tap is 80 ms and a double press two taps
+  120 ms apart, WAITED ON A `PenClock` (`LivePenClock`, or the tests' `VirtualClock`
+  that never sleeps) so they sit inside `tapLimit` and `doubleWindow`; a switch
+  held with the pen away is reported by the first report after, as a real pen's
+  is. `VirtualTablet` is the pad's model: a point on the pad is a fraction of the
+  page as it is turned, and `TabletMapping.counts(forPage:)` — the INVERSE of
+  `page`, round-tripped for every turn in `TabletMappingInverseTests` — makes it
+  the counts the real tablet would report there; ⇧ over the pad holds the lower
+  switch and ⌥ the upper, for as long as they are down (only a CHANGE of the
+  held keys is a report: the pad hears them at every pointer move); the eraser
+  toggle IS the lower switch latched — the CTL-472's pen has no eraser end and
+  the 0x08 flag a report can carry is read by nothing; THE PEN STAYS NEAR when
+  the pointer leaves the pad (a switch's button is out of the pad), and goes only
+  by "Take the pen away", the window closing or the tablet un-picked; a press or
+  a lift where the pen already is moves nothing (a duplicate point in the ink would
+  be the pad's doing). The pad is an AppKit view (`VirtualPadView`) in a window of
+  its own (`VirtualTabletPanel`, a floating utility NSPanel that takes key only
+  when the pad is clicked) — never over the pane (the eighth cause).
+  **RECORD AND REPLAY**: `PenRecording` is NDJSON, sorted keys, a header
+  (`format`, `version`, `source`, `productID`, the field in counts, `quarterTurns`,
+  `note`) and `{"report":"<hex>","t":<seconds from the first>}` — or, for a
+  session of the driver's events, `{"reading":{…},"t":…}` (no bytes to give). A
+  file that is not whole is refused with its line number, never played in part.
+  `PenRecorder` is tapped in `receive` AFTER the policy and the capture guards
+  (what had nowhere to go is not a session) and in `handle` for the driver's
+  events; `t` is rounded to the microsecond. `PenReplay` is a source of kind
+  `replay`: it stamps `base + t` — THE RECORDED TIMES, whatever the pace, so a
+  double press is a double press at 16× — and waits `gap / speed` between
+  events on the clock (`.infinity` is no waiting); `hold`/`step` deliver one event
+  at a time; `stop` lifts the pen where it was (a half-played stroke must not stay
+  down) and winds back; the base is the clock's now, so a second replay never
+  repeats the stamps the pen has just seen. `TabletDeveloper.play` plays on the
+  recording's own field (`input.extent`) and refuses, in words
+  (`replayBlocker`), without the switch, a tablet picked and a target on screen.
+  Recordings are kept in Application Support/WriteMind/PenRecordings (the test
+  host's own folder under test).
+  **THE SCRIPT** (`WriteMindTests/Support/TabletScript.swift`): `TabletScript`
+  is a chain over a `VirtualPen` on a `VirtualClock` — `hover`, `down`, `move`,
+  `up`, `leave`, `hold(.lower) { }`, `tap`, `doublePress`, `wait`, `stroke`,
+  `line` — in PAGE FRACTIONS, whichever way the tablet is held. `TabletRig` is the
+  whole path (virtual pen → the door → `TabletInput` → `TabletScribe` →
+  `TabletPage`), with `notes: true` a real `NoteStore` and `RigNotes` playing the
+  drawing layer's part by the layer's own rules (`DrawingCanvas.strokesTouched`,
+  extracted from `erase(byTablet:)` for this, and `marqueePicked`); `PenBench`
+  feeds a script's EXACT frames to a bare `TabletPen`. Fixtures are recorded
+  sessions in `WriteMindTests/Fixtures`, each the bytes its recipe in
+  `PenFixtures` records and kept so by `PenFixtureFilesTests` — regenerate with
+  `TEST_RUNNER_WRITEMIND_REGENERATE_FIXTURES=1`. NEVER open, seize or send to the
+  real tablet from any of it (`LiveTabletHID` still refuses under `TestHost`).
+  `TabletSourceTests`, `TabletScriptTests`, `PenRecordingTests`,
+  `VirtualTabletPanelTests`.
 - **THE MARKDOWN VIEW HAS NO FLOATING DRAWING, BUT ITS DRAWING CELLS STAY.**
   Sean, 2026-10-02: "don't show or allow drawings in markdown mode on the
   notebook itself, only pure text" — and, when the first cut took the cells out
@@ -2412,11 +2494,36 @@ WriteMind/
                           what a box touches, Writing re-expressed on the
                           notebook, and TabletRender: the page as a
                           picture, the ink black on white for Text
+  Tablet/TabletSource.swift
+                          the one door's vocabulary: the source kinds and
+                          who is heard (TabletSourcePolicy: the real tablet
+                          always, the virtual one and a replay only when
+                          switched on and no real tablet is plugged in), the
+                          events, the TabletSource protocol, the clock a pen
+                          runs on, PenFrame (a moment of the pen as the
+                          report the tablet sends) and the inverse of the turn
+  Tablet/VirtualTablet.swift
+                          the virtual pen (state to reports; taps and
+                          double presses waited on a clock) and the pad's
+                          model (pad points to counts, switches, keys,
+                          pressure)
+  Tablet/PenRecording.swift
+                          a pen session as NDJSON, the recorder tapped at the
+                          door, and the replay (real time, a speed, a step)
+  Tablet/TabletDeveloper.swift
+                          the developer's switch, recording to a file and
+                          playing one back — off unless switched on
+  Views/VirtualTabletPanel.swift
+                          the pad (an AppKit view), the floating window it is
+                          in and the controls beside it
   Support/Color+Hex.swift #RRGGBB both ways
   Assets.xcassets/AppIcon.appiconset
                           every size of the icon, RENDERED — never edited —
                           by tools/make-icons.sh from assets/logo-square.svg
 WriteMindTests/           XCTest, @testable import WriteMind
+  Support/                the pen's test script (TabletScript, TabletRig,
+                          PenBench, VirtualClock) and the fixtures' recipes
+  Fixtures/               recorded pen sessions (.ndjson) — docs/WACOM-DEV.md
 assets/                   logo.svg — the WM mark, the family's one-stroke
                           monogram (CalMind CM, AcctMind AM) in ink blue;
                           logo-square.svg, the full-bleed cut for the icon;

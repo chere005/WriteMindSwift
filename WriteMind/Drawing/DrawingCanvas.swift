@@ -1267,11 +1267,7 @@ struct DrawingCanvas: View {
         case .path(let a, let b):
             let radius = StrokeEraser.noteRadius
             let size = paneSize
-            let layerGone = Set(layer.items.compactMap { item -> UUID? in
-                guard case .stroke = item else { return nil }
-                let reach = radius + item.baseReach * item.transform.scale
-                return StrokeEraser.touches(item.outline(in: size), from: a, to: b, radius: reach) ? item.id : nil
-            })
+            let layerGone = Self.strokesTouched(by: a, to: b, in: layer, size: size)
             var cellsGone: [UUID: Set<UUID>] = [:]
             for frame in cellFrames where frame.writable {
                 guard let cell = cells.wrappedValue[frame.id] else { continue }
@@ -1552,6 +1548,20 @@ struct DrawingCanvas: View {
                                            held: Set<UUID>) -> Set<UUID>? {
         guard let pick, !CanvasPlacement.isDrag(from: from, to: to) else { return nil }
         return CanvasGroups.flipped(pick, in: held)
+    }
+
+    /// THE FLOATING STROKES THE ERASING NIB'S PATH from `a` to `b` (document
+    /// points) came within reach of — whole strokes, never a piece, and no
+    /// picture, shape or arrow (`erase(byTablet:)`). The rule, apart from
+    /// the view, so the tests drive the same one the layer does.
+    nonisolated static func strokesTouched(by a: CGPoint, to b: CGPoint, in layer: Drawing,
+                                           size: CGSize) -> Set<UUID> {
+        let radius = StrokeEraser.noteRadius
+        return Set(layer.items.compactMap { item -> UUID? in
+            guard case .stroke = item else { return nil }
+            let reach = radius + item.baseReach * item.transform.scale
+            return StrokeEraser.touches(item.outline(in: size), from: a, to: b, radius: reach) ? item.id : nil
+        })
     }
 
     /// WHAT A MARQUEE PICKS, wherever it was dragged — ⌘ under the pen, ⌘

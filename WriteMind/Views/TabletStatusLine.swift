@@ -23,6 +23,8 @@ extension TabletPane {
         /// Offer the way to Input Monitoring in System Settings — where the
         /// switch is, once WriteMind has asked and is listed there.
         var opensSettings = false
+        /// Offer the virtual tablet's own window — the pad there is the pen.
+        var opensVirtualPanel = false
     }
 
     nonisolated static func line(for status: TabletController.Status, name: String) -> StatusLine? {
@@ -32,6 +34,13 @@ extension TabletPane {
             return nil
         case .standby:
             return StatusLine(icon: "pencil.tip", text: name)
+        case .virtual:
+            // THE DEVELOPER'S STAND-IN (Sean, 2026-10-03: "make sure i can
+            // develop wacom features without a device plugged in"): said
+            // quietly and said for what it is, with the way to its window.
+            return StatusLine(icon: "pencil.tip.crop.circle",
+                              text: "\(name) — the pen is the pad in its own window. A real tablet plugged in takes over.",
+                              opensVirtualPanel: true)
         case .captured(let driverStillPosts):
             guard driverStillPosts else {
                 return StatusLine(icon: "pencil.tip", text: "\(name) — pen captured")
