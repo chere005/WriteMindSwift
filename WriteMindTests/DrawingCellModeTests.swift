@@ -175,6 +175,22 @@ final class CellDrawingContactTests: XCTestCase {
         XCTAssertFalse(CellDrawing.enterable(UUID(), in: [frame]))
     }
 
+    /// THE MODE CAN END UNDER A PRESS (Esc, ⌘P, the cell folding away: the
+    /// button is down while a key is pressed). A press under way in a cell
+    /// that is still there stays the cell's until it ends — its points are in
+    /// the cell's own fractions, and carried on to the page they were a
+    /// mis-scaled stroke on the floating layer — and in a cell that is gone it
+    /// is dropped; with none under way the layer's space is back at once.
+    func testAPressUnderWayStaysTheCellsUntilItEnds() {
+        typealias Leaving = CellDrawing.Departure
+        XCTAssertEqual(CellDrawing.departure(pressUnderWay: false, cellThere: true), Leaving.now)
+        XCTAssertEqual(CellDrawing.departure(pressUnderWay: false, cellThere: false), Leaving.now)
+        XCTAssertEqual(CellDrawing.departure(pressUnderWay: true, cellThere: true), Leaving.whenPressEnds,
+                       "a stroke began in the cell: it is finished in it, never on the page")
+        XCTAssertEqual(CellDrawing.departure(pressUnderWay: true, cellThere: false), Leaving.dropPress,
+                       "and with the cell gone nothing of it can land")
+    }
+
     /// In a cell the press draws wherever it lands in it — the cursor never
     /// did and still does not outside — and ⌘ is the marquee.
     func testInAnEnteredCellAPressDrawsAndCommandIsStillTheMarquee() {
@@ -357,5 +373,69 @@ final class CellDrawingStateTests: XCTestCase {
         }
         XCTAssertTrue(callers.contains { $0.hasPrefix("EditorPane.swift") }, "the layer's click enters one")
         XCTAssertTrue(callers.contains { $0.hasPrefix("TabletNotebook.swift") }, "and so does the nib's tap")
+    }
+}
+
+// MARK: - The canvas's press glue, read
+
+/// THE GESTURE GLUE CANNOT BE RUN HERE (a SwiftUI drag does not fire for a
+/// synthesized event in a window that is never key), so the rule of the review
+/// of 2026-10-03 that lives in it — a press the cell mode ends under is
+/// finished in the cell or dropped and never goes on onto the page — is held
+/// at the call sites by reading `DrawingCanvas.swift`. The decision it asks
+/// for is walked (`CellDrawing.departure`); what this holds is that the glue
+/// still asks it.
+final class CellPressGlueTests: XCTestCase {
+    private func canvasSource() throws -> String {
+        let file = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "WriteMind/Drawing/DrawingCanvas.swift")
+        return try String(contentsOf: file, encoding: .utf8)
+    }
+
+    /// The text from the first `start` after `from` to the next `end` after
+    /// it (or the end of the file).
+    private func text(_ source: String, from start: String, to end: String?) throws -> String {
+        let begin = try XCTUnwrap(source.range(of: start), "\(start) is gone from DrawingCanvas.swift")
+        let rest = source[begin.lowerBound...]
+        guard let end, let stop = rest.dropFirst(start.count).range(of: end) else { return String(rest) }
+        return String(rest[..<stop.lowerBound])
+    }
+
+    /// EVERY PLACE THAT LEAVES THE ACTIVE CELL asks `leave(cell:cellThere:)`,
+    /// which asks `CellDrawing.departure`: a bare `enter(.floating)` in these
+    /// handlers took the layer's space from a stroke under way, and the rest
+    /// of it was appended in pane fractions to a stroke begun in cell
+    /// fractions.
+    func testTheHandlersThatEndTheCellAsTheSpaceAskTheDepartureRule() throws {
+        let source = try canvasSource()
+        for (name, start, end) in [
+            ("the mode ending", ".onChange(of: enteredCell)", ".onChange(of: selection)"),
+            ("the cell folding away", ".onChange(of: cellFrames)", ".onChange(of: deselectToken)"),
+            ("another note", ".onChange(of: documentID)", ".onChange(of: cellFrames)"),
+        ] {
+            let body = try text(source, from: start, to: end)
+            XCTAssertTrue(body.contains("leave(cell:"), "\(name) does not ask what becomes of a press under way")
+            XCTAssertFalse(body.contains("enter(.floating)"), "\(name) takes the layer's space from a press under way")
+        }
+        let leave = try text(source, from: "private func leave(cell:", to: "/// A press at `panePoint`")
+        XCTAssertTrue(leave.contains("CellDrawing.departure(pressUnderWay: interaction != nil"),
+                      "leaving no longer asks the one rule")
+    }
+
+    /// A PRESS ENDS IN ONE PLACE, `pressEnded()`, which gives the layer its
+    /// space back once the press the mode ended under is over: a gesture that
+    /// reset `interaction` itself left `leaveWhenPressEnds` set for the next
+    /// press and the layer's space never came back.
+    func testEveryPressEndsThroughThePlaceThatGivesTheLayerItsSpaceBack() throws {
+        let source = try canvasSource()
+        XCTAssertEqual(source.components(separatedBy: "interaction = nil").count - 1, 1,
+                       "something other than pressEnded() puts a press down")
+        let ended = try text(source, from: "private func pressEnded()", to: "private enum Interaction")
+        XCTAssertTrue(ended.contains("leaveWhenPressEnds"), "pressEnded() no longer gives the layer its space back")
+        XCTAssertTrue(ended.contains("enter(.floating)"))
+        // The three drags that carry a press end through it.
+        XCTAssertEqual(source.components(separatedBy: "pressEnded()").count - 1, 4,
+                       "the main drag, the handles' and the connector's end through pressEnded(), and its own definition")
     }
 }

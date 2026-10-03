@@ -330,6 +330,13 @@ struct NotebookWriting {
         }
     }
 
+    /// The entered cell the touch under way began in (every touch inside it,
+    /// a stroke, the eraser's or the marquee's), nil for any other touch.
+    var cellTouch: UUID? { cell?.id }
+    /// The touch under way is the eraser's, or the marquee's.
+    var isErasing: Bool { eraseLast != nil }
+    var isSelecting: Bool { marqueeStart != nil }
+
     /// Whatever was under way is forgotten, and nothing of it lands.
     mutating func reset() {
         stroke = nil
@@ -380,9 +387,23 @@ final class NotebookScribe: ObservableObject {
     /// they were written on it — but the area the tablet lands on does,
     /// and the rest of a stroke under way would carry on a quarter turn
     /// away from the start of it.
+    ///
+    /// AND SO IS THE CELL MODE ENDING UNDER A TOUCH THAT BEGAN IN IT (Esc, ⌘P,
+    /// the cell folding away — the nib is down and the mode is not): the
+    /// canvas scopes the eraser and the marquee by the cell ENTERED, so their
+    /// rest would be the PAGE'S — the eraser deleting its strokes, the marquee
+    /// picking its objects — and they stop with the mode. A stroke carries on
+    /// held inside its cell and lands in it, or nowhere if the cell is gone
+    /// (`NoteStore.inkFromTablet`): ink is never lost to a key, and never goes
+    /// onto the page. A touch that began OUTSIDE the entered cell — the way
+    /// out — is not one of these: it has no cell, and its lift on another
+    /// cell still enters that one.
     var place: NotebookPlace? {
         didSet {
-            if oldValue?.note != place?.note || oldValue?.quarterTurns != place?.quarterTurns { drop() }
+            if oldValue?.note != place?.note || oldValue?.quarterTurns != place?.quarterTurns { drop(); return }
+            if let home = writing.cellTouch, home != place?.entered, writing.isErasing || writing.isSelecting {
+                drop()
+            }
         }
     }
     /// What the pen writes with: the NOTEBOOK's pen — `AppState.penTool`,
@@ -506,8 +527,11 @@ final class NotebookScribe: ObservableObject {
     }
 
     /// Whatever was under way is dropped — the target changed, the notes
-    /// went — and nothing of it lands.
+    /// went — and nothing of it lands. An erasure under way is ENDED first,
+    /// so the layer's one step for it is closed (`DrawingCanvas.erase`), and
+    /// the next erasure begins its own.
     func drop() {
+        if writing.isErasing { erases.send(.end) }
         writing.reset()
         if stroke != nil { stroke = nil }
         if marquee != nil { marquee = nil }

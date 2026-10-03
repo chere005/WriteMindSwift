@@ -1330,7 +1330,32 @@ CoreMind's `bin/report-status.sh`.
   video coming or going, ⌘T onto markdown, another tool, and every way onto
   the page (`putToolsAway`). It does NOT end between strokes: a stroke
   landing, the text being typed or the drawing changing is not a way out
-  (`testItDoesNotEndByItselfBetweenStrokes`). **THE NIB**: with the
+  (`testItDoesNotEndByItselfBetweenStrokes`). **IT CAN END WITH A PRESS DOWN
+  (Esc, ⌘P, ⌘T or a keyboard note switch with the button held; the cell
+  folding away), AND NOTHING OF THAT PRESS GOES ONTO THE PAGE** (review,
+  2026-10-03). A press under way in a cell that is still there stays THE
+  CELL'S until it ends — its points are in the cell's own fractions, and
+  the first cut left the layer's space at once, so the rest of the stroke
+  was appended in pane fractions to a stroke begun in cell fractions and
+  written to the floating layer as junk — held inside it and landing in
+  it, the layer's space coming back after it (`CellDrawing.departure`,
+  `DrawingCanvas.leave(cell:cellThere:)`, `leaveWhenPressEnds`); with the
+  cell gone, or the note another, the press is dropped and the rest of the
+  drag does nothing (that one press leaves the single empty step
+  its stroke took as it began: one ⌘Z that changes nothing). The same
+  glue is held by `CellPressGlueTests`, which reads the canvas — the three
+  handlers that end the cell as the space ask `leave`, and a press ends
+  only through `pressEnded()` — since the drag cannot be run. The nib's stroke does the same: it lands in the cell it
+  began in (`finishedInCell`), and `NoteStore.inkFromTablet(_:intoCell:)`
+  REFUSES a cell with no writable frame — it used to fall through to the
+  floating layer, a stroke held in a cell's rect landing as ink over the
+  page with a step of its own. The tablet's eraser and marquee begun in
+  the cell, which the canvas scopes by the cell ENTERED, would be the
+  PAGE'S for the rest of the touch once the mode ended: they stop with it
+  (`NotebookScribe.place`'s `didSet` — the erasure is ended so its one step
+  closes — and a touch that began OUTSIDE the cell, the way out, is not
+  touched by it: its lift on another cell still enters that one). `drop()`
+  ends an erasure it drops. **THE NIB**: with the
   tablet's target the notebook the nib TAPPING a cell enters it and in the
   mode writes into it; with the target the page it never touches a cell
   (the notebook is handed no samples at all). `NotebookWriting` is walked
@@ -1366,9 +1391,12 @@ CoreMind's `bin/report-status.sh`.
   taking Sean's focus), so what a press does is decided in pure functions
   (`CellDrawing`, `CanvasSpace.at`, `NotebookWriting`) and the gesture is
   thin glue round them; read the glue when it changes. Tests:
-  `DrawingCellModeTests.swift` (the pure rules and the state machine),
+  `DrawingCellModeTests.swift` (the pure rules, the state machine, and
+  `CellPressGlueTests`, which reads the canvas's call sites),
   `DrawingCellTabletTests.swift` (the nib, the scribe's wiring, a cell's
-  undo), `CanvasKeyTests` (Esc and ⌘Z through the real key monitor).
+  undo, the mode ending under the nib), `CanvasKeyTests`
+  (Esc and ⌘Z through the real key monitor) and `EscapeWiringTests` (Esc
+  through the real editor pane).
 - **A group is a shared id, and every rule about it is in `CanvasGroups`.**
   Sean, 2026-09-20: "toggle grouping with the button on the screen or
   ctrl+g". `group: UUID?` sits on `Stroke`, `ImageItem` and `ShapeItem`
@@ -2407,7 +2435,8 @@ WriteMind/
                           drawing cell (a click enters a static one, a press
                           inside the entered one draws, outside it leaves),
                           a click's travel, a point held inside the cell,
-                          which cells can be in the mode
+                          which cells can be in the mode, and what becomes
+                          of a press the mode ends under
   Drawing/DrawingCanvas.swift
                           the layer: one Canvas, plus the handles. With the
                           cursor it takes only the objects on it (and a

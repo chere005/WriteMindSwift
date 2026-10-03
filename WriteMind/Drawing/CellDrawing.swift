@@ -86,6 +86,27 @@ enum CellDrawing {
         CGPoint(x: min(max(point.x, rect.minX), rect.maxX), y: min(max(point.y, rect.minY), rect.maxY))
     }
 
+    /// WHAT BECOMES OF A PRESS WHEN ITS CELL IS NO LONGER THE SPACE — the mode
+    /// ended (Esc, ⌘P, ⌘T, a click in the words), or the cell went — and what
+    /// the mouse was doing in it is not over yet (review, 2026-10-03: the
+    /// button is down while a key is pressed). Nothing under way: the layer's
+    /// space again at once. A press under way in a cell that is still there
+    /// stays the CELL'S until it ends — its points are in the cell's own
+    /// fractions, and carried onto the page they were a mis-scaled stroke on
+    /// the floating layer — so it goes on held inside the cell and lands in
+    /// it, and only then is the layer's space the active one. In a cell that
+    /// is gone nothing of it can land, and the press is dropped.
+    enum Departure: Equatable {
+        case now
+        case whenPressEnds
+        case dropPress
+    }
+
+    static func departure(pressUnderWay: Bool, cellThere: Bool) -> Departure {
+        guard pressUnderWay else { return .now }
+        return cellThere ? .whenPressEnds : .dropPress
+    }
+
     /// Whether the cell can be in the mode: it has a frame on the pane that is
     /// up, and may be drawn in. Folded away, read-only or out of the note, it
     /// cannot, and the mode ends with it.

@@ -359,6 +359,191 @@ final class NotebookCellScribeTests: XCTestCase {
     }
 }
 
+// MARK: - The mode ends under the nib
+
+/// THE CELL MODE CAN END WITH THE NIB DOWN — Esc, ⌘P, another note, the cell
+/// folding away — and what the touch was doing in the cell must never go on
+/// onto the page (review, 2026-10-03; Sean's rule: a stroke is cancelled or
+/// finished into the cell cleanly). The stroke lands in the cell it began in,
+/// held inside it, or nowhere when the cell is gone; the eraser and the
+/// marquee, which would reach the page's own strokes and objects once the
+/// cell is no longer the one entered, stop.
+@MainActor
+final class CellModeEndsUnderTheNibTests: XCTestCase {
+    private var dir: URL!
+    private var store: NoteStore!
+    private var state: AppState!
+    private var suite: String!
+    private var notebook: NotebookScribe!
+
+    override func setUp() async throws {
+        suite = "WriteMindTests-\(UUID().uuidString)"
+        dir = FileManager.default.temporaryDirectory.appending(path: "WriteMindTests-cellends-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("# Sketch\n".utf8).write(to: dir.appending(path: "Sketch.md"))
+        store = NoteStore(directory: dir)
+        store.canvasSize = CGSize(width: 800, height: 600)
+        store.cellFrames = [cellA, cellB]
+        state = AppState(defaults: UserDefaults(suiteName: suite)!)
+        state.mode = .preview
+        state.follow(tabletPicked: true)
+        notebook = NotebookScribe()
+        notebook.place = makePlace()
+        notebook.writes(into: store, telling: state)
+        // A tap enters cell A, as the nib does.
+        down(inA)
+        up(inA)
+        XCTAssertEqual(state.cellDrawing, cellA.id)
+        syncPlace()
+    }
+
+    override func tearDown() async throws {
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        notebook = nil
+        store = nil
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    /// What the notes pane hands the scribe as the mode changes.
+    private func syncPlace(cells: [CellFrame] = [cellA, cellB]) {
+        notebook.place = makePlace(entered: state.cellDrawing, cells: cells)
+    }
+    private func down(_ at: CGPoint, side: Bool = false, eraser: Bool = false) {
+        notebook.consume(sample(at, in: notebook.place!, .down, side: side, eraser: eraser))
+    }
+    private func drag(_ at: CGPoint, side: Bool = false, eraser: Bool = false) {
+        notebook.consume(sample(at, in: notebook.place!, .drag, side: side, eraser: eraser))
+    }
+    private func up(_ at: CGPoint, side: Bool = false, eraser: Bool = false) {
+        notebook.consume(sample(at, in: notebook.place!, .up, pressure: 0, side: side, eraser: eraser))
+    }
+
+    /// A STROKE BEGUN IN THE CELL LANDS IN THAT CELL, whatever the mode does
+    /// under it: held inside the cell to the end, and never on the page.
+    func testAStrokeBegunInTheCellLandsInItWhenTheModeEndsUnderTheNib() throws {
+        down(inA)
+        drag(CGPoint(x: 230, y: 360))
+        state.endCellDrawing()
+        syncPlace()
+        drag(CGPoint(x: 600, y: 520))
+        drag(CGPoint(x: 700, y: 560))
+        up(CGPoint(x: 700, y: 560))
+        XCTAssertTrue(store.drawing.strokes.isEmpty, "the rest of the stroke went onto the page")
+        let cell = try XCTUnwrap(store.cells[cellA.id], "the stroke did not land in the cell it began in")
+        XCTAssertEqual(cell.drawing.strokes.count, 1)
+        for point in cell.drawing.strokes[0].points {
+            XCTAssertTrue((0...1).contains(point.x), "\(point) is outside the cell")
+        }
+        XCTAssertNil(state.cellDrawing, "and the mode did not come back for it")
+    }
+
+    /// A STROKE WHOSE CELL IS GONE LANDS NOWHERE — not floating over the page
+    /// where the cell was, which is where `inkFromTablet` put it for want of a
+    /// cell to put it in. No step is left behind either.
+    func testAStrokeWhoseCellWentLandsNowhere() {
+        let steps = store.drawingSteps
+        down(inA)
+        drag(CGPoint(x: 230, y: 360))
+        // The cell folds away: the pane tells the store and the scribe, and
+        // the mode ends with it.
+        store.cellFrames = [cellB]
+        state.endCellDrawing()
+        syncPlace(cells: [cellB])
+        drag(CGPoint(x: 260, y: 370))
+        up(CGPoint(x: 260, y: 370))
+        XCTAssertTrue(store.drawing.strokes.isEmpty, "a stroke begun in a cell floated onto the page when the cell went")
+        XCTAssertNil(store.cells[cellA.id])
+        XCTAssertEqual(store.drawingSteps, steps, "and left an empty step behind it")
+        XCTAssertNil(notebook.stroke)
+    }
+
+    /// THE STORE'S HALF: told a cell that has no frame, `inkFromTablet` takes
+    /// nothing, begins nothing and says so.
+    func testAStrokeForACellThatIsNotThereIsRefused() {
+        let steps = store.drawingSteps
+        let stroke = Stroke.starting(at: CGPoint(x: 0.3, y: 0.6), colorHex: "#1C1C1E", width: 3,
+                                     pen: .pen(pressure: 0.5), tool: .pen)
+        XCTAssertFalse(store.inkFromTablet(stroke, intoCell: UUID()))
+        XCTAssertTrue(store.drawing.strokes.isEmpty)
+        XCTAssertEqual(store.drawingSteps, steps)
+        // A read-only cell is no cell to write in either.
+        var locked = cellA
+        locked.id = UUID()
+        locked.writable = false
+        store.cellFrames = [cellA, cellB, locked]
+        XCTAssertFalse(store.inkFromTablet(stroke, intoCell: locked.id))
+        XCTAssertEqual(store.drawingSteps, steps)
+        // And with no cell named it is the page's, as ever.
+        XCTAssertTrue(store.inkFromTablet(stroke))
+        XCTAssertEqual(store.drawing.strokes.count, 1)
+    }
+
+    /// THE ERASER begun in the cell reaches only that cell's strokes. The
+    /// canvas scopes it by the cell ENTERED, so once the mode is over the rest
+    /// of the erasure would be the page's: it stops, and the erasure ends (one
+    /// step) where the mode did.
+    func testTheEraserBegunInTheCellStopsWhenTheModeEnds() {
+        var heard: [NotebookErase] = []
+        let watching = notebook.erases.sink { heard.append($0) }
+        defer { watching.cancel() }
+        down(inA, eraser: true)
+        drag(CGPoint(x: 220, y: 350), eraser: true)
+        XCTAssertEqual(heard.count, 2)
+        state.endCellDrawing()
+        syncPlace()
+        drag(CGPoint(x: 600, y: 520), eraser: true)
+        drag(CGPoint(x: 640, y: 540), eraser: true)
+        up(CGPoint(x: 640, y: 540), eraser: true)
+        XCTAssertEqual(heard.last, .end, "the erasure was not ended where the mode ended")
+        XCTAssertEqual(heard.filter { if case .path = $0 { return true } else { return false } }.count, 2,
+                       "the nib went on erasing after the mode ended, over the page's own strokes")
+        XCTAssertEqual(heard.filter { $0 == .end }.count, 1)
+    }
+
+    /// THE MARQUEE begun in the cell is dropped with it: lifted over the page
+    /// it would pick the page's objects.
+    func testTheMarqueeBegunInTheCellIsDroppedWhenTheModeEnds() {
+        var picked: [CGRect] = []
+        let watching = notebook.picks.sink { picked.append($0) }
+        defer { watching.cancel() }
+        down(inA, side: true)
+        drag(CGPoint(x: 230, y: 360), side: true)
+        XCTAssertNotNil(notebook.marquee)
+        state.endCellDrawing()
+        syncPlace()
+        drag(CGPoint(x: 600, y: 520), side: true)
+        up(CGPoint(x: 600, y: 520), side: true)
+        XCTAssertTrue(picked.isEmpty, "a marquee begun in a cell picked the page's objects")
+        XCTAssertNil(notebook.marquee)
+    }
+
+    /// WHAT THE CHECK MUST NOT TOUCH: a touch that began OUTSIDE the entered
+    /// cell is the way out, and its lift on another cell is the way into that
+    /// one — the app leaves the mode as the nib goes down, tells the scribe,
+    /// and the touch goes on.
+    func testATouchThatLeftTheCellStillEntersTheCellItIsLiftedOn() {
+        down(inB)
+        XCTAssertNil(state.cellDrawing, "a touch outside the entered cell is the way out")
+        syncPlace()
+        drag(CGPoint(x: 201, y: 501))
+        up(CGPoint(x: 201, y: 501))
+        XCTAssertEqual(state.cellDrawing, cellB.id)
+    }
+
+    /// Nor a stroke that is only a tap into a cell: entering one changes the
+    /// entered cell under the nib that tapped it.
+    func testATapEntersTheCellEvenThoughTheEnteredCellChangesUnderIt() {
+        state.endCellDrawing()
+        syncPlace()
+        down(inB)
+        up(inB)
+        XCTAssertEqual(state.cellDrawing, cellB.id)
+        syncPlace()
+        XCTAssertNil(notebook.stroke)
+        XCTAssertTrue(store.drawing.strokes.isEmpty)
+    }
+}
+
 // MARK: - A cell's own undo and redo
 
 /// UNDO AND REDO INSIDE A CELL step through the strokes of THAT CELL and

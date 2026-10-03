@@ -700,12 +700,20 @@ final class NoteStore: ObservableObject {
     /// kept (`CanvasSpace.rehome`), the cell growing to keep it — the same
     /// step. Every other stroke floats, whatever is under it, a cell's
     /// picture included.
+    ///
+    /// A STROKE TOLD A CELL LANDS IN THAT CELL OR NOWHERE. One begun in a cell
+    /// whose frame has gone by the time the nib lifts — it folded away, went
+    /// read-only, left the note — used to fall through to the floating layer,
+    /// and a stroke held inside a cell's rect landed as ink over the page
+    /// where the cell had been, with a step of its own (review, 2026-10-03:
+    /// never continued onto the page). It is refused, and takes no step.
     @discardableResult
     func inkFromTablet(_ stroke: Stroke, intoCell entered: UUID? = nil) -> Bool {
         guard selectedNote != nil else { return false }
-        beginDrawingChange()
         let pane = paneSize
-        if let entered, let frame = cellFrames.first(where: { $0.id == entered && $0.writable }) {
+        if let entered {
+            guard let frame = cellFrames.first(where: { $0.id == entered && $0.writable }) else { return false }
+            beginDrawingChange()
             var cell = cells[frame.id] ?? .empty(width: Double(frame.width))
             cell.drawing.items.append(CanvasSpace.rehome(.stroke(stroke), from: .floating(pane: pane),
                                                          to: .cell(frame)))
@@ -713,6 +721,7 @@ final class NoteStore: ObservableObject {
             fitCell(frame.id)
             return true
         }
+        beginDrawingChange()
         drawing.items.append(contentsOf: landed([.stroke(stroke)]))
         return true
     }

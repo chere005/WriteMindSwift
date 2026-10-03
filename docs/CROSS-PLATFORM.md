@@ -168,6 +168,17 @@ asked for).
   the pen, a shape, the arrow tool, and on every way onto the page (an
   inserted picture or text box, a capture). A pen touch outside the cell
   ends it and draws nothing. It does NOT end by itself between strokes.
+- **The mode can end with a press down** (Esc, ⌘P, ⌘T or a keyboard note
+  switch with the button held; the cell folding away) and nothing of that
+  press goes onto the page. A stroke under way in a cell that is still there
+  carries on, held inside the cell, and lands in it when the press ends —
+  its points are in the cell's own fractions, so letting go of the cell's
+  space mid-stroke makes a mis-scaled stroke on the page. In a cell that has
+  gone, or another note, the press is dropped and the rest of the drag does
+  nothing. The tablet's pen is the same: a stroke lands in the cell it began
+  in, or nowhere if the cell has no frame (never floating over where the
+  cell was), and its eraser and selection box stop when the mode does, since
+  both would be the page's from then on.
 - **Why a press is decided in one pure place**: a drag gesture cannot be
   driven from a test here, so what a press about a cell means is a function
   of where it began, what is under it, what tool is armed and whether ⌘ is

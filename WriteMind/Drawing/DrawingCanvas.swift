@@ -199,6 +199,20 @@ struct DrawingCanvas: View {
         if let frame = activeCell { onCellChanged?(frame.id) }
     }
 
+    /// A PRESS IS OVER — the drag, a handle's, a connector segment's —: nothing
+    /// is under way any more, and the cell it changed grows to keep its ink.
+    /// If the cell mode ended under it the press was the cell's to the end
+    /// (`CellDrawing.departure`), and the layer's space is the active one now.
+    private func pressEnded() {
+        interaction = nil
+        snapshot = [:]
+        cellChanged()
+        if leaveWhenPressEnds {
+            leaveWhenPressEnds = false
+            enter(.floating)
+        }
+    }
+
     private enum Interaction: Equatable {
         case drawing
         case moving
@@ -259,6 +273,10 @@ struct DrawingCanvas: View {
     @State private var cellClick: UUID?
     /// The pointer is over the entered cell: the pencil.
     @State private var overEntered = false
+    /// The cell mode ended under a press that began in the cell: the press
+    /// stays the cell's until it ends (`CellDrawing.Departure`), and the
+    /// layer's space is the active one again after it.
+    @State private var leaveWhenPressEnds = false
     /// The cell's height when its grip was taken.
     @State private var gripFrom: Double?
 
@@ -385,13 +403,18 @@ struct DrawingCanvas: View {
             }
             .onChange(of: layer.images.map(\.file)) { _, _ in loadImages() }
             .onChange(of: documentID) { _, _ in
+                // A press under way in a cell belongs to the note it began in,
+                // in the cell's own fractions: another note has no such cell.
+                if case .cell(let id) = active { leave(cell: id, cellThere: false) }
                 active = .floating
                 selection = []; hovered = nil; cropping = nil; styling = nil; editingLabel = nil
             }
             // The active cell folded away, or out of the note: the layer
             // is the space again.
             .onChange(of: cellFrames) { _, frames in
-                if case .cell(let id) = active, !frames.contains(where: { $0.id == id }) { enter(.floating) }
+                if case .cell(let id) = active, !frames.contains(where: { $0.id == id }) {
+                    leave(cell: id, cellThere: false)
+                }
                 // The entered cell folded away, went read-only or left the
                 // note: the mode goes with it.
                 if let enteredCell, !CellDrawing.enterable(enteredCell, in: frames) { onEndCell?() }
@@ -417,7 +440,12 @@ struct DrawingCanvas: View {
             .onChange(of: enteredCell) { _, entered in
                 if entered == nil {
                     overEntered = false
-                    if case .cell = active { enter(.floating) }
+                    // THE MODE ENDED, maybe under a press that began in the
+                    // cell (Esc, ⌘P, ⌘T with the button down): that press
+                    // is the cell's until it ends.
+                    if case .cell(let id) = active {
+                        leave(cell: id, cellThere: CellDrawing.enterable(id, in: cellFrames))
+                    }
                 } else {
                     selection = []; hovered = nil; cropping = nil; styling = nil; editingLabel = nil
                 }
@@ -774,11 +802,7 @@ struct DrawingCanvas: View {
                 let coordinate = vertical ? point.x / size.width : point.y / size.height
                 setOverride(id, segment: segment, vertical: vertical, value: coordinate, in: size)
             }
-            .onEnded { _ in
-                interaction = nil
-                snapshot = [:]
-                cellChanged()
-            }
+            .onEnded { _ in pressEnded() }
     }
 
     private func setOverride(_ id: UUID, segment: Int, vertical: Bool, value: Double, in size: CGSize) {
@@ -1219,10 +1243,29 @@ struct DrawingCanvas: View {
                         onEnterCell?(id)
                     }
                 }
-                interaction = nil
-                snapshot = [:]
-                cellChanged()
+                pressEnded()
             }
+    }
+
+    /// THE ACTIVE CELL CAN BE THE SPACE NO MORE — the mode ended, the cell
+    /// folded away, the note changed — and what the mouse is doing in it is
+    /// settled by `CellDrawing.departure`: nothing under way, the layer's
+    /// space at once; a press under way in a cell that is still there stays
+    /// the cell's until it ends, and one in a cell that is gone is dropped,
+    /// the rest of the drag doing nothing.
+    private func leave(cell: UUID, cellThere: Bool) {
+        switch CellDrawing.departure(pressUnderWay: interaction != nil, cellThere: cellThere) {
+        case .now:
+            enter(.floating)
+        case .whenPressEnds:
+            leaveWhenPressEnds = true
+        case .dropPress:
+            current = nil; marquee = nil; placePreview = nil; connectPreview = nil
+            snapshot = [:]; cellClick = nil
+            interaction = .idle
+            leaveWhenPressEnds = false
+            enter(.floating)
+        }
     }
 
     /// A press at `panePoint`: first WHICH SPACE it is in — the one its
@@ -1232,6 +1275,7 @@ struct DrawingCanvas: View {
     private func begin(at panePoint: CGPoint, pane: CGSize) {
         let documentPoint = CGPoint(x: panePoint.x, y: panePoint.y + scrollOffset)
         let flags = NSEvent.modifierFlags
+        leaveWhenPressEnds = false
         var entered = enteredCell
         var found = CanvasSpace.at(documentPoint, layer: layer, pane: pane, frames: cellFrames,
                                    cells: cells.wrappedValue, entered: entered)
@@ -1433,11 +1477,7 @@ struct DrawingCanvas: View {
                           in: size)
                 }
             }
-            .onEnded { _ in
-                interaction = nil
-                snapshot = [:]
-                cellChanged()
-            }
+            .onEnded { _ in pressEnded() }
     }
 
     /// Freeze what the selection looked like before the gesture: every frame
