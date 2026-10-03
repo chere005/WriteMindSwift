@@ -450,16 +450,7 @@ struct InsertMenu: Commands {
             // ⌘0 (Sean, 2026-10-02: "drawing cell which is cmd + 0"). It
             // makes a cell and never turns one into another kind, so it is
             // Insert's and not Format's.
-            // A drawing is on the rendered page only (Sean, 2026-10-02): in
-            // markdown it brings that page up and makes the cell there.
-            Button("Drawing Cell") {
-                if appState.mode == .editor {
-                    appState.showRenderedPage()
-                    DispatchQueue.main.async { appState.editor.drawingCell() }
-                } else {
-                    appState.editor.drawingCell()
-                }
-            }
+            Button("Drawing Cell") { appState.editor.drawingCell() }
                 .shortcut(.drawingCell)
                 .disabled(store.selectedNote == nil)
         }

@@ -1074,21 +1074,21 @@ CoreMind's `bin/report-status.sh`.
   `SidebarRenameTests` holds the store half; the field's focus and the
   gesture were driven in a scratch copy, Return itself was not (computer
   use cannot send a real key to a text field).
-- **THE MARKDOWN VIEW IS PURE TEXT.** Sean, 2026-10-02, a day after drawing
-  was limited to the rendered page: "don't show or allow drawings in
-  markdown mode on the notebook itself, only pure text". `EditorPane` mounts
-  `DrawingCanvas` only when `mode == .preview` (in markdown a clear
+- **THE MARKDOWN VIEW HAS NO FLOATING DRAWING, BUT ITS DRAWING CELLS STAY.**
+  Sean, 2026-10-02: "don't show or allow drawings in markdown mode on the
+  notebook itself, only pure text" — and, when the first cut took the cells out
+  too, "drawing cells should still appear in markdown, just not the other
+  drawn content on top of the notebook itself". `EditorPane` mounts
+  `DrawingCanvas` (the floating objects, the pen, the handles, a cell's grip
+  and its drawing) only when `mode == .preview`; in markdown a clear
   `GeometryReader` keeps `store.canvasSize` current for what is measured
-  against it, the PDF and a dock); the live source pane's
-  `FoldingLayoutManager.drawings.enabled` is false, so a drawing line is read
-  as no cell — no room, no paint, no frame, no stand-in caret — and is the line
-  of text it is in the file; the + there offers no Drawing; Insert ▸ Drawing
-  Cell (⌘0) and every drop of a picture, box or capture bring the rendered page
-  up first (`showRenderedPage`; `CanvasModeTests` reads the sources for it).
-  The OFFSCREEN layout (`MarkdownTextView.cellBoxes(of:…)`) keeps cells enabled:
-  it is what the two panes' mapping and the PDF measure a cell's height by.
-  The hosted source-pane drawing-cell tests (keys, layout, painting) went with
-  the behaviour; `DrawingCellLayoutTests` holds the pure-text rule.
+  against it (the PDF, a dock). A drawing CELL is the source pane's own — its
+  layout manager's `CellLines`, painted under its line as before — so it shows
+  in markdown and is held, moved, deleted and typed around there, but is drawn
+  in on the rendered page only. The + and Insert ▸ Drawing Cell (⌘0) work in
+  both panes; every drop of a picture, box or capture (floating objects)
+  brings the rendered page up first (`showRenderedPage`; `CanvasModeTests`
+  reads the sources for it).
 - **A BRACKET SELECTS A CELL ON BOTH PANES** (D1 of `docs/handoff/cell-ux-report.md`,
   Sean, 2026-10-02: "select"): a click on one cell's bracket on the rendered page
   HOLDS it, as the markdown pane always did, and Return opens a held cell for

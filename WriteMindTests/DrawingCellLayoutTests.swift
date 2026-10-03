@@ -79,6 +79,80 @@ final class DrawingCellLayoutTests: XCTestCase {
 
     // MARK: - The room under the line
 
+    func testTheDrawingLinesFragmentIsItsTextLinePlusTheCellsHeight() throws {
+        let tv = try hosted(note, cells: shown(cell()))
+        let (layout, container) = try layout(of: tv)
+        let fragment = try lastFragment(of: lineRange, in: tv)
+        XCTAssertEqual(fragment.used.height, sliver + 120, accuracy: 0.5, "the sliver of text, and the drawing under it")
+        XCTAssertGreaterThanOrEqual(fragment.rect.height, fragment.used.height - 0.01)
+
+        // THE ONE GEOMETRY: the cell at the bottom of that room, at the
+        // column's left, the size it is shown.
+        let cellLine = try XCTUnwrap(layout.drawings.lines.first { $0.id == id })
+        let rect = try XCTUnwrap(layout.cellRect(cellLine, in: container, origin: .zero))
+        XCTAssertEqual(rect.size.width, 400, accuracy: 0.01)
+        XCTAssertEqual(rect.size.height, 120, accuracy: 0.01)
+        XCTAssertEqual(rect.maxY, fragment.used.maxY, accuracy: 0.01)
+        XCTAssertEqual(rect.minY, fragment.used.minY + sliver, accuracy: 0.5, "under the line's text")
+        XCTAssertEqual(rect.minX, fragment.rect.minX + container.lineFragmentPadding, accuracy: 0.01)
+
+        // The cell below starts under the drawing, a gap further down.
+        let below = try lastFragment(of: (note as NSString).range(of: "Below"), in: tv)
+        XCTAssertGreaterThanOrEqual(below.rect.minY, rect.maxY + MarkdownPreview.gapHeight - 0.5)
+    }
+
+    /// Nothing drawn in it yet — no file — and the cell is still eight lines
+    /// of room: a line ⌘0 has just written has somewhere to draw.
+    func testACellWithNothingInItIsEightLinesOfRoom() throws {
+        let tv = try hosted(note, cells: DrawingCellsShown())
+        let fragment = try lastFragment(of: lineRange, in: tv)
+        XCTAssertEqual(fragment.used.height, sliver + CGFloat(DrawingCells.emptyHeight), accuracy: 0.5)
+        let frames = MarkdownTextView.drawingFrames(in: tv)
+        XCTAssertEqual(frames.map(\.id), [id])
+        XCTAssertEqual(frames.first?.rect.height ?? 0, CGFloat(DrawingCells.emptyHeight), accuracy: 0.5)
+        XCTAssertEqual(frames.first?.writable, true)
+    }
+
+    /// The boxes the brackets and the seams are made from take the drawing
+    /// in — whether `boundingRect` happens to or not — and the frame the
+    /// layer is handed sits inside the box, under the line's text.
+    func testTheCellBoxesAndTheFramesReadTheSameGeometry() throws {
+        let tv = try hosted(note, cells: shown(cell()))
+        let boxes = MarkdownTextView.cellBoxes(in: tv)
+        let box = try XCTUnwrap(boxes.first { $0.offset == lineRange.location })
+        XCTAssertEqual(box.bottom - box.top, sliver + 120, accuracy: 1, "the box is the text and the drawing")
+
+        let frames = MarkdownTextView.drawingFrames(in: tv)
+        XCTAssertEqual(frames.count, 1)
+        let frame = try XCTUnwrap(frames.first)
+        XCTAssertEqual(frame.id, id)
+        XCTAssertEqual(frame.line, lineRange)
+        XCTAssertEqual(frame.scale, 1, accuracy: 0.001)
+        XCTAssertEqual(frame.width, 400, accuracy: 0.01)
+        XCTAssertTrue(frame.writable)
+        XCTAssertEqual(frame.rect.size.width, 400, accuracy: 0.01)
+        XCTAssertEqual(frame.rect.size.height, 120, accuracy: 0.01)
+        XCTAssertEqual(frame.rect.maxY, box.bottom, accuracy: 0.5, "the frame's foot is the box's")
+        XCTAssertEqual(frame.rect.minY, box.top + sliver, accuracy: 1, "under the line's text")
+        XCTAssertEqual(frame.rect.minX, tv.textContainerOrigin.x + (tv.textContainer?.lineFragmentPadding ?? 0),
+                       accuracy: 0.01)
+
+        // And the same boxes with no text view at all — what the rendered
+        // page lays the drawing layer out by (`PaneMapping`).
+        let offscreen = MarkdownTextView.cellBoxes(of: note, width: tv.bounds.width, showMarkers: false,
+                                                   collapsed: [], cells: shown(cell()))
+        XCTAssertEqual(offscreen.map(\.offset), boxes.map(\.offset))
+        for (a, b) in zip(offscreen, boxes) {
+            XCTAssertEqual(a.bottom - a.top, b.bottom - b.top, accuracy: 0.5, "cell at \(a.offset)")
+        }
+        // Without the cells it is laid out a drawing too high, which is
+        // the premise for handing them over.
+        let without = MarkdownTextView.cellBoxes(of: note, width: tv.bounds.width, showMarkers: false, collapsed: [])
+        let drawn = try XCTUnwrap(without.first { $0.offset == lineRange.location })
+        XCTAssertEqual(drawn.bottom - drawn.top, sliver + CGFloat(DrawingCells.emptyHeight), accuracy: 1,
+                       "an unknown cell is an empty one")
+    }
+
     /// The gap under a drawing cell is the gap under any cell: the room is
     /// inside the fragment, the paragraph spacing still after it.
     func testTheSeamUnderADrawingCellIsTheSeamUnderAnyCell() throws {
@@ -92,41 +166,110 @@ final class DrawingCellLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(underDrawing.bottom - underDrawing.top, MarkdownPreview.gapHeight - 0.01)
     }
 
-    // MARK: - The markdown pane is pure text
-
-    /// Sean, 2026-10-02: "don't show or allow drawings in markdown mode on
-    /// the notebook itself, only pure text". A drawing line is the line of
-    /// text it is in the file: the same height as any other, no room under
-    /// it, no frame, nothing painted, and the caret treats it as words.
-    func testTheMarkdownPaneShowsADrawingLineAsPlainText() throws {
+    /// Raw mode — the markers shown — keeps the drawing: the line is
+    /// ordinary text, full size, and the drawing is still under it.
+    func testRawModeKeepsTheDrawingUnderItsLine() throws {
         let tv = try hosted(note, showMarkers: true, cells: shown(cell()))
-        let (layout, _) = try layout(of: tv)
-        let plain = try lastFragment(of: (note as NSString).range(of: "Above"), in: tv)
         let fragment = try lastFragment(of: lineRange, in: tv)
-        XCTAssertEqual(fragment.used.height, plain.used.height, accuracy: 0.5, "no room for a drawing")
-        XCTAssertTrue(layout.drawings.lines.isEmpty)
-        XCTAssertTrue(MarkdownTextView.drawingFrames(in: tv).isEmpty, "no frame to draw into")
-        XCTAssertTrue(tv.drawingLines.isEmpty)
-        tv.window?.makeFirstResponder(tv)
-        tv.setSelectedRange(NSRange(location: lineRange.location + 3, length: 0))
-        XCTAssertNil(tv.drawingCellAtCaret, "the caret is in a line of words")
-        XCTAssertEqual(tv.string, note, "and nothing about the text changed")
+        let text = fragment.used.height - 120
+        XCTAssertGreaterThanOrEqual(text, NSLayoutManager().defaultLineHeight(for: MarkdownTextView.font) - 0.5,
+                                    "the line is text at its full size now")
+        XCTAssertLessThanOrEqual(text, MarkdownTextView.lineHeight + 0.5)
+        let frames = MarkdownTextView.drawingFrames(in: tv)
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames.first?.rect.size.height ?? 0, 120, accuracy: 0.01)
+        XCTAssertEqual(frames.first?.rect.maxY ?? 0, fragment.used.maxY + tv.textContainerOrigin.y, accuracy: 0.01)
     }
 
-    /// What the two panes are measured against keeps the cell its height: the
-    /// offscreen layout is where the rendered page's mapping and the PDF find
-    /// it, and the live pane's being plain text does not touch that.
-    func testTheOffscreenLayoutStillGivesTheCellItsHeight() {
-        let boxes = MarkdownTextView.cellBoxes(of: note, width: 600, showMarkers: true, collapsed: [],
-                                               cells: shown(cell()))
-        let box = boxes.first { $0.offset == lineRange.location }
-        XCTAssertNotNil(box)
-        XCTAssertGreaterThanOrEqual((box?.bottom ?? 0) - (box?.top ?? 0), 120)
+    /// A wrapped drawing line (raw mode in a narrow pane) carries its room
+    /// ONCE, on its last fragment, and the cell shrinks whole to the column.
+    func testAWrappedLineAddsTheRoomOnceOnItsLastFragment() throws {
+        let tv = try hosted(note, width: 230, showMarkers: true, cells: shown(cell()))
+        let (layout, container) = try layout(of: tv)
+        layout.ensureLayout(for: container)
+        let column = FoldingLayoutManager.column(of: container)
+        let s = column / 400
+        XCTAssertLessThan(s, 0.6, "the premise: a column well narrower than the cell was drawn in")
+        let height = DrawingCellLook(cell: cell()).shown(column: column).size.height
+        XCTAssertEqual(height, 120 * s, accuracy: 0.01, "shrunk whole")
+
+        let firstGlyph = layout.glyphIndexForCharacter(at: lineRange.location)
+        let lastGlyph = layout.glyphIndexForCharacter(at: NSMaxRange(lineRange) - 1)
+        var firstGlyphs = NSRange(), lastGlyphs = NSRange()
+        let first = layout.lineFragmentUsedRect(forGlyphAt: firstGlyph, effectiveRange: &firstGlyphs)
+        let last = layout.lineFragmentUsedRect(forGlyphAt: lastGlyph, effectiveRange: &lastGlyphs)
+        XCTAssertNotEqual(first.minY, last.minY, "the premise: the line wraps")
+        let firstChars = layout.characterRange(forGlyphRange: firstGlyphs, actualGlyphRange: nil)
+        let lastChars = layout.characterRange(forGlyphRange: lastGlyphs, actualGlyphRange: nil)
+        XCTAssertEqual(layout.drawings.room(under: firstChars, column: column), 0, "no room on the first fragment")
+        XCTAssertEqual(layout.drawings.room(under: lastChars, column: column), height, accuracy: 0.01)
+        XCTAssertEqual(last.height - first.height, height, accuracy: 0.5, "the room is on the last fragment alone")
+
+        let frames = MarkdownTextView.drawingFrames(in: tv)
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames.first?.scale ?? 0, s, accuracy: 0.001)
+        XCTAssertEqual(frames.first?.rect.size.width ?? 0, column, accuracy: 0.01)
+        XCTAssertEqual(frames.first?.rect.size.height ?? 0, height, accuracy: 0.01)
+    }
+
+    /// A folded drawing cell has no height, no frame and nothing to draw
+    /// into — like every line of a closed section.
+    func testAFoldedCellHasNoHeightAndNoFrame() throws {
+        let tv = try hosted(note, collapsed: ["Title"], cells: shown(cell()))
+        XCTAssertEqual(MarkdownTextView.drawingFrames(in: tv), [])
+        let boxes = MarkdownTextView.cellBoxes(in: tv)
+        XCTAssertEqual(boxes.map(\.offset), [0], "only the heading is on the page")
+        let (layout, container) = try layout(of: tv)
+        let cellLine = try XCTUnwrap(layout.drawings.lines.first { $0.id == id })
+        XCTAssertNil(layout.cellRect(cellLine, in: container, origin: .zero))
+        // Opened again, it is back.
+        let open = try hosted(note, cells: shown(cell()))
+        XCTAssertEqual(MarkdownTextView.drawingFrames(in: open).count, 1)
+    }
+
+    // MARK: - The caret, and the spelling
+
+    /// NO CARET IS DRAWN IN A DRAWING CELL while its line is hidden — the
+    /// lit outline and the heavy bracket are the cursor there — and with the
+    /// line shown the caret is one line tall, not the height of the drawing.
+    func testNoCaretIsDrawnInADrawingCellWhileItsLineIsHidden() throws {
+        func rowsDrawn(by tv: PasteAwareTextView, height: CGFloat) throws -> Int {
+            let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 200,
+                                                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                     isPlanar: false, colorSpaceName: .deviceRGB,
+                                                     bytesPerRow: 0, bitsPerPixel: 0))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            tv.drawInsertionPoint(in: NSRect(x: 0, y: 0, width: 2, height: height), color: .black, turnedOn: true)
+            NSGraphicsContext.restoreGraphicsState()
+            return (0..<200).filter { (rep.colorAt(x: 1, y: $0)?.alphaComponent ?? 0) > 0.5 }.count
+        }
+        let hidden = try hosted(note, cells: shown(cell()))
+        hidden.setSelectedRange(NSRange(location: NSMaxRange(lineRange), length: 0))
+        XCTAssertEqual(hidden.drawingCellAtCaret, lineRange, "the premise")
+        XCTAssertEqual(try rowsDrawn(by: hidden, height: 150), 0, "a caret the height of the drawing is no cursor")
+        hidden.setSelectedRange(NSRange(location: 2, length: 0))
+        XCTAssertEqual(try rowsDrawn(by: hidden, height: 20), 20, "in a paragraph the caret is drawn as ever")
+
+        let raw = try hosted(note, showMarkers: true, cells: shown(cell()))
+        raw.setSelectedRange(NSRange(location: NSMaxRange(lineRange), length: 0))
+        XCTAssertEqual(CGFloat(try rowsDrawn(by: raw, height: 150)), MarkdownTextView.lineHeight, accuracy: 1,
+                       "the line is typed in, so its caret is one line of it")
+    }
+
+    func testNoSpellingStateIsSetInADrawingLine() throws {
+        let tv = try hosted(note, cells: shown(cell()))
+        let coordinator = try XCTUnwrap(tv.delegate as? MarkdownTextView.Coordinator)
+        XCTAssertEqual(coordinator.textView(tv, shouldSetSpellingState: 1, range: lineRange), 0)
+        XCTAssertEqual(coordinator.textView(tv, shouldSetSpellingState: 1,
+                                            range: NSRange(location: lineRange.location + 5, length: 10)), 0)
+        XCTAssertEqual(coordinator.textView(tv, shouldSetSpellingState: 1, range: (note as NSString).range(of: "Above")), 1,
+                       "words are still checked")
     }
 }
 
-/// THE PICTURE: one note with a drawing cell holding three strokes, on the
-/// rendered page (the markdown pane is pure text and paints none), light and dark — the cell painted where each pane tells the layer
+/// THE PICTURE: one note with a drawing cell holding three strokes, in both
+/// panes, light and dark — the cell painted where each pane tells the layer
 /// it is, on that pane's own paper. Set `WRITEMIND_RENDER_DIR` (as
 /// `TEST_RUNNER_WRITEMIND_RENDER_DIR` to the suite) to have the four
 /// renders written there to be looked at.
@@ -187,9 +330,9 @@ final class DrawingCellRenderTests: XCTestCase {
         return (Pane(view: source, frames: sourceFrames), Pane(view: page, frames: pageFrames))
     }
 
-    func testTheRenderedPagePaintsTheCellWhereItTellsTheLayerItIs() throws {
+    func testBothPanesPaintTheCellWhereTheyTellTheLayerItIs() throws {
         let (markdown, page) = try rendered(dark: false)
-        XCTAssertTrue(markdown.frames.isEmpty, "the markdown pane is pure text: no cell to draw in")
+        try check(markdown, dark: false, name: "the markdown pane")
         try check(page, dark: false, name: "the rendered page")
         try write(markdown.view, as: "cells-1-markdown-light.png")
         try write(page.view, as: "cells-2-rendered-light.png")
@@ -197,7 +340,7 @@ final class DrawingCellRenderTests: XCTestCase {
 
     func testInDarkModeTheCellIsPaintedOnTheDarkPaper() throws {
         let (markdown, page) = try rendered(dark: true)
-        XCTAssertTrue(markdown.frames.isEmpty, "the markdown pane is pure text: no cell to draw in")
+        try check(markdown, dark: true, name: "the markdown pane")
         try check(page, dark: true, name: "the rendered page")
         try write(markdown.view, as: "cells-3-markdown-dark.png")
         try write(page.view, as: "cells-4-rendered-dark.png")

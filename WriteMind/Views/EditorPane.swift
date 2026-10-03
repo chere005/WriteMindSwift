@@ -91,12 +91,15 @@ struct EditorPane: View {
                                         onDrawingCaret: { caretDrawing = $0 })
                             .id(note.id)
                     }
-                    // THE DRAWING IS ON THE RENDERED PAGE ONLY (Sean,
+                    // THE FLOATING DRAWING IS ON THE RENDERED PAGE ONLY (Sean,
                     // 2026-10-02: "don't show or allow drawings in markdown
-                    // mode on the notebook itself, only pure text"): over
-                    // the markdown view there is no layer to see, hit or
-                    // draw on, and only the pane's size is kept up to date
-                    // for what is measured against it (the PDF, a dock).
+                    // mode on the notebook itself", then "drawing cells
+                    // should still appear in markdown, just not the other
+                    // drawn content on top"): over the markdown view there
+                    // is no layer to see, hit or draw on — the drawing
+                    // CELLS are the text view's own and still show there —
+                    // and only the pane's size is kept up to date for what
+                    // is measured against it (the PDF, a dock).
                     // In pen and select mode it takes the whole pane; in
                     // cursor mode it takes only the objects on it, and the
                     // text underneath gets everything else.
@@ -139,7 +142,7 @@ struct EditorPane: View {
                                   // what it was put beside.
                                   scrollOffset: scrollOffset,
                                   cells: $store.cells,
-                                  cellFrames: CellFrame.forLayer(drawingFrames, rendered: appState.mode == .preview),
+                                  cellFrames: drawingFrames,
                                   litCell: caretDrawing,
                                   onCellTap: { appState.editor.focusDrawingCell($0) },
                                   onDock: { dock($0) },

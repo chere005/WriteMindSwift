@@ -24,14 +24,6 @@ final class CellLines {
     private(set) var shown = DrawingCellsShown()
     /// The cell the caret is in: its outline is lit.
     var lit: UUID?
-    /// OFF FOR THE MARKDOWN PANE, which is pure text (Sean, 2026-10-02:
-    /// "don't show or allow drawings in markdown mode on the notebook
-    /// itself, only pure text"): no drawing line is read, so none is given
-    /// room, painted, framed or stood in for by the caret — the line is the
-    /// line of text it is in the file. The offscreen layout the two panes'
-    /// mapping and the PDF are measured by keeps it on, because that is where
-    /// a cell has its height.
-    var enabled = true
 
     /// The note's lines read again after an edit to its characters at
     /// `edited`. Nil when every cell is the cell it was, moved along by the
@@ -42,7 +34,7 @@ final class CellLines {
     /// would stay under a line of code until something else laid it out.
     /// The parse can only change at or after an edit, never above it.
     func read(_ text: String, edited: Int) -> NSRange? {
-        let fresh = enabled && text.contains(DrawingCells.relativeFolder)
+        let fresh = text.contains(DrawingCells.relativeFolder)
             ? DrawingCells.lines(in: text).map { Line(id: $0.id, range: $0.range) } : []
         let before = lines
         lines = fresh

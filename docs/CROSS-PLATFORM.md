@@ -332,16 +332,17 @@ to the entire visible screen". Only with a tablet writing in the notebook.
   same width for both so the row does not change size between modes), a View
   menu item, remembered.
 
-### The markdown view is pure text, and the drawing data is visible
+### The markdown view has no floating drawing, and the drawing data is visible
 Sean, 2026-10-02: "don't show or allow drawings in markdown mode on the notebook
-itself, only pure text"; asked whether the existing hidden `.drawings` folders
-should move to a visible `_drawings`: "yes"; and whether a cell's bracket opens
-the cell or selects it: "select".
-- **Markdown view = text only**: no drawing layer over it (keep the pane's size
-  for what is measured against it), no drawing cells (their lines are ordinary
-  lines), no Drawing in the + menu; Insert ▸ Drawing Cell and any drop of a
-  picture or box switch to the rendered page first. The offscreen layout the
-  mapping and the PDF use keeps cells' heights.
+itself, only pure text", then "drawing cells should still appear in markdown,
+just not the other drawn content on top of the notebook itself"; asked whether
+the existing hidden `.drawings` folders should move to a visible `_drawings`:
+"yes"; and whether a cell's bracket opens the cell or selects it: "select".
+- **Markdown view**: no floating drawing layer over it (keep the pane's size for
+  what is measured against it), no pen, handles or shapes. Drawing CELLS still
+  show there under their line and are held, moved and deleted like any cell;
+  they are drawn in on the rendered view only. A drop of a picture or box
+  switches to the rendered page first.
 - **`.drawings` → `_drawings`** (sidecars `<note>.json` and `media/`, beside the
   cells' `cells/`): move each item once, at load, never over anything and
   deleting nothing; a taken name stays in the hidden folder, which readers fall
