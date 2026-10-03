@@ -856,12 +856,15 @@ let the wacom control that as well.. as a separate mode". What the port
 has to copy:
 
 - **A switch, "Write on: Page | Notebook"**, on the page pane's bar and
-  nowhere else on screen (a menu may mirror it), remembered, the page by
-  default. Picking the notebook brings the notes into view if they were
-  put away. NO KEY changes it — Escape in particular stays the notes'
-  (an armed insertion bar, a block being edited, held cells, the link
-  banner): the mode is one that is lived in, and a key that sent the pen
-  home took every Escape away from the notes for as long as it was on.
+  nowhere else on screen (a menu may mirror it), the page by default and
+  NOT remembered: a launch is the page, and the notebook is put away with
+  the other tools whenever the user leaves the page (the entry "Drawing
+  mode turns on only when asked for", above). Picking the notebook brings
+  the notes into view if they were put away. NO KEY changes it — Escape
+  in particular stays the notes' (an armed insertion bar, a block being
+  edited, held cells, the link banner): the mode is one that is lived in,
+  and a key that sent the pen home took every Escape away from the notes
+  for as long as it was on.
   The switch keeps one shape and one place in both modes — it comes
   first on the bar, and the page's own controls are hidden IN THEIR
   PLACE while the pen writes in the notebook — so it never moves under
