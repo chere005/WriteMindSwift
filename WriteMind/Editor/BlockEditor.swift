@@ -203,7 +203,16 @@ struct BlockEditor: NSViewRepresentable {
             guard let storage = view.textStorage else { return }
             let selection = view.selectedRanges
             let source = view.string
-            if let language, language != .plain {
+            // EVERY language is code, `.plain` included: a fence that names
+            // none (a bare ```), or names one this app has no colouring for,
+            // is still a code cell, and `CodeColours` sets it with nothing
+            // coloured. It used to be read as markdown — its backticks faded
+            // and vanished with the caret on another line of the cell, a `#`
+            // comment lost its hash as a heading does — which is the backtick
+            // weirdness again. Ruled 2026-10-03: a plain fenced block is a
+            // code cell, and its backticks are never hidden or styled as
+            // markdown, here or in the markdown pane.
+            if let language {
                 CodeColours.style(storage, language: language, font: view.baseFont,
                                   paragraph: view.paragraphStyle)
                 // Code is code: there are no markdown markers in it to hide.

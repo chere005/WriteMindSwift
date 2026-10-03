@@ -1922,7 +1922,13 @@ CoreMind's `bin/report-status.sh`.
   both, never in a code cell — its text is code, and `x ** y ** z` is not
   bold): a selection that cut half a span left the other tick standing
   there, where the markdown pane took it with it; typing over "`fo" in
-  "`foo`" left "xo`".
+  "`foo`" left "xo`". **A CODE CELL IS ANY FENCED CELL, A BARE ``` INCLUDED**:
+  `MarkdownPreview.Fence.language` says `.plain` for a fence that names no
+  language (or one with no colouring), and `BlockEditor.restyle` took only a
+  NAMED language for code — a plain cell was styled and hidden as markdown,
+  its ticks fading and vanishing with the caret on another line of it and a
+  `#` comment losing its hash like a heading. Every non-nil language is code
+  there now (`PlainCodeCellTests`), as the markdown pane always read a fence.
   **(4) THE TWO LINE BREAKS THAT MAKE A FENCE ARE NOT TAKEN BY A KEY.**
   ⌫ at the start of the first line of code (or ⌦ at the end of the fence
   line) joined that line onto the fence — "```pythonx = 1" — and the first

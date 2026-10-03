@@ -770,6 +770,92 @@ final class DeletingBackticksTests: XCTestCase {
     }
 }
 
+// MARK: - A fence with no language is code too
+
+/// A bare ``` fence names no language, and `MarkdownPreview.Fence.language`
+/// says `.plain` for it — and for a fence naming one the app has no
+/// colouring for. The rendered cell editor took only a NAMED language for
+/// code, so a plain code cell was styled and hidden as MARKDOWN: its
+/// backticks faded and vanished whenever the caret was on another line of
+/// the cell, a `#` at the front of a comment disappeared as a heading's
+/// does, and none of it was widened when deleted — the same backtick
+/// weirdness in a surface the owner named (review, 2026-10-03; Sean:
+/// "a plain fenced block with no language is a code cell: its backticks are
+/// never hidden or styled as markdown").
+final class PlainCodeCellTests: XCTestCase {
+    private let code = "echo `date`\n# a comment with `ticks`\nls `pwd` **x**"
+
+    func testNoBacktickOfAPlainCodeCellIsEverHidden() {
+        let cell = TickCell(code, language: .plain)
+        let length = (code as NSString).length
+        for caret in [0, 14, length] {
+            cell.caret(at: caret)
+            XCTAssertTrue((0..<length).allSatisfy { !cell.hiding.isHidden($0) }, "caret \(caret): \(cell.show())")
+        }
+        XCTAssertTrue(cell.hiding.furnitureRanges.isEmpty, "and a # is not a heading's furniture")
+    }
+
+    func testAPlainCodeCellIsNotStyledAsMarkdown() {
+        let cell = TickCell(code, language: .plain)
+        let storage = cell.tv.textStorage!
+        let text = code as NSString
+        let tick = text.range(of: "`").location
+        XCTAssertEqual(storage.attribute(.foregroundColor, at: tick, effectiveRange: nil) as? NSColor, .labelColor,
+                       "a backtick is not a faded marker")
+        let hash = text.range(of: "# a comment").location
+        XCTAssertEqual(storage.attribute(.font, at: hash, effectiveRange: nil) as? NSFont, cell.tv.baseFont,
+                       "a # is not a heading")
+        let stars = text.range(of: "**x**").location + 2
+        XCTAssertEqual(storage.attribute(.font, at: stars, effectiveRange: nil) as? NSFont, cell.tv.baseFont,
+                       "and ** is not bold")
+    }
+
+    func testAPlainCodeCellIsNeverWidened() {
+        // The same as the .python guard above, for the language that is none.
+        let cell = TickCell("a `b` c", language: .plain)
+        cell.select(NSRange(location: 2, length: 2))
+        cell.key(backspaceKey)
+        XCTAssertEqual(cell.string, "a ` c")
+    }
+
+    func testAKeyBesideATickInAPlainCodeCellTakesOneCharacter() {
+        let cell = TickCell("a `b` c", language: .plain)
+        cell.caret(at: 5)
+        cell.key(backspaceKey)
+        XCTAssertEqual(cell.string, "a `b c")
+    }
+
+    func testAPlainCodeCellKeepsAllOfThisWhenItsTextIsSetFromOutside() {
+        // `updateNSView` restyles when the text comes from outside; the cell
+        // still reads as code, not as markdown, after it.
+        let cell = TickCell("x", language: .plain)
+        cell.tv.string = code
+        cell.coordinator.restyle(cell.tv)
+        XCTAssertTrue((0..<(code as NSString).length).allSatisfy { !cell.hiding.isHidden($0) }, cell.show())
+    }
+
+    func testTheMarkdownPanesBareFenceIsCodeToo() {
+        // A GUARD: the pane never read the inside of a fence as markdown, so
+        // the cell editor now agrees with it.
+        let note = "alpha\n```\necho `date`\n# a comment\n```\nomega"
+        let pane = TickPane(note)
+        pane.caret(at: 0)
+        let body = (note as NSString).range(of: "echo `date`\n# a comment")
+        XCTAssertTrue((body.location..<NSMaxRange(body)).allSatisfy { !pane.hiding.isHidden($0) }, pane.show())
+        XCTAssertTrue(pane.hiding.furnitureRanges.isEmpty)
+    }
+
+    func testAProseCellStillHidesItsTicksAndAFencedOneStillIsCode() {
+        // GUARDS for both sides of the line this draws.
+        let prose = TickCell("alpha\n`foo` bar")
+        prose.caret(at: 0)
+        XCTAssertTrue(prose.hiding.isHidden(6), prose.show())
+        let python = TickCell("x = 1\n`y`", language: .python)
+        python.caret(at: 0)
+        XCTAssertFalse(python.hiding.isHidden(6), python.show())
+    }
+}
+
 // MARK: - The fence lines of a code block
 
 /// Backspace in "```python" took the whole line, typing over "yth" replaced

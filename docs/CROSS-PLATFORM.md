@@ -184,7 +184,10 @@ for any editor that hides inline markers on the lines the caret is not on:
   touches. A marker of several characters (`**`, `~~`, `## `) is still never
   cut in half: a delete that clips one takes all of it. In BOTH editors, and
   a selection that cuts half a span takes the other tick in both (the rendered
-  page's editor used to leave it). Never in a code cell: its text is code.
+  page's editor used to leave it). Never in a code cell — any fenced cell,
+  a bare ``` with no language included: its text is code, so nothing in it is
+  hidden or styled as markdown either (the cell editor used to read a fence
+  with no language as markdown).
 - **A `wl:` maths span pairs its two backticks.** The `wl:` is just in front
   of the maths and pairs with nothing; taking the prefix, or either tick, must
   not leave a lone backtick behind to pair with the next one.
