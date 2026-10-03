@@ -1597,9 +1597,23 @@ CoreMind's `bin/report-status.sh`.
   and under, ∫'s limits go beside it, a matrix is a grid of centred cells.
   Nothing is set under 5 pt (`MathLayout.smallest`). It paints from its
   own numbers — text as CoreText lines, the rest as ONE filled path —
-  through `MathDrawing.draw(in:origin:color:)`, which reads the context's
-  own matrix (`ctm.d < 0`: y down) to decide whether to flip, so a
-  SwiftUI `Canvas`, a PDF and a bitmap all draw the same;
+  through `MathDrawing.draw(in:origin:color:yDown:)`. **A SWIFTUI CANVAS'S
+  CGCONTEXT IS Y-DOWN AND ITS MATRIX IS THE IDENTITY, SO THE MATRIX CANNOT
+  SAY SO.** The first cut read `ctm.d < 0` to decide whether to flip, and every
+  formula on a line of its own was painted UPSIDE DOWN, hanging below its
+  baseline and cut off by the bottom edge (found 2026-10-03 by looking at the
+  bitmap: a CG rect filled at y 0 lands on the TOP edge in an `ImageRenderer`
+  bitmap, in its PDF, and in a window on screen, with `ctm` the identity in
+  every one). So `MathCanvas` says `yDown: true`; with nothing said the matrix
+  is read, which is right for a flipped `NSView` and for the plain bitmap the
+  contact sheets are drawn into. The checks that were meant to catch it
+  could not: a T hanging below its baseline and cut off still has its wide
+  serif "at the top" of what is left. `MathLayoutTests` now asks that the
+  WHOLE of the T is on the page with room round it, in a bitmap and in a PDF,
+  that a heavy numerator is over a thin denominator, and that `draw` believes
+  the caller over the matrix; `MathProductTests` measures where the foot of
+  the ink is from the bottom of the picture. Do not take "the glyph is at the
+  top" for "the right way up";
   `MathView` is a `Canvas` over it (the colour is
   `Color.primary.resolve(in: context.environment)`, so dark mode and the
   white PDF paper both follow the environment), cached by size and source

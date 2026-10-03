@@ -261,6 +261,68 @@ final class MathProductTests: XCTestCase {
         XCTAssertGreaterThan(reported.last!.offset, reported.first { $0.offset > 0 }!.offset, "and the square in it raised again")
     }
 
+    // MARK: - Painted: what the screen shows
+
+    /// How far above the foot of the picture the ink reaches, and how far
+    /// the foot of the ink is from the bottom of the picture, in device
+    /// pixels at 2x, for `view` on white paper. The picture is only as big as
+    /// the thing in it, so a raised exponent makes it taller; what stays put
+    /// is the line the letters stand on, which is the same distance from the
+    /// bottom whatever is above it. (No letter below has a tail.)
+    @MainActor
+    private func ink(of view: some View, file: StaticString = #filePath, line: UInt = #line) throws -> (reach: Int, foot: Int) {
+        let renderer = ImageRenderer(content: view.foregroundColor(.black).padding(6).background(Color.white))
+        renderer.scale = 2
+        let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage, file: file, line: line))
+        var rows: [Int] = []
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                guard let colour = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                // Transparent is paper, not black.
+                let darkness = colour.alphaComponent * (1 - (colour.redComponent + colour.greenComponent + colour.blueComponent) / 3)
+                if darkness > 0.25 { rows.append(y); break }
+            }
+        }
+        let top = try XCTUnwrap(rows.min(), "nothing painted", file: file, line: line)
+        let bottom = try XCTUnwrap(rows.max(), file: file, line: line)
+        return (bottom - top, bitmap.pixelsHigh - 1 - bottom)
+    }
+
+    /// The SwiftUI side of the sentence's line: that `Text` really puts a
+    /// factor's glyphs on the line and raises a script from it, as the
+    /// attributes say.
+    @MainActor
+    func testTheSentenceIsPaintedWithEveryFactorOnTheLineAndTheExponentRaisedFromIt() throws {
+        func painted(_ source: String) throws -> (reach: Int, foot: Int) {
+            try ink(of: Text(try XCTUnwrap(MathTypesetter.inline(source, size: 24), source)))
+        }
+        let flat = try painted("a e x"), power = try painted("a e^2 x")
+        XCTAssertEqual(power.foot, flat.foot, accuracy: 1, "the line the letters stand on does not move for a power")
+        XCTAssertGreaterThan(power.reach, flat.reach + 12, "the exponent is above the letters beside it")
+
+        let reported = try painted("(-2*x) * (E^-(x^2))"), bare = try painted("-2*x*E")
+        XCTAssertEqual(reported.foot, bare.foot, accuracy: 1, "the e, the x and the 2 are on the one line")
+        XCTAssertGreaterThan(reported.reach, bare.reach + 8)
+    }
+
+    /// And the two-dimensional painter's: what the page shows for a ```wl block.
+    @MainActor
+    func testTheBlockIsPaintedWithEveryFactorOnTheLineAndTheExponentRaisedFromIt() throws {
+        func painted(_ source: String) throws -> (reach: Int, foot: Int) { try ink(of: MathView(source: source, size: 24)) }
+        let flat = try painted("a e x"), power = try painted("a e^2 x")
+        XCTAssertEqual(power.foot, flat.foot, accuracy: 1, "the line the letters stand on does not move for a power")
+        XCTAssertGreaterThan(power.reach, flat.reach + 12, "the exponent is above the letters beside it")
+
+        let reported = try painted("(-2*x) * (E^-(x^2))"), bare = try painted("-2*x*E")
+        XCTAssertEqual(reported.foot, bare.foot, accuracy: 1, "the e, the x and the 2 are on the one line")
+        XCTAssertGreaterThan(reported.reach, bare.reach + 8)
+        // With no bracket round the −2x there is nothing but the exponent above the letters: the reach is that
+        // of the sum of its parts, not a bracket's.
+        let sans = try painted("-2*x*E^(-x^2)")
+        XCTAssertEqual(reported.reach, sans.reach, accuracy: 1, "(-2*x)*(E^-(x^2)) is -2 x e^(-x^2) as set")
+        XCTAssertEqual(reported.foot, sans.foot, accuracy: 1)
+    }
+
     // MARK: - One typesetter
 
     /// Every place that typesets WL asks the one builder, and the places are

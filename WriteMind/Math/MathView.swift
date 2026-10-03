@@ -44,7 +44,9 @@ struct MathCanvas: View {
         Canvas { context, _ in
             let color = Color.primary.resolve(in: context.environment).cgColor
             context.withCGContext { cg in
-                drawing.draw(in: cg, origin: CGPoint(x: Self.inset, y: Self.inset + drawing.ascent), color: color)
+                // A Canvas's CGContext is y-down with an identity matrix: only the caller can know (see `draw`).
+                drawing.draw(in: cg, origin: CGPoint(x: Self.inset, y: Self.inset + drawing.ascent), color: color,
+                             yDown: true)
             }
         }
         .frame(width: MathCanvas.size(of: drawing).width, height: MathCanvas.size(of: drawing).height)

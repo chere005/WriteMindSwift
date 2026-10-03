@@ -57,14 +57,22 @@ struct MathDrawing {
     // MARK: - Painting
 
     /// Paints with the baseline's left end at `origin` — in a context whose
-    /// y runs down (a SwiftUI `Canvas`, a flipped view) or up (a PDF, a
-    /// bitmap), which it reads off the context's own matrix.
-    func draw(in context: CGContext, origin: CGPoint, color: CGColor) {
+    /// y runs down or up, which the CALLER says (`yDown`) when it knows.
+    ///
+    /// A SWIFTUI `Canvas` KNOWS AND THE CONTEXT DOES NOT: the context
+    /// `withCGContext` hands over is y-DOWN (a CG rect at y 0 lands on the top
+    /// edge — measured 2026-10-03 in an `ImageRenderer` bitmap, in its PDF and
+    /// in a window on screen, where a CoreText glyph came out upside down and
+    /// hanging below its baseline) and yet its `ctm` is the IDENTITY, so the
+    /// matrix cannot say so. `MathCanvas` passes `true`. With `nil` the
+    /// context's own matrix is read (`ctm.d < 0`), which is right for a
+    /// flipped `NSView` and for a plain bitmap or PDF context (y up, `d > 0`).
+    func draw(in context: CGContext, origin: CGPoint, color: CGColor, yDown: Bool? = nil) {
         context.saveGState()
         defer { context.restoreGState() }
         context.setFillColor(color)
         context.translateBy(x: origin.x, y: origin.y)
-        if context.ctm.d < 0 { context.scaleBy(x: 1, y: -1) }
+        if yDown ?? (context.ctm.d < 0) { context.scaleBy(x: 1, y: -1) }
         if !shapes.isEmpty {
             context.addPath(shapes)
             context.fillPath()

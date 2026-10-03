@@ -290,6 +290,64 @@ final class MathLayoutTests: XCTestCase {
         let found = try XCTUnwrap(ink(bitmap), "nothing was painted")
         let top = found.countByRow[found.rows.lowerBound + 1], bottom = found.countByRow[found.rows.upperBound - 1]
         XCTAssertGreaterThan(top, bottom * 2, "upright: the crossbar is over the stem")
+        // ALL of it, inside the picture. A SwiftUI Canvas's CGContext is y-down with an identity matrix, so a
+        // painter that took it for y-up drew the T upside down and hanging below its baseline, cut off by the
+        // bottom edge — with the bar still "at the top" of what was left, which is how the check above passed
+        // for a day (2026-10-03). A cap T at 40 points is 26 points, 53 pixels at 2x.
+        XCTAssertGreaterThan(found.rows.count, 45, "the whole T, not the top of it")
+        XCTAssertGreaterThan(found.rows.lowerBound, 6, "room above it")
+        XCTAssertLessThan(found.rows.upperBound, bitmap.pixelsHigh - 7, "and room below it: nothing is cut off by the edge")
+    }
+
+    /// Which way up, said by what is on top: a wide heavy numerator over a thin denominator.
+    @MainActor
+    func testStackedPartsArePaintedInTheOrderTheyAreWrittenTopFirst() throws {
+        let bitmap = try XCTUnwrap(image("WWWW/i", size: 30))
+        let found = try XCTUnwrap(ink(bitmap))
+        let middle = (found.rows.lowerBound + found.rows.upperBound) / 2
+        let above = found.countByRow[found.rows.lowerBound..<middle].reduce(0, +)
+        let below = found.countByRow[middle...found.rows.upperBound].reduce(0, +)
+        XCTAssertGreaterThan(above, below * 2, "the W's are over the bar and the i under it")
+        XCTAssertLessThan(found.rows.upperBound, bitmap.pixelsHigh - 7, "nothing is cut off by the bottom edge")
+    }
+
+    /// The caller can say which way up the context is — a SwiftUI Canvas's has an identity matrix and is y DOWN,
+    /// so the matrix cannot — and with nothing said the matrix decides: `ctm.d < 0` is y down.
+    func testTheCallerCanSayWhichWayUpTheContextIsAndWithNothingSaidTheMatrixDecides() throws {
+        let tee = drawing("T", size: 40)
+        // The picture's rows (0 at the top) that have ink, for a T whose baseline is at user y 40.
+        func rows(flippedMatrix: Bool, yDown: Bool?) throws -> ClosedRange<Int> {
+            let context = try XCTUnwrap(CGContext(data: nil, width: 80, height: 80, bitsPerComponent: 8, bytesPerRow: 0,
+                                                  space: CGColorSpaceCreateDeviceRGB(),
+                                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 80, height: 80))
+            // A bitmap's own user space is y up; flipping its matrix makes user y run down from the top.
+            if flippedMatrix { context.translateBy(x: 0, y: 80); context.scaleBy(x: 1, y: -1) }
+            tee.draw(in: context, origin: CGPoint(x: 10, y: 40), color: CGColor(gray: 0, alpha: 1), yDown: yDown)
+            let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+            var found: [Int] = []
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide where (bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)?.redComponent ?? 1) < 0.5 {
+                    found.append(y)
+                    break
+                }
+            }
+            return try XCTUnwrap(found.min())...XCTUnwrap(found.max())
+        }
+        // Upright: the foot of the T on the baseline, the bar a cap's height above it.
+        let upright = try rows(flippedMatrix: false, yDown: nil)
+        XCTAssertEqual(upright.upperBound, 80 - 40, accuracy: 1)
+        XCTAssertEqual(upright.count, 27, accuracy: 5)
+        // The matrix says y is down: the same T, on the same line, the same way up.
+        let byMatrix = try rows(flippedMatrix: true, yDown: nil)
+        XCTAssertEqual(byMatrix.upperBound, upright.upperBound, accuracy: 1)
+        XCTAssertEqual(byMatrix.lowerBound, upright.lowerBound, accuracy: 1)
+        // Said, against what the matrix reads: the caller is believed (and the T hangs below the line).
+        let said = try rows(flippedMatrix: false, yDown: true)
+        XCTAssertEqual(said.lowerBound, 40, accuracy: 1)
+        let denied = try rows(flippedMatrix: true, yDown: false)
+        XCTAssertEqual(denied.lowerBound, 40, accuracy: 1)
     }
 
     @MainActor
@@ -337,6 +395,9 @@ final class MathLayoutTests: XCTestCase {
         let found = try XCTUnwrap(ink(bitmap))
         let top = found.countByRow[found.rows.lowerBound + 2], bottom = found.countByRow[found.rows.upperBound - 2]
         XCTAssertGreaterThan(top, bottom * 2, "the crossbar of the T is at the top")
+        // And the whole of it is on the page: drawn upside down it hung below its baseline and off the sheet.
+        XCTAssertGreaterThan(found.rows.count, bitmap.pixelsHigh / 4, "the whole T")
+        XCTAssertLessThan(found.rows.upperBound, bitmap.pixelsHigh - 10, "not cut off by the edge of the page")
     }
 
     @MainActor
