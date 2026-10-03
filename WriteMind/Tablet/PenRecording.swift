@@ -23,6 +23,16 @@ import Foundation
 // hold the tablet and the Wacom driver's events were all there was, the
 // reading those events were made into: the fallback route has no bytes. The
 // header says what the recording is of; replay plays on that tablet's field.
+//
+// A FILE IS NOT TRUSTED. It may be hand-edited, cut short or somebody else's,
+// and what it says goes straight into the pen's arithmetic, so every number is
+// checked as the file is read (`Failure.line` names the line, and the file is
+// refused whole): the field (`width`, `height`) and every count are finite and
+// at most 65535 — a report carries a count in two bytes, so nothing larger was
+// ever a tablet's — a pressure is 0…1, and `t` is finite, never before the
+// event above it and at most a day in. The places that turn a number into an
+// `Int` clamp it as a Double first as well (`PenFrame.count`), so a value that
+// got in some other way — a recording made in memory — cannot trap either.
 
 /// One event of a recording, and when, in seconds from the first.
 struct PenStreamEntry: Equatable {
@@ -52,18 +62,45 @@ struct PenRecording: Equatable {
         /// What it is of, in a person's words.
         var note: String?
 
-        /// The field the recording was made on, when it says.
+        /// The field the recording was made on, when it says — and says
+        /// something a tablet could be: finite, positive and no larger than a
+        /// report's two bytes count (`PenRecording.isField`). A header that
+        /// says otherwise gives no field, so replay leaves the tablet's own.
         var extent: TabletExtent? {
-            guard let width, let height, width > 0, height > 0 else { return nil }
+            guard let width, let height, PenRecording.isField(width), PenRecording.isField(height) else { return nil }
             var extent = productID.flatMap(TabletExtent.known(productID:)) ?? TabletExtent(width: width, height: height)
             extent.width = width
             extent.height = height
             return extent
         }
+
+        /// What is wrong with the header, in words — nil when it is fine. A
+        /// field is both a width and a height, each a count a tablet could
+        /// have.
+        var problem: String? {
+            if (width == nil) != (height == nil) { return "the field has a width or a height but not both" }
+            if let width, let height, !PenRecording.isField(width) || !PenRecording.isField(height) {
+                return "the field \(width) x \(height) is not a tablet's size (1 to \(Int(PenRecording.largestCount)) counts each way)"
+            }
+            return nil
+        }
     }
 
     static let format = "writemind-pen-stream"
     static let version = 1
+
+    /// The largest count a pen report can carry (two bytes), and so the
+    /// largest field or place a recording can name.
+    static let largestCount = 65535.0
+    /// The longest a recording can run, in seconds: a day. Nobody's session
+    /// is longer, and a stamp past it is a file gone wrong — a gap of years
+    /// is not something a clock can be asked to wait.
+    static let longestTime: TimeInterval = 86_400
+
+    /// A size on one side of a tablet's field.
+    static func isField(_ value: Double) -> Bool { value.isFinite && value > 0 && value <= largestCount }
+    /// A place on it.
+    static func isCount(_ value: Double) -> Bool { value.isFinite && value >= 0 && value <= largestCount }
 
     var header: Header
     var entries: [PenStreamEntry]
@@ -129,10 +166,15 @@ struct PenRecording: Equatable {
         guard let header = try? decoder.decode(Header.self, from: Data(first.text.utf8)),
               header.format == Self.format else { throw Failure.notAPenStream }
         guard header.version <= Self.version else { throw Failure.newer(header.version) }
+        if let why = header.problem { throw Failure.line(first.number, why) }
         var entries: [PenStreamEntry] = []
         for line in lines.dropFirst() {
             do {
-                entries.append(try decoder.decode(Line.self, from: Data(line.text.utf8)).entry)
+                let entry = try decoder.decode(Line.self, from: Data(line.text.utf8)).entry
+                if let last = entries.last, entry.time < last.time {
+                    throw Failure.line(0, "its time \(entry.time) is before the event above it, \(last.time)")
+                }
+                entries.append(entry)
             } catch Failure.line(_, let why) {
                 throw Failure.line(line.number, why)
             } catch {
@@ -169,6 +211,9 @@ struct PenRecording: Equatable {
 
         var entry: PenStreamEntry {
             get throws {
+                guard t.isFinite, t >= 0, t <= PenRecording.longestTime else {
+                    throw Failure.line(0, "a time of \(t) seconds — between 0 and a day is a session")
+                }
                 if let report {
                     let bytes = try Self.bytes(of: report)
                     return PenStreamEntry(time: t, event: .report(bytes))
@@ -182,6 +227,11 @@ struct PenRecording: Equatable {
             let parts = hex.split(separator: " ")
             let bytes = parts.compactMap { UInt8($0, radix: 16) }
             guard !parts.isEmpty, bytes.count == parts.count else { throw Failure.line(0, "a report that is not hex bytes") }
+            // Only pen reports were ever recorded; anything else is not
+            // this tablet's word, and replay would drop it without a sound.
+            guard WacomPenPacket(bytes) != nil else {
+                throw Failure.line(0, "a report that is not a pen report (\(WacomPenPacket.length) bytes, id \(WacomPenPacket.reportID))")
+            }
             return bytes
         }
     }
@@ -221,6 +271,12 @@ struct PenRecording: Equatable {
             switch kind {
             case "point":
                 guard let x, let y, let tip, let pressure else { throw Failure.line(0, "a point with no place") }
+                guard PenRecording.isCount(x), PenRecording.isCount(y) else {
+                    throw Failure.line(0, "a place (\(x), \(y)) that is not on a tablet (0 to \(Int(PenRecording.largestCount)))")
+                }
+                guard pressure.isFinite, pressure >= 0, pressure <= 1 else {
+                    throw Failure.line(0, "a pressure of \(pressure) — it is 0 to 1")
+                }
                 let switches: Set<PenSwitch>? = try self.switches.map { names in
                     Set(try names.map { name in
                         switch name {

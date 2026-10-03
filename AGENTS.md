@@ -1155,7 +1155,17 @@ CoreMind's `bin/report-status.sh`.
   (`format`, `version`, `source`, `productID`, the field in counts, `quarterTurns`,
   `note`) and `{"report":"<hex>","t":<seconds from the first>}` — or, for a
   session of the driver's events, `{"reading":{…},"t":…}` (no bytes to give). A
-  file that is not whole is refused with its line number, never played in part.
+  file that is not whole is refused with its line number, never played in part —
+  and A FILE IS NOT TRUSTED: it goes into the pen's arithmetic, so the header's
+  field and every count are finite and at most 65535 (a report carries a count in
+  two bytes), a pressure is 0…1, `t` is finite, never before the event above and
+  at most a day (`PenRecording.largestCount`, `longestTime`), a report is a pen
+  report (10 bytes, id 2), and a refusal names the line (`Header.problem`,
+  `Line.entry`). Every place a Double becomes an `Int` clamps AS A DOUBLE first
+  (`PenFrame.count`, `rawPressure` — `Int(1e30)` is a trap, measured), the
+  widening of the extent ignores a count that is not a number and its log line is
+  formatted, not `Int(...)`, and `LivePenClock.bounded` holds a wait to a day, so a
+  recording made in memory cannot trap either (`PenRecordingHostileFileTests`).
   `PenRecorder` is tapped in `receive` AFTER the policy and the capture guards
   (what had nowhere to go is not a session) and in `handle` for the driver's
   events; `t` is rounded to the microsecond. `PenReplay` is a source of kind

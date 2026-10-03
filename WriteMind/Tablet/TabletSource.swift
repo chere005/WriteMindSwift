@@ -126,9 +126,17 @@ final class LivePenClock: PenClock {
 
     var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
+    /// A delay as the queue is asked for it: a `DispatchTime` takes nanoseconds
+    /// in an Int64 (~292 years), so one a recording gave is held to what a
+    /// recording may say — `PenRecording.longestTime`, bounded again when it
+    /// is read — and what is not a number is no waiting.
+    nonisolated static func bounded(_ delay: TimeInterval) -> TimeInterval {
+        delay.isFinite ? min(max(delay, 0), PenRecording.longestTime) : 0
+    }
+
     func after(_ delay: TimeInterval, _ work: @escaping @MainActor () -> Void) -> AnyCancellable {
         let item = DispatchWorkItem { MainActor.assumeIsolated { work() } }
-        DispatchQueue.main.asyncAfter(deadline: .now() + max(delay, 0), execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.bounded(delay), execute: item)
         return AnyCancellable { item.cancel() }
     }
 }
@@ -193,9 +201,13 @@ struct PenFrame: Equatable {
         WacomPenPacket(self).reading(at: timestamp)
     }
 
+    /// A count as the report's two bytes: clamped AS A DOUBLE, then turned
+    /// into an `Int` — `Int(_:)` of a finite 9.2e18 or more traps, and a
+    /// field a file or a pad gave as 1e30 would have been a crash at the
+    /// first move. Not a number is 0.
     static func count(_ value: CGFloat) -> Int {
         guard value.isFinite else { return 0 }
-        return min(max(Int(value.rounded()), 0), 0xFFFF)
+        return Int(min(max(value.rounded(), 0), 65535))
     }
 }
 
@@ -203,7 +215,7 @@ extension WacomPenPacket {
     /// A pressure as the report's 0…2047.
     static func rawPressure(_ pressure: Double) -> Int {
         guard pressure.isFinite else { return 0 }
-        return min(max(Int((pressure * fullPressure).rounded()), 0), Int(fullPressure))
+        return Int(min(max((pressure * fullPressure).rounded(), 0), fullPressure))
     }
 
     /// The packet a frame is, with the pressure left exact. The same fields

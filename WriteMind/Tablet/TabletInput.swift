@@ -98,8 +98,10 @@ struct TabletExtent: Equatable {
     /// the scale, so the tablet is that much bigger in millimetres too.
     func widened(toInclude counts: CGPoint) -> TabletExtent {
         var wider = self
-        wider.width = max(width, Double(counts.x))
-        wider.height = max(height, Double(counts.y))
+        // A count that is not a number is no place at all — and an infinite
+        // one would make the field infinite for good.
+        if counts.x.isFinite { wider.width = max(width, Double(counts.x)) }
+        if counts.y.isFinite { wider.height = max(height, Double(counts.y)) }
         return wider
     }
 
@@ -838,8 +840,10 @@ final class TabletInput: ObservableObject {
         if extent != self.extent {
             if !widened {
                 widened = true
+                // Formatted, not `Int(...)`: a finite extent past Int.max is a trap.
                 log("tablet: the pen reached past the table — extent widened to "
-                    + "\(Int(extent.width)) x \(Int(extent.height)) (and further widening is not logged)")
+                    + String(format: "%.0f x %.0f", extent.width, extent.height)
+                    + " (and further widening is not logged)")
             }
             self.extent = extent
         }

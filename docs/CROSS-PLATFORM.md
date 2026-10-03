@@ -399,7 +399,12 @@ plugged in".
   b0 1d 8e 12 00 00 14 00","t":0.008}`, `t` seconds from the first event rounded
   to the microsecond, keys sorted so two recordings of one session are the same
   bytes; a session of the driver's events is `{"reading":{…},"t":…}`. A file that
-  is not whole is refused with its line number. **Replay** plays on the field it
+  is not whole is refused with its line number — and a file is NOT TRUSTED: the
+  field and every count are finite and at most 65535 (a report carries a count in
+  two bytes), a pressure is 0…1, `t` is finite, 0 to a day and never before the
+  event above it, a report is ten bytes with id 2, and the port clamps a number
+  before it makes an integer of it (a count of 1e30 must be the edge of the field,
+  never a crash). **Replay** plays on the field it
   was recorded on, at real speed, a multiple of it (waiting is `gap / speed`;
   "max" is none), or one event at a time; THE PEN READS THE RECORDED TIMES at
   every speed (the stamps are the recorded ones from a fresh base), so a double

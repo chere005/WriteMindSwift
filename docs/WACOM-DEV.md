@@ -64,7 +64,11 @@ The file is NDJSON, one object a line, keys sorted: a header
 first event, the report is the tablet's ten bytes in hex. A session made while
 WriteMind did not hold the tablet (the Wacom driver's events) has no bytes and is
 recorded as `{"reading":{…},"t":…}` instead. A file that is not whole is not
-played, and the status line says which line is wrong.
+played, and the status line says which line is wrong. **A file is not trusted**:
+the field and every count are numbers a tablet could have (finite, 0 to 65535 —
+a report carries a count in two bytes), a pressure is 0 to 1, `t` is between 0
+and a day and never goes backwards, and a report is a ten-byte pen report; a file
+with anything else in it is refused with its line.
 
 **A bug seen once on the real tablet is a file**: turn Record on, reproduce it,
 and the recording is the reproduction — commit it as a fixture.
