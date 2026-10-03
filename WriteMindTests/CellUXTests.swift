@@ -383,31 +383,60 @@ final class ArrowAtTheBarTests: XCTestCase {
 
 // MARK: - Return at the end of a cell
 
-/// The rendered page's Return at the end of a cell makes the next cell.
-/// The source pane's leaves the caret on a blank line under it — which is a
-/// separator, so the bar is the cursor there and what is typed is a cell.
+/// Sean, 2026-10-03: "a single return should enter a newline, a second
+/// return should remove that newline, and move the cursor to after that
+/// cell". Return at the end of a paragraph types a newline into it; the
+/// second takes that newline out again and puts the cursor on the bar under
+/// the cell — which is a separator, so what is typed there is a cell.
 final class ReturnAtTheEndOfACellTests: XCTestCase {
-    func testReturnThenTypingAtTheEndOfACellMakesTheNextCell() {
-        // NSTextView moves the caret inside its own edit, and the seams it
-        // was checked against were the ones from before the Return — so
-        // the bar never came up and "x" became a second line of the cell
-        // above ("First cell x" on the page).
+    func testTheFirstReturnTypesANewlineAndTheCaretStaysInTheCell() {
         let pane = SourcePane(note)
         pane.caret(at: 10)
         pane.key(#selector(NSResponder.insertNewline(_:)))
-        XCTAssertNotNil(pane.tv.armedSeam)
+        XCTAssertEqual(pane.tv.string, "First cell\n\n\nSecond cell\n\nThird cell")
+        XCTAssertEqual(pane.tv.selectedRange(), NSRange(location: 11, length: 0))
+        XCTAssertNil(pane.tv.armedSeam, "still in the cell, not on the bar")
+    }
+
+    func testTheSecondReturnTakesThatNewlineOutAndTheBarIsUnderTheCell() {
+        let pane = SourcePane(note)
+        pane.caret(at: 10)
+        pane.key(#selector(NSResponder.insertNewline(_:)))
+        pane.key(#selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(pane.tv.string, note, "the note is as it was")
+        XCTAssertEqual(pane.tv.armedSeam, 12, "the seam a bar parks at: the start of the cell below")
         pane.type("x")
         XCTAssertEqual(pane.blocks, [.paragraph("First cell"), .paragraph("x"), .paragraph("Second cell"),
                                      .paragraph("Third cell")])
+    }
+
+    func testMovingAwayAfterTheFirstReturnLeavesTheNewlineAndNoBar() {
+        let pane = SourcePane(note)
+        pane.caret(at: 10)
+        pane.key(#selector(NSResponder.insertNewline(_:)))
+        pane.caret(at: 2)
+        pane.key(#selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(pane.tv.string, "Fi\nrst cell\n\n\nSecond cell\n\nThird cell", "a line break in the middle, as ever")
     }
 
     func testAndAtTheEndOfTheLastCell() {
         let pane = SourcePane("Only cell")
         pane.caret(at: 9)
         pane.key(#selector(NSResponder.insertNewline(_:)))
-        XCTAssertEqual(pane.tv.armedSeam, 10)
+        XCTAssertEqual(pane.tv.string, "Only cell\n")
+        XCTAssertNil(pane.tv.armedSeam)
+        pane.key(#selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(pane.tv.armedSeam, 10, "the line under the last cell is the bar")
         pane.type("x")
         XCTAssertEqual(pane.tv.string, "Only cell\n\nx")
+    }
+
+    func testReturnAtTheEndOfAHeadingOrAListIsNotThisRule() {
+        // A GUARD: only a paragraph. A heading's Return is the usual one.
+        let pane = SourcePane("# Title\n\nWords")
+        pane.caret(at: 7)
+        pane.key(#selector(NSResponder.insertNewline(_:)))
+        XCTAssertNil(pane.tv.trailingNewlineAt)
     }
 
     func testTheLineUnderTheLastCellIsTheTailSeam() {
@@ -683,18 +712,23 @@ private final class RenderedCell {
     private(set) var splits: [(head: String, tail: String)] = []
     private(set) var removedEmpty = 0
     private(set) var joinedPrevious = 0
+    /// Where the page was told to take the cursor.
+    private(set) var moves: [BlockEditor.Move] = []
 
     /// `item` is one reminder of a checklist, which the page opens on one
     /// line (`BlockView.words(of:at:)`); only a reminder has a line above
     /// it to join.
-    init(_ text: String, keepsNewlines: Bool = false, language: CodeLanguage? = nil, item: Bool = false) {
+    init(_ text: String, keepsNewlines: Bool = false, language: CodeLanguage? = nil, item: Bool = false,
+         paragraph: Bool = false) {
         let join: (() -> Void)? = item ? { [weak self] in self?.joinedPrevious += 1 } : nil
         let editor = BlockEditor(text: .constant(text), font: .systemFont(ofSize: 15), bridge: bridge,
-                                 focusToken: 0, singleLine: item, keepsNewlines: keepsNewlines,
+                                 focusToken: 0, singleLine: item, leavesOnSecondReturn: paragraph,
+                                 keepsNewlines: keepsNewlines,
                                  language: language,
                                  onSplit: { [weak self] head, tail in self?.splits.append((head, tail)) },
                                  onDeleteEmpty: { [weak self] in self?.removedEmpty += 1 },
-                                 onJoinPrevious: join)
+                                 onJoinPrevious: join,
+                                 onMove: { [weak self] move in self?.moves.append(move) })
         coordinator = BlockEditor.Coordinator(editor)
         tv.delegate = coordinator
         tv.layoutManager?.delegate = coordinator.hiding
@@ -743,6 +777,22 @@ final class ReturnInsideACellTests: XCTestCase {
         let empty = RenderedCell("")
         empty.key(returnKey)
         XCTAssertEqual(empty.splits.count, 1)
+    }
+
+    func testOnTheRenderedPageAParagraphsReturnAtTheEndIsANewlineAndTheSecondLeaves() {
+        // Sean, 2026-10-03: "a single return should enter a newline, a
+        // second return should remove that newline, and move the cursor to
+        // after that cell".
+        let cell = RenderedCell("Hello world", paragraph: true)
+        cell.caret(at: 11)
+        cell.key(returnKey)
+        XCTAssertEqual(cell.tv.string, "Hello world\n")
+        XCTAssertTrue(cell.splits.isEmpty, "no second cell yet")
+        XCTAssertTrue(cell.moves.isEmpty)
+        cell.key(returnKey)
+        XCTAssertEqual(cell.tv.string, "Hello world", "the newline is taken back out")
+        XCTAssertEqual(cell.moves, [.down], "and the cursor goes to the bar under the cell")
+        XCTAssertTrue(cell.splits.isEmpty)
     }
 
     func testInTheSourcePaneItAlwaysWasALineBreak() {

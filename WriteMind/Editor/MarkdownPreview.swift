@@ -797,6 +797,7 @@ struct MarkdownPreview: View {
                         placeholder: fence == nil
                             ? "Write something — ⌘1 a title, ⇧⌘L a list, ⌃⌘Q a quote"
                             : "Type the code",
+                        leavesOnSecondReturn: Self.isParagraph(item.block),
                         keepsNewlines: Self.keepsNewlines(item.block),
                         language: fence?.language,
                         onSplit: { head, tail in split(head: head, tail: tail) },
@@ -2331,6 +2332,12 @@ struct MarkdownPreview: View {
 
     /// Return adds a line to a list, a quote or a fenced block; anywhere else
     /// it starts the next block.
+    /// A paragraph — the one cell whose words are free-form lines.
+    private static func isParagraph(_ block: MarkdownBlock?) -> Bool {
+        if case .paragraph? = block { return true }
+        return false
+    }
+
     private static func keepsNewlines(_ block: MarkdownBlock?) -> Bool {
         switch block {
         case .bullets, .todos, .dashes, .numbered, .quote, .code: return true

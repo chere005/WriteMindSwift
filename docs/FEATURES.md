@@ -126,10 +126,11 @@ is how the code is put together.
   the next cell, and ↑ comes back the same way — the line above the first
   cell and the one under the last included (not under a code block still
   waiting for its closing fence: the end of the note is in its code, and
-  ↓ stays there). Return at the end of a cell
-  leaves you on the line under it too, so what you type next is a cell
-  of its own; anywhere inside a cell it is a line break within the cell,
-  never a split. Getting there by arrow and getting there by click leave
+  ↓ stays there). Return at the end of a paragraph
+  types a newline into it, and a second Return takes that newline out
+  and leaves you on the line under the cell, so what you type next is a
+  cell of its own; anywhere inside a cell it is a line break within the
+  cell, never a split. Getting there by arrow and getting there by click leave
   the page in the same state — type and you get a new cell between the
   two, not a character that welds them into one.
 - **The same place, whichever mode.** Switching between the markdown and
@@ -252,13 +253,13 @@ is how the code is put together.
   light and a dark half, so it reads either way round.
 - **A block always lands as a cell of its own.** A code block, an
   evaluation cell or maths on its own line goes in with a blank line above
-  and below it, never glued to the words: in the middle of a paragraph the
-  paragraph is cut there and the block goes between the halves — never
-  through `code`, maths, **bold** or a link, and never so that the words
-  after it would start a list or a heading; in a heading, a list or a
-  quote it goes above or below the line the caret is on, so no item is
-  split, and part of an item's words selected come out of it while the
-  item keeps its bullet; at the insertion line it is made there. What was
+  and below it, never glued to the words: with the caret in a paragraph, a
+  heading, a list or a quote, ⌘8 and ⌘9 turn that whole cell into the
+  block, holding its words (the heading's `#`, the bullets, the `>` are
+  dropped), the way ⌘1–⌘7 turn a cell into a heading; part of an item's
+  words selected come out of it while the item keeps its bullet; at the
+  insertion line — the horizontal cursor between cells, or a new empty
+  line — it is made there. What was
   selected becomes what the block holds, and the caret ends inside it,
   where typing goes. A block is never put inside another: ⌘8 in a code
   block does nothing and the footer says why, and anything else asked for

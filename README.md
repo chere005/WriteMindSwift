@@ -48,8 +48,8 @@ fails if the two disagree.
 | ⇧⌘X | Strikethrough |
 | ⇧⌘L | List, in whichever style the bar is set to |
 | ⌃⌘Q | Quote |
-| ⌘8 | Code block |
-| ⌘9 | An evaluation cell here — or turn this cell into one |
+| ⌘8 | A code cell — turns the cell the cursor is in into one, or makes one at the horizontal cursor |
+| ⌘9 | An evaluation cell, the same way |
 | ⌘0 | A drawing cell here |
 | ⌘] ⌘[ | Indent, outdent |
 | ⇧⌘I | Insert a picture |

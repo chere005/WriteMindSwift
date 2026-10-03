@@ -58,97 +58,76 @@ final class InsertionPlacementTests: XCTestCase {
 
     // MARK: - A block lands as a cell of its own
 
-    func testMidParagraphTheParagraphIsCutAtTheCaretAndTheBlockGoesBetween() {
+    func testInAParagraphTheWholeParagraphBecomesTheBlock() {
+        // Sean, 2026-10-03: "pressing cmd1-0 should change type of cell
+        // cursor is currently in" — it was cut at the caret, the block
+        // between the halves. Now the cell the caret is in IS the block,
+        // holding its words, wherever in it the caret was.
         XCTAssertEqual(Self.after(python, "# Title\n\nOne two‸ three four.\n\nLast line."),
-                       "# Title\n\nOne two\n\n```python\n‸\n```\n\nthree four.\n\nLast line.")
-    }
-
-    func testAtTheStartOfAParagraphItGoesAboveAndAtTheEndBelow() {
+                       "# Title\n\n```python\nOne two three four.‸\n```\n\nLast line.")
         XCTAssertEqual(Self.after(python, "# Title\n\n‸One two.\n\nLast line."),
-                       "# Title\n\n```python\n‸\n```\n\nOne two.\n\nLast line.")
+                       "# Title\n\n```python\nOne two.‸\n```\n\nLast line.")
         XCTAssertEqual(Self.after(python, "# Title\n\nOne two.‸\n\nLast line."),
-                       "# Title\n\nOne two.\n\n```python\n‸\n```\n\nLast line.")
+                       "# Title\n\n```python\nOne two.‸\n```\n\nLast line.")
     }
 
-    func testALineOfAParagraphIsCutAtTheLineNotAtAnExtraBlankLine() {
-        // A paragraph typed over two lines is one cell; the cut at the
-        // start of its second line leaves no empty line nobody typed.
+    func testAParagraphOfSeveralLinesIsOneCell() {
         XCTAssertEqual(Self.after(python, "First line\n‸second line"),
-                       "First line\n\n```python\n‸\n```\n\nsecond line")
+                       "```python\nFirst line\nsecond line‸\n```")
         XCTAssertEqual(Self.after(python, "First line‸\nsecond line"),
-                       "First line\n\n```python\n‸\n```\n\nsecond line")
+                       "```python\nFirst line\nsecond line‸\n```")
     }
 
-    func testACutGoesRoundASpanNeverThroughIt() {
-        // The review of 2026-10-02: a caret in a code span, maths, bold or
-        // a link cut the paragraph there and left one marker in each half,
-        // pairing with nothing — "Use `npm" and "install` to set up.". The
-        // cut goes to the span's nearer edge.
+    func testNothingIsCutSoNoHalfCanReadAsSomethingElse() {
+        // The review of 2026-10-02 had cuts leave a half that read as
+        // something else ("- it was late." a list, "# 42" a heading, three
+        // backticks a fence) and one marker in each half of a span. The
+        // cell is no longer cut at all: every word goes into the block as
+        // it was, spans whole.
         XCTAssertEqual(Self.after(python, "Use `npm‸ install` to set up."),
-                       "Use\n\n```python\n‸\n```\n\n`npm install` to set up.")
-        XCTAssertEqual(Self.after(python, "Use `npm install‸` to set up."),
-                       "Use `npm install`\n\n```python\n‸\n```\n\nto set up.")
+                       "```python\nUse `npm install` to set up.‸\n```")
         XCTAssertEqual(Self.after(python, "Some **bold‸ words** here."),
-                       "Some\n\n```python\n‸\n```\n\n**bold words** here.")
+                       "```python\nSome **bold words** here.‸\n```")
         XCTAssertEqual(Self.after(python, "See [the ma‸nual](https://x.y) first."),
-                       "See\n\n```python\n‸\n```\n\n[the manual](https://x.y) first.")
+                       "```python\nSee [the manual](https://x.y) first.‸\n```")
+        XCTAssertEqual(Self.after(python, "I went home‸ - it was late."),
+                       "```python\nI went home - it was late.‸\n```")
+        XCTAssertEqual(Self.after(python, "Ticket‸ # 42 is fixed."),
+                       "```python\nTicket # 42 is fixed.‸\n```")
+        XCTAssertEqual(Self.after(python, "Use‸ ```this``` here."),
+                       "```python\nUse ```this``` here.‸\n```")
+        XCTAssertEqual(Self.after(python, "Intro\n---‸ and more"),
+                       "```python\nIntro\n--- and more‸\n```")
         XCTAssertEqual(Self.after(.maths("Pi", onItsOwnLine: false), "**All bold‸ words**"), "**All bold`wl:Pi`‸ words**",
                        "inline maths is at home in bold")
-        // A span that is the whole paragraph: its nearer edge is the
-        // paragraph's, and the block goes above it or below it.
         XCTAssertEqual(Self.after(.evaluation(.python), "**All bold‸ words**"),
-                       "**All bold words**\n\n```eval python\n‸\n```")
+                       "```eval python\n**All bold words**‸\n```")
     }
 
-    func testACutNeverLeavesAHalfThatReadsAsSomethingElse() {
-        // The review of 2026-10-02: the words after the cut start a line of
-        // their own, and "- it was late." is a list, "# 42" a heading, a
-        // run of three backticks a fence that swallows the rest of the
-        // note. The cut moves on past that word instead.
-        XCTAssertEqual(Self.after(python, "I went home‸ - it was late."),
-                       "I went home -\n\n```python\n‸\n```\n\nit was late.")
-        XCTAssertEqual(Self.after(python, "Ticket‸ # 42 is fixed."),
-                       "Ticket #\n\n```python\n‸\n```\n\n42 is fixed.")
-        XCTAssertEqual(Self.after(python, "Step‸ 1. Open it."), "Step 1.\n\n```python\n‸\n```\n\nOpen it.")
-        XCTAssertEqual(Self.after(python, "Use‸ ```this``` here."), "Use ```this```\n\n```python\n‸\n```\n\nhere.")
-        // The half above too: a line cut down to "---" is a rule.
-        XCTAssertEqual(Self.after(python, "Intro\n---‸ and more"), "Intro\n--- and\n\n```python\n‸\n```\n\nmore")
-        // Nothing after the marker but the end: the block goes under it all.
-        XCTAssertEqual(Self.after(python, "Words‸ ---"), "Words ---\n\n```python\n‸\n```")
-    }
-
-    func testAHeadingIsNeverCutButTheBlockGoesUnderIt() {
+    func testAHeadingBecomesTheBlockHoldingItsWordsWithoutTheMarker() {
         XCTAssertEqual(Self.after(python, "# Ti‸tle\n\nWords."),
-                       "# Title\n\n```python\n‸\n```\n\nWords.")
+                       "```python\nTitle‸\n```\n\nWords.")
         XCTAssertEqual(Self.after(python, "‸# Title\n\nWords."),
-                       "```python\n‸\n```\n\n# Title\n\nWords.")
+                       "```python\nTitle‸\n```\n\nWords.")
     }
 
-    func testAListItemsWordsAreNeverCutTheListIsSplitBetweenItems() {
-        // Sean's list stays a list either side of the block: the item the
-        // caret is in keeps its words whole.
-        XCTAssertEqual(Self.after(python, "- app‸le\n- banana"),
-                       "- apple\n\n```python\n‸\n```\n\n- banana")
-        // At the front of an item's words — or in its marker — the block
-        // goes above that item.
-        XCTAssertEqual(Self.after(python, "- apple\n- ‸banana"),
-                       "- apple\n\n```python\n‸\n```\n\n- banana")
-        XCTAssertEqual(Self.after(python, "- apple\n‸- banana"),
-                       "- apple\n\n```python\n‸\n```\n\n- banana")
-        XCTAssertEqual(Self.after(python, "- [ ] milk‸\n- [ ] eggs"),
-                       "- [ ] milk\n\n```python\n‸\n```\n\n- [ ] eggs")
-    }
-
-    func testAQuoteIsSplitBetweenItsLinesToo() {
-        XCTAssertEqual(Self.after(python, "> quo‸ted line\n\nAfter."),
-                       "> quoted line\n\n```python\n‸\n```\n\nAfter.")
+    func testAListOrAQuoteBecomesTheBlockHoldingItsLinesWithoutTheirMarkers() {
+        // The list is one cell: every item's words, a line each.
+        XCTAssertEqual(Self.after(python, "- app‸le\n- banana"), "```python\napple\nbanana‸\n```")
+        XCTAssertEqual(Self.after(python, "- apple\n‸- banana"), "```python\napple\nbanana‸\n```")
+        XCTAssertEqual(Self.after(python, "- [ ] milk‸\n- [ ] eggs"), "```python\nmilk\neggs‸\n```")
+        XCTAssertEqual(Self.after(python, "> quo‸ted line\n\nAfter."), "```python\nquoted line‸\n```\n\nAfter.")
     }
 
     func testAnEmptyNoteAnEmptyLastLineAndTheEndsOfTheNote() {
         XCTAssertEqual(Self.after(python, "‸"), "```python\n‸\n```")
         XCTAssertEqual(Self.after(python, "Words.\n‸"), "Words.\n\n```python\n‸\n```")
+        XCTAssertEqual(Self.after(python, Self.note + "\n‸"),
+                       Self.note + "\n\n```python\n‸\n```",
+                       "an empty last line is a place for a new cell")
         XCTAssertEqual(Self.after(python, Self.note + "‸"),
-                       Self.note + "\n\n```python\n‸\n```")
+                       String(Self.note.dropLast("Last line.".count)) + "```python\nLast line.‸\n```",
+                       "the end of the last paragraph is still in that paragraph")
     }
 
     func testOnAnEmptyLineOfABlankCellTheBlockTakesThatLineAndNoOther() {
@@ -273,9 +252,9 @@ final class InsertionPlacementTests: XCTestCase {
 
     func testAnEvaluationCellFollowsTheSamePlacement() {
         XCTAssertEqual(Self.after(.evaluation(.python), "One two‸ three four."),
-                       "One two\n\n```eval python\n‸\n```\n\nthree four.")
+                       "```eval python\nOne two three four.‸\n```")
         XCTAssertEqual(Self.after(.evaluation(.python), "One two three four.‸\n\nNext."),
-                       "One two three four.\n\n```eval python\n‸\n```\n\nNext.")
+                       "```eval python\nOne two three four.‸\n```\n\nNext.")
         XCTAssertEqual(Self.after(.evaluation(.wolfram), "One.\n\n‸Two.", atBar: true),
                        "One.\n\n```eval wl\n‸\n```\n\nTwo.")
         XCTAssertEqual(Self.after(.evaluation(.python), "One «two three» four."),
@@ -431,11 +410,12 @@ final class InsertionPlacementTests: XCTestCase {
                                   && edit.selection.location < NSMaxRange(made.range),
                                   "\(thing) in \(context): the caret is not in the block")
                 }
-                // At a caret, cut at most once: one cell more, or two when
-                // the one the caret was in was cut in two. (A selection
-                // takes whole cells into the block, so it can be fewer.)
+                // At a caret, the cell it is in becomes the block (the same
+                // number of cells), or one more is made; a cell is cut at
+                // most once. (A selection takes whole cells into the block,
+                // so it can be fewer.)
                 if selection.length == 0 {
-                    XCTAssertTrue((before.count + 1...before.count + 2).contains(cells.count),
+                    XCTAssertTrue((before.count...before.count + 2).contains(cells.count),
                                   "\(thing) in \(context): \(applied.debugDescription)")
                 }
                 // Not one word lost.
@@ -563,7 +543,7 @@ final class SourceInsertionTests: XCTestCase {
         let (view, bridge) = pane("# Title\n\nOne two‸ three four.")
         event { bridge.codeBlock(.python) }
         XCTAssertEqual(Marked.show(view.string, view.selectedRange()),
-                       "# Title\n\nOne two\n\n```python\n‸\n```\n\nthree four.")
+                       "# Title\n\n```python\nOne two three four.‸\n```")
     }
 
     func testOneUndoTakesTheWholeInsertionBackAndNothingElse() {
@@ -571,9 +551,9 @@ final class SourceInsertionTests: XCTestCase {
         type(" here", in: view)
         event { bridge.codeBlock(.python) }
         type("x", in: view)
-        XCTAssertEqual(view.string, "Words here\n\n```python\nx\n```\n\nNext.")
+        XCTAssertEqual(view.string, "```python\nWords herex\n```\n\nNext.")
         undoer.manager.undo()
-        XCTAssertEqual(view.string, "Words here\n\n```python\n\n```\n\nNext.", "what was typed in it goes first")
+        XCTAssertEqual(view.string, "```python\nWords here\n```\n\nNext.", "what was typed in it goes first")
         undoer.manager.undo()
         XCTAssertEqual(view.string, "Words here\n\nNext.", "then the block, whole, and nothing typed before it")
     }
@@ -816,17 +796,17 @@ final class RenderedInsertionTests: XCTestCase {
         guard openTheFirstCell(caret: 5) != nil else { return XCTFail("the premise: a cell open for typing") }
         bridge.codeBlock(.python)
         settle()
-        XCTAssertEqual(note.text, "Words\n\n```python\n\n```\n\nhere.\n\nMore.")
+        XCTAssertEqual(note.text, "```python\nWords here.\n```\n\nMore.")
         guard let code = bridge.textView as? BlockTextView else { return XCTFail("nothing open after it") }
-        XCTAssertEqual(code.string, "", "the new cell is open as its code, empty")
+        XCTAssertEqual(code.string, "Words here.", "the cell is open as its code, holding its words")
         XCTAssertTrue(code.isCode)
-        XCTAssertEqual(code.selectedRange(), NSRange(location: 0, length: 0))
+        XCTAssertEqual(code.selectedRange(), NSRange(location: 11, length: 0))
         code.undoManager?.undo()
         settle()
         XCTAssertEqual(note.text, "Words here.\n\nMore.")
     }
 
-    func testABlockMadeAboveTheOpenCellDoesNotInheritItsWords() {
+    func testTheBlockMadeFromTheOpenCellTakesTheNextKeystrokeNotTheOldParagraph() {
         // The new cell starts where the open one did, so SwiftUI keeps the
         // same editor for it — and an editor that has the keyboard does not
         // take new text from outside. The next keystroke wrote the old
@@ -835,12 +815,13 @@ final class RenderedInsertionTests: XCTestCase {
         guard openTheFirstCell(caret: 0) != nil else { return XCTFail("the premise: a cell open for typing") }
         bridge.codeBlock(.python)
         settle()
-        XCTAssertEqual(note.text, "```python\n\n```\n\nWords here.\n\nMore.")
+        XCTAssertEqual(note.text, "```python\nWords here.\n```\n\nMore.")
         guard let code = bridge.textView as? BlockTextView else { return XCTFail("nothing open after it") }
-        XCTAssertEqual(code.string, "")
+        XCTAssertEqual(code.string, "Words here.")
+        code.setSelectedRange(NSRange(location: 11, length: 0))
         code.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
         settle()
-        XCTAssertEqual(note.text, "```python\nx\n```\n\nWords here.\n\nMore.")
+        XCTAssertEqual(note.text, "```python\nWords here.x\n```\n\nMore.")
     }
 
     func testTurningAnOpenCodeCellIntoAnEvaluationCellKeepsWhatWasTypedUndoable() {

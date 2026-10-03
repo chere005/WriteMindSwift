@@ -15,6 +15,35 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### ⌘1–⌘0 act on the cell the cursor is in, and a paragraph's second Return leaves it
+Sean, 2026-10-03: "pressing cmd1-0 should change type of cell cursor is
+currently in, or insert a cell of that type if the cursor is horizontal... a
+single return should enter a newline, a second return should remove that
+newline, and move the cursor to after that cell".
+
+- **A cell-kind key converts the cell the caret is in, or inserts one at the
+  horizontal cursor.** ⌘1–⌘7 (the heading ladder, body) and ⌘8 / ⌘9 (code,
+  evaluation) with the caret anywhere in a paragraph, heading, list or quote
+  change THAT WHOLE CELL to the kind; at the horizontal cursor between cells,
+  or on a new empty line, they make a new cell there. ⌘8/⌘9 on a cell of words
+  make the cell a fenced block holding its words — a heading's `#`, a list's
+  bullets and a quote's `>` dropped, one line each, inline markup left as
+  written — and the caret ends at the end of them. A cell already of that kind
+  is left alone and the footer says why; a fenced cell keeps its own rules (⌘9
+  turns a code cell into an evaluation cell). The old behaviour — the
+  paragraph cut at the caret with the block between the halves, and all the
+  rules about never cutting through a span or leaving a half that reads as a
+  list — is gone with it: nothing is cut. ⌘0 (a drawing cell) still inserts
+  after the cell.
+- **Return at the end of a paragraph types a newline; the second Return takes
+  it back out and moves the cursor to the horizontal cursor under the cell.**
+  Only a paragraph: a heading's Return still makes the next cell at its end,
+  a list item its next item, a code cell a newline. The caret sits on the
+  typed newline in the cell (no horizontal cursor there yet) until it moves,
+  which leaves the newline as an ordinary blank line. The last cell of a note
+  with nothing after it keeps the newline — it is the line under the cell —
+  and the cursor goes there.
+
 ### Drawing cells: one line in the note, one visible file beside it, ⌘0
 Sean, 2026-10-02: "on drawing segments, add a dock button which inserts it
 into the cell of the existing cursor, and a create cell from drawing which
@@ -91,8 +120,9 @@ markdown view and the rendered one:
   rendered view used to split the block at the caret and open the tail; the
   markdown view never did, and the two must leave the same bytes, at the very
   start of a cell included (the newline goes in above the words, and the cells
-  are as they were). Return at the END of a cell still makes the next cell,
-  as the entry below says.
+  are as they were). Return at the END of a paragraph types a newline and
+  the second Return leaves (2026-10-03, the first entry above); at the end of
+  a heading it still makes the next cell, as the entry below says.
 - **⌫ with the caret at the first character of a cell does nothing.** It never
   joins the cell to the one above — merging is a command of its own (⌃M
   here). Inside a cell ⌫ is ordinary, a line break Return put in included. In

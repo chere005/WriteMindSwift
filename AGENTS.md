@@ -1410,21 +1410,21 @@ CoreMind's `bin/report-status.sh`.
   reason). The same two hold for INLINE SPANS: maths in a `wl:` span goes
   in as the bare WL, and inline maths in any other code span is refused.
   A BLOCK IS A CELL — a blank line above and below, never glued into a
-  paragraph or an item: a paragraph is cut at the caret, spaces at the
-  cut dropped (at the front of its words the block goes above, at the end
-  below), but NEVER THROUGH AN INLINE SPAN — a code span, `wl:`, bold,
-  italic, struck, a link, a tag, nested ones together
-  (`MarkdownSourceStyle.spans`, read with the patterns `runs` styles
-  with) — where it moves to the span's nearer edge, and NEVER WHERE A
-  HALF STOPS READING AS WORDS: on a line of its own "- it was late." is
-  a list, "# 42" a heading, "---" a rule and three backticks a fence that
-  swallows the note, so the cut moves on a word (`Insertion.cut`) rather
-  than anything typed being escaped; a heading, a list, a quote or a rule
-  is cut only BETWEEN LINES — above the caret's line when the caret is at
-  the front of its words or in its marker, below it otherwise — so no
-  item's words are split and no marker is left bare; on an empty line of
-  a blank cell the block takes that one line and the rest stay the
-  note's. A SELECTION IS THE CONTENT: code and evaluation cells take it
+  paragraph or an item. **A CARET IN A CELL OF WORDS TURNS THAT CELL INTO
+  THE BLOCK** (Sean, 2026-10-03: "pressing cmd1-0 should change type of
+  cell cursor is currently in, or insert a cell of that type if the
+  cursor is horizontal") — ⌘8 and ⌘9 with the caret anywhere in a
+  paragraph, a heading, a list or a quote make the WHOLE cell the code or
+  evaluation cell, holding its words (`Insertion.wordsOf`: a heading's
+  `#`, a list's bullets, a quote's `>` go, a line each, spans whole);
+  the caret ends at the end of them. It used to CUT the paragraph at the
+  caret, with the block between the halves — and `Insertion.cut` with
+  its never-through-a-span and never-a-half-that-reads-as-something-else
+  rules, which a cell that is not cut cannot break. ⌘1–⌘7 (the heading
+  ladder) convert the same way and ⌘0 still makes its cell after. At a
+  bar (`atBar`) or on a new empty line the cell is made THERE; on an
+  empty line of a blank cell the block takes that one line and the rest
+  stay the note's. A SELECTION IS THE CONTENT: code and evaluation cells take it
   verbatim, the text either side staying cells — all of an item's words
   take the item, marker and all, and PART of one line's words come out
   of it, the line keeping its marker and the rest, the block above it
@@ -1476,6 +1476,22 @@ CoreMind's `bin/report-status.sh`.
   layer again, so Return at the end of a cell put the caret on the new
   separator, asked the seams from before the Return, found none there,
   and the next character joined the cell above as a second line of it.
+- **A PARAGRAPH'S RETURN IS A NEWLINE, AND ITS SECOND ONE LEAVES.** Sean,
+  2026-10-03: "a single return should enter a newline, a second return
+  should remove that newline, and move the cursor to after that cell".
+  Return with the caret at the very end of a PARAGRAPH types a newline
+  into it and the caret stays in the cell — on the blank line that would
+  otherwise read as the bar, so `textViewDidChangeSelection` does not arm
+  while `PasteAwareTextView.trailingNewlineAt` holds that spot
+  (`Coordinator.paragraphReturn`); the second, with the caret still
+  there, takes the newline out and arms the first seam at or past the
+  cell's end (the line under the LAST cell of a note with nothing after
+  it IS the typed newline, so it stays and is armed). Moving the caret
+  away forgets the pending newline, which is then just a blank line. On
+  the rendered page it is `BlockEditor.leavesOnSecondReturn` (set for a
+  paragraph only: `MarkdownPreview.isParagraph`): the second Return
+  deletes the trailing newline and sends `onMove(.down)`. A heading, a
+  list item, a quote and a code cell keep the old rules.
 - **A KEY AT THE BAR MEANS WHAT IT MEANS ON THE RENDERED PAGE, AND THE
   ARROWS REACH EVERY BAR.** Sean, 2026-10-02: "do a thorough test of
   cell selection and input insertion ux behavior...". The source pane
@@ -1512,7 +1528,8 @@ CoreMind's `bin/report-status.sh`.
   on ↑ from the first LAID-OUT line and ↓ from the last,
   `MarkdownTextView.isOnEndLine`), and `CellSeams.arm` reads the empty
   line after a final newline as the tail seam — so ↓ off the last cell
-  and Return at the end of it give the bar, as on the rendered page.
+  and the SECOND Return at the end of it give the bar, as on the
+  rendered page.
   Not under a fence that never closed: it runs to the end of the note,
   so the end is in its code (`CellSeams.endsInCode`, which reads
   `Insertion.isClosed`), and a bar armed there opened "a cell" two
@@ -2138,7 +2155,9 @@ WriteMind/
                           on that side: click a block and it opens in a
                           BlockEditor; the gap between two blocks adds one;
                           Return at the end of a block makes the next one
-                          and inside it is a line break, ⌫ in an empty block
+                          (a paragraph's: a newline, and the second Return
+                          leaves it for the bar below) and inside it is a
+                          line break, ⌫ in an empty block
                           removes it, the arrows walk between blocks. Every
                           keystroke goes straight into the note at the
                           block's own range

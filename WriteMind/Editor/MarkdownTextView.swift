@@ -878,7 +878,15 @@ struct MarkdownTextView: NSViewRepresentable {
             // down (a bracket click, ⌘A, a toolbar command, `/link`) left
             // the bar armed behind it, ready to throw the selection away.
             if let tv = tv as? PasteAwareTextView {
-                let wanted = parent.seamsEnabled
+                // The caret on the newline a paragraph's Return typed is in
+                // the cell, not on the bar, until it moves.
+                let sitting = tv.selectedRange()
+                if let held = tv.trailingNewlineAt, !tv.typingTrailingNewline,
+                   !(sitting.length == 0 && sitting.location == held) {
+                    tv.trailingNewlineAt = nil
+                }
+                let inTheCell = tv.trailingNewlineAt != nil
+                let wanted = parent.seamsEnabled && !inTheCell
                     ? CellSeams.arm(caret: tv.selectedRange(), in: tv.string, current: tv.armedSeam)
                     : nil
                 // Only a seam the PAGE has. A caret on the blank line
@@ -1330,6 +1338,10 @@ struct MarkdownTextView: NSViewRepresentable {
                     return true
                 }
                 guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
+                // Return at the end of a paragraph is a newline in it, and
+                // the second takes it back and leaves the cell (Sean,
+                // 2026-10-03).
+                if let pane = textView as? PasteAwareTextView, paragraphReturn(pane) { return true }
                 // Return on a list item carries the list on (Sean, 2026-09-18).
                 return parent.bridge.continueList()
             case #selector(NSResponder.cancelOperation(_:)):
@@ -1343,6 +1355,51 @@ struct MarkdownTextView: NSViewRepresentable {
             default:
                 return false
             }
+        }
+
+        /// RETURN AT THE END OF A PARAGRAPH (Sean, 2026-10-03: "a single return
+        /// should enter a newline, a second return should remove that newline,
+        /// and move the cursor to after that cell"). The first types a
+        /// newline into the cell and keeps the caret in it — on the blank line
+        /// that would otherwise read as the bar; the second, with the caret
+        /// still on that line, takes the newline out and puts the cursor on
+        /// the bar under the cell. True when it took the key.
+        private func paragraphReturn(_ tv: PasteAwareTextView) -> Bool {
+            guard tv.selectedRanges.count == 1, tv.selectedRange().length == 0, tv.armedSeam == nil else { return false }
+            let ns = tv.string as NSString
+            let caret = tv.selectedRange().location
+            // The second Return.
+            if tv.trailingNewlineAt == caret, caret > 0, ns.character(at: caret - 1) == 10 {
+                tv.trailingNewlineAt = nil
+                // The last cell of a note with nothing after it: the newline
+                // IS the line under it — the tail seam — so it stays, and
+                // the bar is armed on it.
+                if caret == ns.length {
+                    tv.armedSeam = caret
+                    tv.scrollRangeToVisible(tv.selectedRange())
+                    return true
+                }
+                let cellEnd = caret - 1
+                let removal = NSRange(location: cellEnd, length: 1)
+                guard tv.shouldChangeText(in: removal, replacementString: "") else { return true }
+                tv.textStorage?.replaceCharacters(in: removal, with: "")
+                tv.didChangeText()
+                // The bar under the cell: the first seam at or past its end.
+                if let offset = MarkdownTextView.seams(in: tv).map(\.offset).filter({ $0 >= cellEnd }).min() {
+                    tv.armedSeam = offset
+                    tv.setSelectedRange(NSRange(location: min(offset, (tv.string as NSString).length), length: 0))
+                    tv.scrollRangeToVisible(tv.selectedRange())
+                }
+                return true
+            }
+            // The first: the caret at the very end of a paragraph's words.
+            guard let cell = MarkdownParser.positioned(from: tv.string).first(where: { NSMaxRange($0.range) == caret }),
+                  case .paragraph = cell.block else { return false }
+            tv.trailingNewlineAt = caret + 1
+            tv.typingTrailingNewline = true
+            tv.insertText("\n", replacementRange: NSRange(location: caret, length: 0))
+            tv.typingTrailingNewline = false
+            return true
         }
 
         /// ↑ OFF THE TOP OF THE FIRST CELL AND ↓ OFF THE BOTTOM OF THE LAST
@@ -1470,6 +1527,18 @@ class PasteAwareTextView: NSTextView {
     /// its line is hidden (`restyle`). Shown, the line is ordinary text and
     /// typed in as text.
     var drawingStandIns = false
+
+    /// WHERE THE CARET STANDS ON THE NEWLINE A PARAGRAPH'S RETURN TYPED INTO
+    /// IT (Sean, 2026-10-03: "a single return should enter a newline, a
+    /// second return should remove that newline, and move the cursor to
+    /// after that cell"). The caret there is on a blank line at the end of
+    /// the cell — which is also where the bar between two cells is read —
+    /// so the bar is NOT armed for it: it is in the cell until it moves
+    /// (`Coordinator.paragraphReturn`).
+    var trailingNewlineAt: Int?
+    /// While that Return is being typed: the selection change it makes is not
+    /// the caret moving away.
+    var typingTrailingNewline = false
 
     /// A DRAWING CELL TAKES NO CHARACTERS (docs: the caret key table,
     /// `DrawingCells.Key`): for anything that writes, the caret in one

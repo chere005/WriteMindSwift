@@ -31,6 +31,14 @@ struct BlockEditor: NSViewRepresentable {
     /// that gains a newline is no longer one item, and the block would be
     /// re-parsed out from under the caret mid-paste.
     var singleLine = false
+    /// A PARAGRAPH'S RETURN IS A NEWLINE, AND ITS SECOND ONE LEAVES (Sean,
+    /// 2026-10-03: "a single return should enter a newline, a second return
+    /// should remove that newline, and move the cursor to after that cell"):
+    /// at the end of the words, Return types a newline into the cell; Return
+    /// again, with that newline the last thing in it, takes it back out and
+    /// puts the cursor on the bar under the cell. False for a heading, which
+    /// is one line and makes the next cell at its end.
+    var leavesOnSecondReturn = false
     /// A list, a quote or a fenced block: Return adds a line to it rather
     /// than starting a new block.
     var keepsNewlines = false
@@ -391,6 +399,17 @@ struct BlockEditor: NSViewRepresentable {
             // typed, so the note holds the same bytes it would from the
             // source pane: at the start of a cell, above the words.
             if parent.singleLine || (caret.length == 0 && caret.location == ns.length) {
+                if parent.leavesOnSecondReturn, !parent.singleLine {
+                    if text.hasSuffix("\n") {
+                        // The newline the last Return put there goes, and the
+                        // cursor with it: down onto the bar under the cell.
+                        view.insertText("", replacementRange: NSRange(location: ns.length - 1, length: 1))
+                        parent.onMove?(.down)
+                    } else {
+                        view.insertText("\n", replacementRange: caret)
+                    }
+                    return true
+                }
                 parent.onSplit?(ns.substring(to: caret.location), ns.substring(from: NSMaxRange(caret)))
                 return true
             }

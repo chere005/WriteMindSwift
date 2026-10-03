@@ -145,6 +145,21 @@ enum Insertion {
                 return made(thing, at: selectionSpot(selection, ns, blocks),
                             holding: selected.trimmingCharacters(in: .newlines), in: text)
             }
+            // THE CELL THE CARET IS IN BECOMES THE BLOCK (Sean, 2026-10-03:
+            // "pressing cmd1-0 should change type of cell cursor is currently
+            // in, or insert a cell of that type if the cursor is horizontal"):
+            // ⌘8 and ⌘9 are the ladder's neighbours, and ⌘1 turns the cell
+            // into a title, not a title next to it. With nothing selected and
+            // the caret in a cell of words, the whole cell goes and the block
+            // that holds its words takes its place; a selection still makes
+            // the block of exactly what is selected (above), and a blank
+            // line, a bar and a fenced cell are the rules above and below.
+            if selection.length == 0,
+               let cell = blocks.first(where: {
+                   $0.range.location <= selection.location && selection.location <= NSMaxRange($0.range)
+               }), holdsWords(cell.block) {
+                return made(thing, at: Spot(removing: cell.range), holding: wordsOf(cell.range, ns), in: text)
+            }
             return made(thing, at: spot(for: selection.location, in: text, blocks), in: text)
         }
     }
@@ -489,6 +504,16 @@ enum Insertion {
         var end = NSMaxRange(line)
         while end > start, isSpace(ns.character(at: end - 1)) { end -= 1 }
         return NSRange(location: start, length: end - start)
+    }
+
+    /// What a cell of words says without its furniture: every line from where
+    /// its words start, markers (a heading's `#`, a bullet, a quote's `>`)
+    /// left off — what a code block made of the cell holds.
+    private static func wordsOf(_ cell: NSRange, _ ns: NSString) -> String {
+        ns.substring(with: cell).components(separatedBy: "\n")
+            .map { String($0.dropFirst(wordsStart($0))) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .newlines)
     }
 
     /// The cells of words: a paragraph, and the cells made of lines.
