@@ -1,0 +1,15 @@
+{"format":"writemind-pen-stream","height":9500,"note":"ten points along a line, the pressure rising from a tenth to full","productID":890,"quarterTurns":1,"source":"virtual","version":1,"width":15200}
+{"report":"02 80 b0 1d 66 21 00 00 14 00","t":0}
+{"report":"02 e0 b0 1d 66 21 00 00 14 00","t":0.0005}
+{"report":"02 e1 b0 1d 66 21 cd 00 00 00","t":0.008}
+{"report":"02 e1 b0 1d 6e 1e 99 01 00 00","t":0.016}
+{"report":"02 e1 b0 1d 76 1b 66 02 00 00","t":0.024}
+{"report":"02 e1 b0 1d 7e 18 33 03 00 00","t":0.032}
+{"report":"02 e1 b0 1d 86 15 00 04 00 00","t":0.04}
+{"report":"02 e1 b0 1d 8e 12 cc 04 00 00","t":0.048}
+{"report":"02 e1 b0 1d 96 0f 99 05 00 00","t":0.056}
+{"report":"02 e1 b0 1d 9e 0c 66 06 00 00","t":0.064}
+{"report":"02 e1 b0 1d a6 09 32 07 00 00","t":0.072}
+{"report":"02 e1 b0 1d ae 06 ff 07 00 00","t":0.08}
+{"report":"02 e0 b0 1d ae 06 00 00 14 00","t":0.088}
+{"report":"02 00 b0 1d ae 06 00 00 00 00","t":0.096}

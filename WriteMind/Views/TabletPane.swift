@@ -105,7 +105,7 @@ struct TabletPane: View {
         case .unplugged:
             placeholder(icon: "cable.connector.slash", title: "\(name) is unplugged",
                         detail: "Plug it back in and the page comes back — or pick a camera.") { InputDevicePicker() }
-        case .standby, .captured, .fallback:
+        case .standby, .captured, .fallback, .virtual:
             page
         }
     }
@@ -238,6 +238,12 @@ struct TabletPane: View {
                 if line.opensSettings {
                     Button("Open Input Monitoring Settings") {
                         if let url = URL(string: Self.inputMonitoringSettings) { NSWorkspace.shared.open(url) }
+                    }
+                    .controlSize(.small)
+                }
+                if line.opensVirtualPanel {
+                    Button("Show the Virtual Tablet") {
+                        VirtualTabletPanel.shared.show(tablets: tablet, appState: appState)
                     }
                     .controlSize(.small)
                 }

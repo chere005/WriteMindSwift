@@ -388,21 +388,6 @@ final class TabletPenTests: XCTestCase {
 
     private func phases(_ samples: [TabletSample]) -> [TabletSample.Phase] { samples.map(\.phase) }
 
-    func testAStrokeIsHoverDownDragUpHover() {
-        XCTAssertEqual(phases(at()), [.hover])
-        let down = at(tip: true, pressure: 0.3)
-        XCTAssertEqual(phases(down), [.down])
-        XCTAssertEqual(down[0].pressure, 0.3)
-        let drag = at(7700, 4750, tip: true, pressure: 0.6)
-        XCTAssertEqual(phases(drag), [.drag])
-        XCTAssertEqual(drag[0].pressure, 0.6)
-        let up = at(7800, 4750)
-        XCTAssertEqual(phases(up), [.up])
-        XCTAssertEqual(up[0].pressure, 0, "the nib has left")
-        XCTAssertEqual(phases(at()), [.hover])
-        XCTAssertTrue(([down, drag, up].flatMap { $0 }).allSatisfy { !$0.sideSwitch && $0.inProximity })
-    }
-
     func testATapIsADownAndAnUp() {
         XCTAssertEqual(phases(at(tip: true, pressure: 0.5)), [.down])
         XCTAssertEqual(phases(at()), [.up])
@@ -415,59 +400,6 @@ final class TabletPenTests: XCTestCase {
         XCTAssertEqual(phases(at(tip: true, pressure: 0.4)), [.down], "no hover first")
         XCTAssertEqual(phases(at(tip: true, pressure: 0.4)), [.drag])
         XCTAssertEqual(phases(at()), [.up], "a hover arriving while down is the up")
-    }
-
-
-    /// THE UPPER SWITCH HELD AS THE NIB GOES DOWN IS A SELECTION, FROM THE
-    /// NIB'S DOWN UNTIL NIB AND SWITCH ARE BOTH UP, and let go mid-drag it is
-    /// still the box (Sean, 2026-10-03: "the other button is hold to drag a
-    /// selector box"). The switch alone, in the air, starts nothing: pressed
-    /// and let go there twice it is a command (below), which it could not be
-    /// while it also began a box.
-    func testTheUpperSwitchHeldAsTheNibGoesDownMakesASelection() {
-        XCTAssertEqual(phases(at()), [.hover])
-        XCTAssertEqual(phases(at(upper: true)), [.hover], "the switch alone, in the air, began a box")
-        XCTAssertFalse(pen.engaged)
-        let down = at(tip: true, upper: true, pressure: 0.5)
-        XCTAssertEqual(phases(down), [.down])
-        XCTAssertTrue(down[0].sideSwitch)
-        XCTAssertFalse(down[0].eraser)
-        XCTAssertTrue(at(7700, 4750, tip: true, upper: true, pressure: 0.5)[0].sideSwitch)
-        XCTAssertTrue(at(7800, 4750, tip: true, pressure: 0.5)[0].sideSwitch,
-                      "the switch let go mid-drag is still the box")
-        let up = at(7800, 4750)
-        XCTAssertEqual(phases(up), [.up])
-        XCTAssertTrue(up[0].sideSwitch)
-        XCTAssertEqual(phases(at()), [.hover], "and letting go after a box is no click")
-        XCTAssertFalse(at()[0].sideSwitch, "a hover is no selection")
-
-        // Ink that has begun stays ink if the switch is pressed under it.
-        XCTAssertFalse(at(tip: true, pressure: 0.5)[0].sideSwitch)
-        XCTAssertFalse(at(tip: true, upper: true, pressure: 0.5)[0].sideSwitch)
-    }
-
-    /// THE LOWER SWITCH HELD AS THE NIB GOES DOWN IS AN ERASER (Sean,
-    /// 2026-10-03: "press and hold to make it an eraser that deletes entire
-    /// strokes"), latched for the stroke as the box is, and never a box.
-    func testTheLowerSwitchHeldAsTheNibGoesDownMakesAnEraser() {
-        _ = at()
-        XCTAssertEqual(phases(at(side: true)), [.hover], "the switch alone, in the air, erased")
-        let down = at(tip: true, side: true, pressure: 0.5)
-        XCTAssertEqual(phases(down), [.down])
-        XCTAssertTrue(down[0].eraser)
-        XCTAssertFalse(down[0].sideSwitch, "an eraser is no box")
-        XCTAssertTrue(at(7700, 4750, tip: true, side: true, pressure: 0.5)[0].eraser)
-        XCTAssertTrue(at(7800, 4750, tip: true, pressure: 0.5)[0].eraser,
-                      "the switch let go mid-stroke: the stroke is still the eraser")
-        let up = at(7800, 4750)
-        XCTAssertEqual(phases(up), [.up])
-        XCTAssertTrue(up[0].eraser)
-        XCTAssertFalse(at()[0].eraser, "a hover erases nothing")
-        XCTAssertEqual(phases(at()), [.hover], "and letting go after an eraser is no click")
-
-        // Ink that has begun stays ink if the switch is pressed under it.
-        XCTAssertFalse(at(tip: true, pressure: 0.5)[0].eraser)
-        XCTAssertFalse(at(tip: true, side: true, pressure: 0.5)[0].eraser)
     }
 
     /// The eraser's switch held on after the nib lifts is the eraser still:
@@ -536,72 +468,6 @@ final class TabletPenTests: XCTestCase {
 
     // MARK: - A click of a side switch
 
-
-    /// A SIDE SWITCH PRESSED TWICE IN THE AIR IS A COMMAND (Sean, 2026-10-03:
-    /// "a double press of that same button is undo", "double tap to redo"):
-    /// two quick taps with the nib up the whole time. It says which switch,
-    /// it fires as the second is LET GO — so that holding it and putting the
-    /// nib down can still be the eraser or the box — and once, however far
-    /// the pen moved meanwhile. One tap alone is nothing.
-    func testADoublePressOfASwitchInTheAirIsTheCommandAndASingleOneNothing() {
-        XCTAssertEqual(phases(at()), [.hover])
-        XCTAssertEqual(phases(at(side: true)), [.hover], "pressed: nothing yet")
-        XCTAssertEqual(pen.armed, .lower)
-        XCTAssertEqual(phases(at(7700, 4750, side: true)), [.hover], "held: it does not repeat")
-        XCTAssertEqual(phases(at(9000, 8000)), [.hover], "one tap alone is nothing")
-        XCTAssertEqual(phases(at(side: true)), [.hover])
-        let click = at(9000, 8000)
-        XCTAssertEqual(phases(click), [.click(.lower)], "the lower switch, pressed twice in the air")
-        XCTAssertFalse(click[0].sideSwitch, "a command, not a selection")
-        XCTAssertFalse(click[0].eraser)
-        XCTAssertEqual(click[0].pressure, 0)
-        XCTAssertTrue(click[0].inProximity, "the marker stays where the pen is")
-        XCTAssertFalse(pen.engaged)
-        XCTAssertNil(pen.armed)
-        XCTAssertEqual(phases(at(9000, 8000)), [.hover], "once a command")
-
-        // A third tap is the first of the next pair.
-        XCTAssertEqual(phases(at(side: true)), [.hover])
-        XCTAssertEqual(phases(at()), [.hover])
-
-        _ = at(upper: true)
-        _ = at()
-        _ = at(upper: true)
-        XCTAssertEqual(phases(at()), [.click(.upper)], "the upper switch, twice")
-    }
-
-    /// Two taps are a double press only if they are the SAME switch, close
-    /// together, and both TAPS — a hold is the eraser or the box, never half
-    /// of a command.
-    func testOnlyTwoQuickTapsOfOneSwitchAreADoublePress() {
-        // Different switches.
-        _ = at(side: true, time: 10.000)
-        _ = at(time: 10.050)
-        _ = at(upper: true, time: 10.100)
-        XCTAssertEqual(phases(at(time: 10.150)), [.hover], "a tap of each is no command")
-
-        // Too far apart.
-        _ = at(side: true, time: 20.000)
-        _ = at(time: 20.050)
-        _ = at(side: true, time: 21.000)
-        XCTAssertEqual(phases(at(time: 21.050)), [.hover], "a second tap a second later")
-
-        // A hold between them.
-        _ = at(side: true, time: 30.000)
-        _ = at(time: 30.050)
-        _ = at(side: true, time: 30.100)
-        XCTAssertEqual(phases(at(time: 31.000)), [.hover], "the second press was held, not tapped")
-        _ = at(side: true, time: 31.100)
-        XCTAssertEqual(phases(at(time: 31.150)), [.hover], "and a hold leaves no tap behind it")
-
-        // And the real thing, right after.
-        _ = at(side: true, time: 32.000)
-        _ = at(time: 32.050)
-        _ = at(side: true, time: 32.100)
-        XCTAssertEqual(phases(at(time: 32.150)), [.click(.lower)])
-    }
-
-
     func testAReleaseSeenTwiceIsOneClick() {
         _ = at(time: 10)
         _ = at(side: true, time: 10.008)
@@ -609,36 +475,6 @@ final class TabletPenTests: XCTestCase {
         _ = at(side: true, time: 10.024)
         XCTAssertEqual(phases(at(time: 10.032)), [.click(.lower)])
         XCTAssertEqual(at(time: 10.032), [], "the copy clicked again")
-    }
-
-    /// NOT WHILE THE NIB IS DOWN: a switch pressed and let go under a
-    /// stroke of ink, or under a box, is no command — the stroke goes on as
-    /// it was — and one pressed under ink and let go after the lift is
-    /// none either.
-    func testASwitchPressedWhileTheNibIsDownIsNoClick() {
-        var seen: [TabletSample.Phase] = []
-        seen += phases(at(tip: true, pressure: 0.5))
-        seen += phases(at(7700, 4750, tip: true, side: true, pressure: 0.5))
-        seen += phases(at(7800, 4750, tip: true, pressure: 0.5))
-        seen += phases(at(7900, 4750, tip: true, upper: true, pressure: 0.5))
-        seen += phases(at(8000, 4750, tip: true, pressure: 0.5))
-        seen += phases(at(8000, 4750))
-        XCTAssertEqual(seen, [.down, .drag, .drag, .drag, .drag, .up], "a switch under the ink did something")
-
-        // Under a box: the lower one pressed while the upper holds the box.
-        _ = at(upper: true)
-        seen = phases(at(tip: true, upper: true, pressure: 0.5))
-        seen += phases(at(7700, 4750, tip: true, side: true, upper: true, pressure: 0.5))
-        seen += phases(at(7800, 4750, tip: true, upper: true, pressure: 0.5))
-        seen += phases(at(7800, 4750, upper: true))
-        seen += phases(at(7800, 4750))
-        XCTAssertEqual(seen, [.down, .drag, .drag, .drag, .up], "a switch under the box did something")
-
-        // Pressed under ink, let go after the lift.
-        _ = at(tip: true, pressure: 0.5)
-        _ = at(tip: true, upper: true, pressure: 0.5)
-        XCTAssertEqual(phases(at(upper: true)), [.up])
-        XCTAssertEqual(phases(at()), [.hover], "the nib touched while it was held")
     }
 
     /// THE PRESS HAS TO BE SEEN, IN REACH. A switch already held as the pen

@@ -565,6 +565,26 @@ is how the code is put together.
   notes'. Picking the notebook brings the notes into view if they were
   put away, and the page may be hidden while you write in the notes; with
   no note on screen the pen is a pointer again, and the page says so.
+- **Try the pen with no tablet plugged in.** For developing pen features:
+  **Input Devices ▸ Tablet Developer ▸ Virtual Tablet** (off until you tick
+  it) adds a **Virtual Tablet (developer)** to the tablets; pick it and a small
+  window opens with a **pad** drawn as the page lies. The pointer over the pad
+  is the pen hovering and pressing is the nib going down; the slider (or the
+  keys 1–9 and 0, `[` `]`, or the scroll wheel) is how hard. Each side switch is
+  a button — **Hold**, **Tap**, **Double** — so the eraser (the lower held),
+  the box (the upper held), undo (the lower, double) and redo (the upper,
+  double) can all be tried by hand, with ⇧ held over the pad for the lower
+  switch and ⌥ for the upper, while you draw. The page, the notebook and Fit |
+  Real size work as with the tablet. **A real tablet plugged in always
+  wins**: it takes the pen, and the virtual tablet is idle until it is
+  unplugged. **Record Pen Session** writes down what the page hears
+  (`pen-<date>.ndjson` in Application Support/WriteMind/PenRecordings) and
+  **Replay Pen Session…** plays one back at real speed, at 2×, or one event at
+  a time — so a pen bug seen once is a file. Whatever they did (saved, nothing
+  heard, a file that cannot be played, a replay that would not be heard) is said
+  in the footer (a line at the foot of the window when the notes are put away or
+  no note is open) and at the foot of that menu, whichever tablet is picked.
+  `docs/WACOM-DEV.md` has the step-by-step.
 - **A bar you can put away a piece at a time.** The toolbar is in
   sections — Style, Structure, Insert, Maths, Flow Chart, Capture — and the
   grip at the end of each one folds it down to a single icon; right-click

@@ -13,6 +13,11 @@ struct TabletDevice: Identifiable, Hashable {
     let model: String
     let productID: Int
     let serial: String?
+    /// THE DEVELOPER'S STAND-IN, not a device on the USB bus (`VirtualTablet`):
+    /// it speaks through the funnel's one door like the real one and is
+    /// listed only while a developer has switched it on and no real tablet
+    /// is plugged in (`TabletSourcePolicy`).
+    let isVirtual: Bool
 
     static let wacomVendorID = 0x056A
 
@@ -24,7 +29,21 @@ struct TabletDevice: Identifiable, Hashable {
         self.serial = (serial?.isEmpty ?? true) ? nil : serial
         name = Self.friendlyName(model: model, productID: productID)
         id = "wacom-" + String(format: "%04x", productID) + "-" + (self.serial ?? "")
+        isVirtual = false
     }
+
+    private init(virtualWithProductID productID: Int) {
+        model = Self.models[productID] ?? ""
+        self.productID = productID
+        serial = nil
+        name = "Virtual Tablet (developer)"
+        id = "virtual-tablet"
+        isVirtual = true
+    }
+
+    /// The virtual tablet has the small One by Wacom's field — the table
+    /// knows it by its product id — and no serial.
+    static let virtual = TabletDevice(virtualWithProductID: 0x037A)
 
     /// The family a model belongs to, by the product string it reports —
     /// the box says "One by Wacom", the USB descriptor says "CTL-472".
@@ -82,6 +101,9 @@ final class TabletController: ObservableObject {
         /// WriteMind cannot hold it, and why. The page still takes the pen
         /// from what the driver posts; the pointer moves with it.
         case fallback(TabletCapture.Refusal)
+        /// The tablet that is the input is the VIRTUAL one: its pen is the
+        /// pad on screen, there is nothing to seize and nothing to ask.
+        case virtual
     }
 
     static let shared = TabletController()
@@ -101,6 +123,14 @@ final class TabletController: ObservableObject {
 
     /// The funnel the pen comes through, by either route.
     let input: TabletInput
+    /// The developer's tools: the virtual tablet, recording and replay of a
+    /// pen session. Off unless a developer switched them on.
+    let developer: TabletDeveloper
+    /// The real HID reader as a source — its reports reach the funnel by
+    /// the same door the virtual tablet's do.
+    private let hidSource = HIDTabletSource()
+    /// The real tablets on the bus, apart from the stand-in the list adds.
+    private var realTablets: [TabletDevice] = []
 
     private let defaults: UserDefaults
     private let hid: TabletHID
@@ -147,7 +177,17 @@ final class TabletController: ObservableObject {
         self.defaults = defaults
         self.hid = hid
         self.input = input
+        developer = TabletDeveloper(defaults: defaults, input: input)
         appActive = live && (NSApp?.isActive ?? false)
+        // THE SOURCES, at the one door: the real HID reader and the virtual
+        // tablet are interchangeable there, and who is heard is the
+        // policy's (`list`).
+        input.attach(hidSource)
+        input.attach(developer.virtual)
+        developer.virtual.geometry = { [weak input] in (input?.extent ?? .fallback, input?.quarterTurns ?? 1) }
+        developer.productID = { [weak self] in self?.selectedTablet?.productID }
+        developer.onVirtualChange = { [weak self] _ in self?.virtualChanged() }
+        list()
         // The page and the notes come and go on the main thread, from their
         // panes; the target changes there too.
         input.targetShowingChanged = { [weak self] _ in
@@ -173,16 +213,31 @@ final class TabletController: ObservableObject {
         select(tablet, picked: true)
     }
 
-    /// No tablet: the pane goes back to the camera's.
+    /// No tablet: the pane goes back to the camera's. A REAL tablet turned off
+    /// is forgotten (a launch no longer comes up on it); THE STAND-IN WAS
+    /// NEVER REMEMBERED, so turning it off — the developer's switch going
+    /// off, "Turn Tablet Off" — forgets nothing: what the defaults hold is
+    /// the real tablet picked before it, and that stays the pick.
     func turnOff() {
         guard selectedTabletID != nil else { return }
+        let wasVirtual = selectedTabletID == TabletDevice.virtual.id
         selectedTabletID = nil
         selectedName = nil
-        defaults.removeObject(forKey: Keys.lastTablet)
-        defaults.removeObject(forKey: Keys.lastTabletName)
+        if !wasVirtual { forgetRemembered() }
         extentTabletID = nil
         evaluate()
+        // The virtual pen goes out of reach with its tablet, so it is not
+        // left standing near a page that is no longer its.
+        developer.virtual.penAway()
         input.stop()
+    }
+
+    /// A launch comes up on no tablet. Picking a camera says it for the real
+    /// tablet remembered whatever is the input now — the two picks are
+    /// exclusive — and a real tablet turned off says it for itself.
+    func forgetRemembered() {
+        defaults.removeObject(forKey: Keys.lastTablet)
+        defaults.removeObject(forKey: Keys.lastTabletName)
     }
 
     private func select(_ tablet: TabletDevice, picked: Bool) {
@@ -192,10 +247,22 @@ final class TabletController: ObservableObject {
             input.extent = TabletExtent.known(productID: tablet.productID) ?? .fallback
             extentTabletID = tablet.id
         }
+        // The stand-in's pen is let go of when a real tablet takes its place
+        // — its reports are "raw" ones too, and while the funnel believes
+        // the tablet is delivering it ignores the driver's events, which
+        // the real tablet's fallback needs.
+        if selectedTabletID == TabletDevice.virtual.id, !tablet.isVirtual {
+            developer.virtual.penAway()
+            input.rawEnded(at: ProcessInfo.processInfo.systemUptime)
+        }
         selectedTabletID = tablet.id
         selectedName = tablet.name
-        defaults.set(tablet.id, forKey: Keys.lastTablet)
-        defaults.set(tablet.name, forKey: Keys.lastTabletName)
+        // THE STAND-IN IS NEVER REMEMBERED: a launch never comes up with a
+        // virtual pen, and the real tablet picked before stays the pick.
+        if !tablet.isVirtual {
+            defaults.set(tablet.id, forKey: Keys.lastTablet)
+            defaults.set(tablet.name, forKey: Keys.lastTabletName)
+        }
         reportsLogged = 0
         unknownKinds = []
         firstReadingLogged = false
@@ -225,6 +292,12 @@ final class TabletController: ObservableObject {
     /// as looked up. `picked` only from `pick`.
     private func evaluate(picked: Bool = false) {
         let tablet = selectedTablet
+        // THE VIRTUAL TABLET HAS NOTHING TO HOLD: no HID device, no Input
+        // Monitoring, no question. Whatever the real tablet had is let go.
+        if tablet?.isVirtual == true {
+            run(capture.changed(TabletCapture.Conditions(), access: .undecided))
+            return
+        }
         let conditions = TabletCapture.Conditions(productID: tablet?.productID,
                                                   targetShowing: input.targetIsShowing, active: appActive)
         var access = TabletCapture.Access.undecided
@@ -284,12 +357,12 @@ final class TabletController: ObservableObject {
             run(giveUp)
         }
         guard let packet else { return }
-        let reading = packet.reading(at: time)
         if !firstReadingLogged {
             firstReadingLogged = true
-            log("tablet: first raw reading — \(packet) taken as \(reading.kind)")
+            log("tablet: first raw reading — \(packet) taken as \(packet.reading(at: time).kind)")
         }
-        input.raw(reading)
+        // By the one door, as the virtual tablet's reports come.
+        hidSource.emit(.report(bytes), at: time)
     }
 
     /// NOT ONE LINE PER SAMPLE: the first few reports of a pick, whole, and
@@ -316,6 +389,8 @@ final class TabletController: ObservableObject {
             now = .off
         } else if selectedTablet == nil {
             now = .unplugged
+        } else if selectedTablet?.isVirtual == true {
+            now = .virtual
         } else if capture.isCaptured {
             now = .captured(driverStillPosts: input.driverStillPosts)
         } else if let refusal = capture.refusal {
@@ -364,8 +439,20 @@ final class TabletController: ObservableObject {
 
     /// A Wacom arrived on the USB bus.
     func plugged(_ tablet: TabletDevice, registryID: UInt64, settle: TimeInterval = TabletController.settle) {
+        // THE REAL TABLET WINS (`TabletSourcePolicy`): with the virtual one
+        // the input, a real one plugged in takes the pen — after it has
+        // settled, as a remembered pick does — and the stand-in falls idle.
+        let wasVirtual = selectedTablet?.isVirtual == true
         byRegistryID[registryID] = tablet
         list()
+        if wasVirtual {
+            after(settle) { [weak self] in
+                guard let self, self.selectedTabletID == TabletDevice.virtual.id,
+                      self.tablets.contains(tablet) else { return }
+                self.select(tablet, picked: false)
+            }
+            return
+        }
         guard tablet.id == selectedTabletID, status == .unplugged else { return }
         // The pick is back: take the pen again, asking nothing.
         after(settle) { [weak self] in
@@ -384,9 +471,27 @@ final class TabletController: ObservableObject {
 
     private func list() {
         var seen = Set<String>()
-        tablets = byRegistryID.values
+        realTablets = byRegistryID.values
             .filter { seen.insert($0.id).inserted }
             .sorted { $0.name == $1.name ? $0.id < $1.id : $0.name < $1.name }
+        // THE STAND-IN IS LISTED ONLY WHEN IT CAN BE HEARD: switched on, and
+        // no real tablet plugged in. The funnel's policy says the same, so
+        // the list and the door agree.
+        let policy = TabletSourcePolicy(developerOn: developer.virtualEnabled, realConnected: !realTablets.isEmpty)
+        input.policy = policy
+        tablets = realTablets + (policy.admits(.virtual) ? [TabletDevice.virtual] : [])
+        developer.silence = policy.silence
+        // The stand-in was the input and is gone — switched off — and no
+        // real tablet is there to take over: the pick goes with it.
+        if selectedTabletID == TabletDevice.virtual.id, selectedTablet == nil, realTablets.isEmpty {
+            turnOff()
+        }
+    }
+
+    /// The developer's switch moved.
+    private func virtualChanged() {
+        list()
+        refresh()
     }
 
     private func after(_ delay: TimeInterval, _ work: @escaping @MainActor () -> Void) {
@@ -399,6 +504,7 @@ final class TabletController: ObservableObject {
         case .off: return "off"
         case .unplugged: return "unplugged"
         case .standby: return "standby"
+        case .virtual: return "virtual"
         case .captured(let driverStillPosts):
             return driverStillPosts ? "captured (the driver still posts)" : "captured"
         case .fallback(let refusal):
@@ -511,7 +617,20 @@ enum InputDevices {
 
     /// A camera: the pane goes back to video.
     static func pick(cameraID: String, cameras: CameraController, tablets: TabletController) {
+        // The camera is the pick now, so no tablet comes back at launch: not
+        // even the real one remembered behind the virtual tablet.
+        tablets.forgetRemembered()
         tablets.turnOff()
         cameras.select(deviceID: cameraID)
     }
+}
+
+
+/// THE REAL HID READER, AS A SOURCE: the controller seizes the device and
+/// says what it reports through this, so the tablet's own reports and the
+/// virtual tablet's reach the funnel by one door (`TabletInput.receive`).
+@MainActor
+final class HIDTabletSource: TabletSource {
+    let kind = TabletSourceKind.hid
+    var door: ((PenStreamEvent, TimeInterval) -> Void)?
 }

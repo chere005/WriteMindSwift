@@ -84,18 +84,15 @@ final class TabletEraserTests: XCTestCase {
 
     @MainActor
     func testTheScribeErasesOnThePageAndClaimsCommandZ() {
-        let page = TabletPage(url: nil)
-        let scribe = TabletScribe(page: page, input: nil)
+        let rig = TabletRig()
         var wrote = 0
-        scribe.onWrite = { wrote += 1 }
+        rig.scribe.onWrite = { wrote += 1 }
         let line = Stroke(colorHex: "#000000", width: 3, points: [CGPoint(x: 0.2, y: 0.5), CGPoint(x: 0.8, y: 0.5)])
-        page.commit(line)
-        scribe.consume(sample(0.5, 0.4, .down))
-        scribe.consume(sample(0.5, 0.6, .drag))
-        scribe.consume(sample(0.5, 0.6, .up))
-        XCTAssertTrue(page.strokes.isEmpty)
+        rig.page.commit(line)
+        rig.pen.hover(0.5, 0.4).hold(.lower) { rig.pen.down().line(to: 0.5, 0.6).up() }
+        XCTAssertTrue(rig.page.strokes.isEmpty)
         XCTAssertGreaterThan(wrote, 0, "⌘Z is the page's")
-        XCTAssertNil(scribe.stroke)
+        XCTAssertNil(rig.scribe.stroke)
     }
 
     // MARK: - Over the notes

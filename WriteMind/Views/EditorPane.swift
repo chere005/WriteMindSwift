@@ -224,7 +224,9 @@ struct EditorPane: View {
                         ProgressView().controlSize(.mini)
                         Text("Reading the page…")
                     } else if let notice = store.captureNotice {
-                        Text(notice).foregroundStyle(Color.accentColor).lineLimit(1)
+                        // The whole line on hover: a long notice (the pen
+                        // developer's) is cut to what the footer has room for.
+                        Text(notice).foregroundStyle(Color.accentColor).lineLimit(1).help(notice)
                     }
                     Spacer()
                     // WHICH MODE, in the footer. A pane that swallows

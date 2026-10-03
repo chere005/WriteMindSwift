@@ -48,6 +48,11 @@ struct WriteMindApp: App {
                     didRestoreSession = true
                     restoreSession()
                 }
+                // The pen developer's messages — a recording saved, nothing
+                // heard, a file that cannot be played, a replay that would
+                // not be heard — go to the footer as well as the panel, which
+                // is up only while the virtual tablet is the pick.
+                .onAppear { tablet.developer.say(in: store) }
                 .onReceive(NotificationCenter.default.publisher(
                     for: NSApplication.willTerminateNotification)) { _ in
                     cacheSession()
@@ -60,6 +65,13 @@ struct WriteMindApp: App {
                 .onReceive(tablet.$selectedTabletID) { picked in
                     appState.follow(tabletPicked: picked != nil)
                     if picked != nil { _ = TabletScribe.shared }
+                    // The virtual tablet's pad comes up with the virtual
+                    // tablet picked, and goes with it.
+                    if picked == TabletDevice.virtual.id {
+                        VirtualTabletPanel.shared.show(tablets: tablet, appState: appState)
+                    } else {
+                        VirtualTabletPanel.shared.hide()
+                    }
                 }
                 // Where the pen writes, and how the tablet is held, handed
                 // to the funnel here and nowhere else: the page's pane and
@@ -260,7 +272,7 @@ struct WriteMindApp: App {
             FormatMenu(appState: appState, store: store)
             InsertMenu(appState: appState, store: store)
 
-            InputDevicesMenu(camera: camera, tablet: tablet, appState: appState)
+            InputDevicesMenu(camera: camera, tablet: tablet, developer: tablet.developer, appState: appState)
         }
     }
 }
@@ -533,6 +545,7 @@ struct ProjectMenu: Commands {
 struct InputDevicesMenu: Commands {
     @ObservedObject var camera: CameraController
     @ObservedObject var tablet: TabletController
+    @ObservedObject var developer: TabletDeveloper
     @ObservedObject var appState: AppState
 
     var body: some Commands {
@@ -600,6 +613,88 @@ struct InputDevicesMenu: Commands {
 
             Button("Refresh Device List") { camera.refreshDevices() }
                 .shortcut(.refreshDevices)
+
+            Divider()
+
+            TabletDeveloperMenu(tablet: tablet, developer: developer, appState: appState)
+        }
+    }
+}
+
+/// What the Tablet Developer menu says and offers, from where the tools stand
+/// — a value, so a test can read it in every state (the view only draws it).
+struct TabletDeveloperMenuModel: Equatable {
+    /// Why the stand-ins are silent, in words — nil while they are heard.
+    var silence: String?
+    var recordTitle: String
+    /// "Show Virtual Tablet Window" and the whole Replay Pen Session menu
+    /// need the switch.
+    var showWindowEnabled: Bool
+    var replayEnabled: Bool
+    /// Next Event and Stop Replay need a replay in hand, and Next one that is
+    /// not finished.
+    var nextEventEnabled: Bool
+    var stopReplayEnabled: Bool
+    /// The last thing done or gone wrong, kept at the head of the menu so it
+    /// can be read whatever the pick (the footer says it for five seconds).
+    var status: String?
+
+    @MainActor
+    init(_ developer: TabletDeveloper) {
+        silence = developer.silence
+        recordTitle = developer.isRecording ? "Stop Recording Pen Session" : "Record Pen Session"
+        showWindowEnabled = developer.virtualEnabled
+        replayEnabled = developer.virtualEnabled
+        nextEventEnabled = developer.replay != nil && developer.replay?.state != .finished
+        stopReplayEnabled = developer.replay != nil
+        status = developer.status
+    }
+}
+
+/// "Tablet Developer", under Input Devices (Sean, 2026-10-03: "make sure i can
+/// develop wacom features without a device plugged in"): the virtual tablet,
+/// and recording and replaying a pen session. OFF unless switched on, and a
+/// real tablet plugged in wins whatever is switched on here
+/// (`TabletSourcePolicy`) — so a release user's flow never has a virtual pen
+/// in it.
+struct TabletDeveloperMenu: View {
+    @ObservedObject var tablet: TabletController
+    @ObservedObject var developer: TabletDeveloper
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        let menu = TabletDeveloperMenuModel(developer)
+        Menu("Tablet Developer") {
+            Toggle("Virtual Tablet", isOn: $developer.virtualEnabled)
+            Button("Show Virtual Tablet Window") {
+                VirtualTabletPanel.shared.show(tablets: tablet, appState: appState)
+            }
+            .disabled(!menu.showWindowEnabled)
+            if let silence = menu.silence {
+                Text(silence)
+            }
+
+            Divider()
+
+            Button(menu.recordTitle) {
+                if developer.isRecording { developer.stopRecording() } else { developer.startRecording() }
+            }
+            Menu("Replay Pen Session") {
+                Button("At Real Speed…") { developer.chooseAndPlay(speed: 1) }
+                Button("At Double Speed…") { developer.chooseAndPlay(speed: 2) }
+                Button("One Event at a Time…") { developer.chooseAndPlay(stepping: true) }
+                Divider()
+                Button("Next Event") { developer.replay?.step() }
+                    .disabled(!menu.nextEventEnabled)
+                Button("Stop Replay") { developer.stopReplay() }
+                    .disabled(!menu.stopReplayEnabled)
+            }
+            .disabled(!menu.replayEnabled)
+            Button("Show Pen Recordings in Finder") { developer.revealRecordings() }
+            if let status = menu.status {
+                Divider()
+                Text(status)
+            }
         }
     }
 }

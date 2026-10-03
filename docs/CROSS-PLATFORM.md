@@ -636,6 +636,73 @@ to the entire visible screen". Only with a tablet writing in the notebook.
   same width for both so the row does not change size between modes), a View
   menu item, remembered.
 
+### The pen develops with no tablet: one door, a virtual tablet, record and replay
+Sean, 2026-10-03: "make sure i can develop wacom features without a device
+plugged in".
+- **One door for every source of pen data.** The funnel takes the tablet's own
+  word — a raw 10-byte pen report (id 2, flags, x, y, pressure, distance: the
+  layout in "The app takes the tablet itself" below) — tagged with where it came from: the
+  real tablet's reports, the driver's events (the fallback, which has no bytes
+  and is read into a reading), the virtual tablet, or a replay. Every source goes
+  through the same packet reading and the same pen state machine, so a feature
+  tried with no tablet is tried through the real path. Who is HEARD is one
+  rule: the real tablet always; the virtual tablet and a replay only when a
+  developer switch is on AND no real tablet is plugged in. **The real device
+  wins** the moment it is plugged in (a virtual pick hands the pen over), and the
+  stand-ins are OFF by default and never active in a normal user's flow.
+- **The virtual tablet** is a tablet in the Tablets list ("Virtual Tablet
+  (developer)", the small One's field) listed only while switched on and no real
+  one is plugged in; picking it asks and opens nothing; it is never remembered
+  (a launch never starts in it). A small window beside the app holds a **pad**
+  drawn at the page's shape (the tablet as it lies, turned like the page, its
+  light where the light is): the pointer over it is the pen hovering, pressing is
+  the nib down, the pad's point is turned back into the raw counts the real
+  tablet would report there. A pressure slider (keys 1–9 = a tenth … nine tenths,
+  0 = full, `[` `]` a step, the wheel); each side switch as **Hold** (latched),
+  **Tap** (80 ms) and **Double** (two taps 120 ms apart); an **Eraser** toggle,
+  which is the lower switch latched (this pen has no eraser end); ⇧ over the pad
+  is the lower switch and ⌥ the upper, held for as long as they are down (hold
+  one while drawing). The pen stays near, where it was, when the pointer leaves
+  the pad (to reach a switch's button) and goes only when told ("Take the pen
+  away"), when the window closes or the tablet is un-picked. A press or lift where
+  the pen already is reports no new place. Reports carry strictly increasing
+  times (two with one time are one report seen twice).
+- **Record and replay.** A session is written as NDJSON — a header (format
+  `writemind-pen-stream`, version 1, source, USB product id, the field in counts,
+  how the tablet was held, a note), then one line per event: `{"report":"02 e0
+  b0 1d 8e 12 00 00 14 00","t":0.008}`, `t` seconds from the first event rounded
+  to the microsecond, keys sorted so two recordings of one session are the same
+  bytes; a session of the driver's events is `{"reading":{…},"t":…}`. A file that
+  is not whole is refused with its line number — and a file is NOT TRUSTED: the
+  field and every count are finite and at most 65535 (a report carries a count in
+  two bytes), a pressure is 0…1, `t` is finite, 0 to a day and never before the
+  event above it, a report is ten bytes with id 2, and the port clamps a number
+  before it makes an integer of it (a count of 1e30 must be the edge of the field,
+  never a crash). **Replay** plays on the field it
+  was recorded on, at real speed, a multiple of it (waiting is `gap / speed`;
+  "max" is none), or one event at a time; THE PEN READS THE RECORDED TIMES at
+  every speed (the stamps are the recorded ones from a fresh base), so a double
+  press is a double press at 16×; stopping lifts the pen where it was; a second
+  replay never repeats the first's stamps. A replay needs what a pen needs: the
+  switch on, no real tablet, a tablet picked, the page or a note on screen — and
+  says which is missing. Recordings are kept in a visible folder in the app's
+  data folder. Everything it says — recording, saved and where, nothing heard, a
+  file that cannot be played and its line, a replay that would not be heard — is
+  said in the app's footer whatever is picked (the virtual tablet's window is up
+  only while it is the pick; where the footer is not on screen — notes put away,
+  the page whole-window, no note open — in a line at the foot of the window), at
+  the foot of the developer menu and in the window.
+- **Tests write the gesture** — a chain over the virtual pen on a clock that never
+  sleeps: hover, down, move, up, hold(lower){…}, tap, doublePress, wait — in page
+  fractions, through the whole path into the page and into the notebook. Six small
+  recorded fixtures (a stroke, a box select, a lower-hold erase, a double press
+  for undo, a double tap for redo, a pressure ramp) are in `WriteMindTests/
+  Fixtures` in this app: the files are plain NDJSON of raw reports (and a
+  recording made on the real tablet is just another file there, held only to being
+  whole and replaying), so the port can replay the very same sessions and assert the same outcomes (one stroke of
+  seven points; a box from (0.2, 0.2) to (0.7, 0.6); the stroke erased; undone;
+  undone then redone; ten points with rising pressure).
+
 ### The Wacom pen's buttons: hold = eraser / box, double press = undo / redo
 Sean, 2026-10-03: "the undo button on the wacom pen should actually be a press
 and hold to make it an eraser that deletes entire strokes .. a double press of
