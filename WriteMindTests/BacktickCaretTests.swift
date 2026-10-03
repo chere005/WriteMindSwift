@@ -390,6 +390,25 @@ final class SelectingAcrossBackticksTests: XCTestCase {
         XCTAssertEqual(end, (note as NSString).length, "and gets to the end of the note")
     }
 
+    func testOptionShiftRightStopsAtEachBacktickAsInAnyEditor() {
+        // What docs/FEATURES.md says of ⌥⇧→: by words, and a backtick is a
+        // word of its own to AppKit, so it stops either side of each one —
+        // one character at a time is ⇧→'s. (Measured 2026-10-03: ends 5, 7,
+        // 10, 11, 15, 21 on this note.) Pinned so the claim stays honest.
+        let note = "alpha\n`foo` bar\nomega"
+        let pane = TickPane(note)
+        pane.caret(at: 0)
+        var stops: [Int] = []
+        for _ in 1...8 {
+            pane.key(optionShiftRight)
+            stops.append(NSMaxRange(pane.selection))
+        }
+        XCTAssertTrue(stops.contains(7), "after the opening tick: \(stops)")
+        XCTAssertTrue(stops.contains(10), "at the end of the word inside: \(stops)")
+        XCTAssertTrue(stops.contains(11), "after the closing tick: \(stops)")
+        XCTAssertGreaterThan(stops.firstIndex(of: 11) ?? 0, stops.firstIndex(of: 7) ?? 99)
+    }
+
     func testTheRenderedCellsSelectionGoesThroughATickToo() {
         // A cell of several lines: the editor hides the markers of the lines
         // the caret is not on, exactly as the pane does.

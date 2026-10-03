@@ -154,12 +154,15 @@ is how the code is put together.
   drawn indented and stays a paragraph — so Tab is safe anywhere.
 - **A backtick is a character like any other to the cursor** (Sean,
   2026-10-03: "cursor behavior around backticks is very weird"). Shift-arrow
-  and ⌥⇧-arrow walk a selection through a line with a code span in it one
-  character at a time — a selection shows its markers at both ends while it is
-  made — and a double click takes the word under the pointer, not the
-  backtick beside it. ⌫ and ⌦ take the ONE backtick next to the cursor, in
-  both panes, not its partner at the far end of the span (a selection that
-  cuts a span in half still takes the other tick with it, in both). A fence
+  walks a selection through a line with a code span in it one character at a
+  time, and ⌥⇧-arrow goes forward by words (it stops at each backtick, as it
+  does in any editor) without ever giving ground back — a selection shows its
+  markers at both ends while it is made — and a double click takes the word
+  under the pointer, not the backtick beside it, on a line the cursor was
+  already in or one it has just arrived at. ⌫ and ⌦ take the ONE backtick
+  next to the cursor, in both panes, not its partner at the far end of the
+  span (a selection that cuts a span in half still takes the other tick with
+  it, in both). A fence
   line is edited like any other line — ⌫ in "```python" takes a letter — and
   the line breaks that make a fence are not taken by a key: ⌫ at the start of
   the first line of code, or ⌦ at the end of the fence line, does nothing,
