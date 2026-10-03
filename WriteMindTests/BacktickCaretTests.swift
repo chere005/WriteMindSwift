@@ -140,6 +140,37 @@ final class TickPane {
         tv.mouseDown(with: event(.leftMouseDown, down))
     }
 
+    /// A press at a character, a drag THROUGH several others (an event each,
+    /// the way a real drag arrives) and the release at the last. Every point
+    /// is worked out FIRST, from the layout the press is aimed at. Returns
+    /// the selection at each announcement AppKit made of it
+    /// (`didChangeSelection`) while the gesture ran.
+    @discardableResult
+    func drag(from character: Int, through path: [Int]) -> [NSRange] {
+        func place(_ character: Int) -> NSPoint {
+            let at = point(of: character)
+            return tv.convert(NSPoint(x: at.x + 2, y: at.y + 8), to: nil)
+        }
+        func event(_ type: NSEvent.EventType, _ at: NSPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: at, modifierFlags: [],
+                               timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                               clickCount: 1, pressure: 1)!
+        }
+        let down = place(character)
+        let points = path.map(place)
+        var announced: [NSRange] = []
+        let token = NotificationCenter.default.addObserver(forName: NSTextView.didChangeSelectionNotification,
+                                                           object: tv, queue: nil) { [unowned self] _ in
+            announced.append(self.selection)
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        for point in points { NSApp.postEvent(event(.leftMouseDragged, point), atStart: false) }
+        NSApp.postEvent(event(.leftMouseUp, points.last ?? down), atStart: false)
+        tv.mouseDown(with: event(.leftMouseDown, down))
+        return announced
+    }
+
     /// The text with `|` for the caret, `[ ]` round a selection and ⟨ ⟩
     /// round every character that is hidden — what a failure should show.
     func show() -> String {
@@ -454,6 +485,90 @@ final class DoubleClickAcrossBackticksTests: XCTestCase {
         XCTAssertEqual(cell.selectedText, "bar", cell.show())
     }
 
+    // MARK: the layout the pointer was aimed at
+
+    /// A double click on a line the caret is ALREADY IN: click 1 changes
+    /// nothing on screen, so click 2 is read against the layout on screen.
+    /// Hiding the line "again" put every word the width of its markers to
+    /// the left of where the pointer was aimed — double-click the last
+    /// letter of "bar" and "baz" was taken (review, 2026-10-03).
+    func testDoubleClickOnALineTheCaretIsAlreadyInTakesTheWordUnderThePointer() {
+        // 0123456789...  "`foo` bar baz": foo 7-9, bar 12-14, baz 16-18
+        for (word, character) in [("foo", 8), ("bar", 12), ("bar", 14), ("baz", 16), ("baz", 18)] {
+            let pane = TickPane(note)
+            pane.caret(at: 8)
+            pane.doubleClick(on: character)
+            XCTAssertEqual(pane.selectedText, word, "\(word) at \(character): \(pane.show())")
+        }
+    }
+
+    func testTheRenderedCellsDoubleClickOnALineTheCaretIsAlreadyInAgrees() {
+        let cell = TickCell("alpha\n`foo` bar baz")
+        cell.caret(at: 8)
+        cell.doubleClick(on: 14)
+        XCTAssertEqual(cell.selectedText, "bar", cell.show())
+    }
+
+    /// The hidden width in front of the word is five characters for a `wl:`
+    /// span and a whole URL for a link, so a short word after one is the
+    /// one most easily missed. Both ways in: the caret already in the line,
+    /// and arriving from another.
+    func testDoubleClickOnAShortWordAfterAMathsSpanTakesIt() {
+        // "`wl:x+1` ok go": ok 15-16, go 18-19
+        let note = "alpha\n`wl:x+1` ok go\nomega"
+        for caret in [10, 0] {
+            for (word, character) in [("ok", 15), ("ok", 16), ("go", 18), ("go", 19)] {
+                let pane = TickPane(note)
+                pane.caret(at: caret)
+                pane.doubleClick(on: character)
+                XCTAssertEqual(pane.selectedText, word, "caret \(caret), \(word) at \(character): \(pane.show())")
+            }
+        }
+    }
+
+    func testDoubleClickOnAShortWordAfterALinkTakesIt() {
+        // "[site](http://example.com) to go": to 33-34, go 36-37
+        let note = "alpha\n[site](http://example.com) to go\nomega"
+        for caret in [8, 0] {
+            for (word, character) in [("to", 33), ("to", 34), ("go", 36), ("go", 37)] {
+                let pane = TickPane(note)
+                pane.caret(at: caret)
+                pane.doubleClick(on: character)
+                XCTAssertEqual(pane.selectedText, word, "caret \(caret), \(word) at \(character): \(pane.show())")
+            }
+        }
+    }
+
+    /// The paragraph the caret LEAVES wraps differently with its markers
+    /// hidden, so the first click moves the line under it, and the second
+    /// is aimed — by the pointer, which has not moved — at where that line
+    /// was. It has to be read against the layout the first click saw.
+    func testDoubleClickOnALineUnderTheParagraphTheCaretLeavesTakesTheWordUnderThePointer() {
+        guard let wrapping = noteWhoseFirstParagraphWrapsWithItsTicks() else {
+            return XCTFail("no paragraph wraps differently with its ticks hidden at this width")
+        }
+        let pane = TickPane(wrapping.note)
+        pane.caret(at: 0)
+        pane.doubleClick(on: wrapping.target)
+        XCTAssertEqual(pane.selectedText, wrapping.word, pane.show())
+    }
+
+    /// "`w0x` `w1x` …" as long as it takes to be one line taller with its
+    /// ticks showing than hidden; under it a line of plain words to aim at.
+    private func noteWhoseFirstParagraphWrapsWithItsTicks() -> (note: String, target: Int, word: String)? {
+        for count in 4...40 {
+            let spans = (0..<count).map { "`w\($0 % 10)x`" }.joined(separator: " ")
+            let note = "\(spans)\nbeta gamma delta\nomega"
+            let target = (note as NSString).range(of: "gamma").location + 2
+            let probe = TickPane(note)
+            probe.caret(at: 0)
+            let shown = probe.point(of: target).y
+            probe.caret(at: target)
+            if probe.point(of: target).y != shown { return (note, target, "gamma") }
+        }
+        return nil
+    }
+
     func testTripleClickTakesTheLineUnderThePointer() {
         let pane = TickPane("alpha\n`foo` bar baz\n`x` omega")
         pane.caret(at: 0)
@@ -479,6 +594,43 @@ final class DoubleClickAcrossBackticksTests: XCTestCase {
         XCTAssertEqual(pane.selection, NSRange(location: 2, length: 10), pane.show())
         XCTAssertFalse(pane.hiding.isHidden(6), "the line it ended in shows its ticks once the button is up")
         XCTAssertFalse(pane.hiding.isHidden(0))
+    }
+
+    func testDraggingBackwardsAcrossHiddenLinesSelectsWhatTheEyeAimedAt() {
+        // The other way round: the moving end is the selection's START, which
+        // is what a rule that showed only the start would have shown first.
+        // 0-9 "`a` first⏎", 10-23 "`foo` bar baz⏎", 24- "`x` omega": from
+        // the "a" of bar (17) up to the "s" of first (7), with the caret on
+        // the last line so both of the others are hidden at the press.
+        let note = "`a` first\n`foo` bar baz\n`x` omega"
+        let pane = TickPane(note)
+        pane.caret(at: 28)
+        XCTAssertTrue(pane.hiding.isHidden(0) && pane.hiding.isHidden(10), "setup: \(pane.show())")
+        pane.mouse(on: 17, dragTo: 7)
+        XCTAssertEqual(pane.selection, NSRange(location: 7, length: 10), pane.show())
+        XCTAssertFalse(pane.hiding.isHidden(0), "the end it was dragged to shows its ticks once the button is up: \(pane.show())")
+        XCTAssertFalse(pane.hiding.isHidden(10), "and so does the one it was pressed in: \(pane.show())")
+        XCTAssertTrue(pane.hiding.isHidden(24), "the line it never touched does not: \(pane.show())")
+    }
+
+    func testAMouseSelectionIsAnnouncedOnceWhenTheButtonComesUp() {
+        // THE PREMISE of there being no rule here for a held button: AppKit
+        // posts a selection change only when the gesture ends, so nothing is
+        // shown or hidden under a held pointer, whichever way it is dragged
+        // (measured, 2026-10-03: five drag events, one announcement, at the
+        // release). Were AppKit ever to announce mid-drag, the end under the
+        // pointer would show its markers as it was entered and move under
+        // it — the fix is then to keep the paragraphs that were showing at
+        // the press while the button is down.
+        let note = "alpha\n`foo` bar baz\nomega\nlast `x` line"
+        for (label, from, path) in [("down", 2, [8, 12, 22, 30]), ("up", 30, [22, 12, 8, 2])] {
+            let pane = TickPane(note)
+            pane.caret(at: 0)
+            let announced = pane.drag(from: from, through: path)
+            XCTAssertEqual(announced.count, 1, "\(label): \(announced)")
+            XCTAssertEqual(announced.last, pane.selection, "\(label): and it is the whole of it")
+            XCTAssertGreaterThan(pane.selection.length, 20, "\(label): the drag went somewhere: \(pane.show())")
+        }
     }
 
     func testDoubleClickOnPlainTextIsUntouched() {

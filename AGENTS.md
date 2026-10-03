@@ -1875,18 +1875,31 @@ CoreMind's `bin/report-status.sh`.
   went into it). A selection of WHOLE LINES made any other way (a triple
   click ends at the start of the line after, which it did not take) ends on
   the line it took: the next section must not pop its hashes out (the bar's
-  rule, above); and while the MOUSE is down (`isTrackingMouse`) only the
-  start is shown — a line that changes width under a held button puts the
-  pointer over another character, and a wrap that changes can flip it
-  between two lines for ever — the ends show when the button comes up.
+  rule, above). A MOUSE gesture needs no rule of its own: AppKit announces
+  the selection a drag makes ONCE, when the button comes up (measured, a
+  five-event drag down the page and one up it: one `didChangeSelection`, at
+  the release — `testAMouseSelectionIsAnnouncedOnceWhenTheButtonComesUp`
+  holds the premise), so no line changes width under a held pointer in either
+  direction and both ends show when it is let go. A first cut kept "only the
+  start's line while the mouse is down" (`isTrackingMouse`); that is the end
+  under the pointer in an UPWARD drag, the premise it was written for never
+  happens, and it is gone. If AppKit ever announces mid-drag, keep the
+  paragraphs that were showing AT THE PRESS while the button is down.
   `MarkerHiding.revealedParagraphs` is the list; `revealed` is its first.
   **(2) THE SECOND CLICK OF A DOUBLE CLICK IS AIMED AT THE TEXT THE FIRST ONE
   SAW.** The first click shows its line's markers, which moves every word in
   it, and the second was read against the layout the first left: a double
   click on "bar" in "`foo` bar" took "foo", on the f of "foo" the backtick.
-  `PasteAwareTextView.mouseDown` hides the revealed paragraphs again before
-  a click with `clickCount > 1` is read; the selection it makes shows the
-  line. Measured with real events (a release queued, then `mouseDown`).
+  `PasteAwareTextView.mouseDown` notes which paragraphs were showing when a
+  single click began (`layoutAimedAt`) and puts exactly those back before the
+  second or third click of it is read — the layout the pointer was aimed at,
+  whether or not click 1 changed it: a line the caret was ALREADY in keeps
+  its markers (hiding them "again", as the first cut did for every later
+  click, put every word the width of its markers left of the pointer — the
+  last letter of "bar" took "baz"), and a paragraph above that wraps one way
+  with its ticks showing and another without keeps the wrap the pointer saw.
+  The selection the click makes shows its line afterwards. Measured with real
+  events (a release queued, then `mouseDown`).
   **(3) ⌫ AND ⌦ TAKE THE ONE CHARACTER NEXT TO THE CARET.** `MarkerDeletion`
   completed a pair that a delete cut in half, and a key's delete went
   through it: ⌫ after a closing backtick took the OPENING one at the far

@@ -1637,8 +1637,11 @@ class PasteAwareTextView: NSTextView {
     /// True while `doCommand(by:)` is running: a key moved or deleted, not the
     /// mouse, not a script, not undo.
     private(set) var isRunningCommand = false
-    /// True while `mouseDown` is following the pointer.
-    private(set) var isTrackingMouse = false
+    /// What was on screen when the latest SINGLE click began: the paragraphs
+    /// showing their markers, and how long the note was (an edit since makes
+    /// the ranges mean nothing). The second and third click of a multi-click
+    /// are aimed at that layout (`mouseDown`).
+    private var layoutAimedAt: (paragraphs: [NSRange], length: Int)?
 
     private func dispatchCommand(_ selector: Selector) {
         if let line = standingIn {
@@ -1965,23 +1968,33 @@ class PasteAwareTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        let hiding = layoutManager?.delegate as? MarkerHiding
+        // THE SECOND CLICK OF A DOUBLE CLICK IS AIMED AT THE TEXT THE FIRST
+        // ONE WAS. A click puts the caret in its line, which shows the line's
+        // markers, which moves every word in it — and the second click, read
+        // against the layout the first left, took the word BEFORE the one
+        // under the pointer, or the backtick: a double click on "bar" in
+        // "`foo` bar" selected "foo", and on the f of "foo" selected the tick
+        // (Sean, 2026-10-03: "cursor behavior around backticks is very
+        // weird"). So the paragraphs that were showing when the first click
+        // began are what is showing for the length of the later ones — which
+        // is what the pointer was aimed at, whether the first click changed
+        // anything or not: a line the caret was already in keeps its markers
+        // (hiding them "again" put every word its markers' width to the left
+        // of the pointer), and a paragraph above that wraps one way with its
+        // markers showing and another without keeps the wrap the pointer saw.
+        // The selection the click makes shows its line afterwards, below.
+        if event.clickCount <= 1 {
+            layoutAimedAt = hiding.map { ($0.revealedParagraphs, textStorage?.length ?? 0) }
+        }
         // A click anywhere in the text puts the insertion bar out.
         armedSeam = nil
         onClick?()
-        let hiding = layoutManager?.delegate as? MarkerHiding
-        // THE SECOND CLICK OF A DOUBLE CLICK IS AIMED AT THE TEXT THE FIRST
-        // ONE SAW. The first click puts the caret in the line, which shows
-        // the line's markers, which moves every word in it — and the second,
-        // read against the layout the first one left, took the word BEFORE
-        // the one under the pointer, or the backtick: a double click on
-        // "bar" in "`foo` bar" selected "foo", and on the f of "foo" selected
-        // the tick (Sean, 2026-10-03: "cursor behavior around backticks is
-        // very weird"). Hidden again for the length of the click; the
-        // selection it makes shows the line again.
-        if event.clickCount > 1, let hiding, hiding.isEnabled { reveal([], in: hiding) }
-        isTrackingMouse = true
+        if event.clickCount > 1, let hiding, hiding.isEnabled,
+           let aimed = layoutAimedAt, aimed.length == (textStorage?.length ?? 0) {
+            reveal(aimed.paragraphs, in: hiding)
+        }
         super.mouseDown(with: event)
-        isTrackingMouse = false
         // The gesture is over: the ends of what it selected show now — and
         // a line that shows its markers can wrap differently, which is a
         // cell editor's height.

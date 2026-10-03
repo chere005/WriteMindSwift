@@ -257,9 +257,16 @@ extension NSTextView {
     ///   markers for it (Sean, 2026-09-20: "the next section shouldn't be
     ///   highlighted") — unless a KEY made it: the caret really is at the
     ///   start of that line, and the next ⇧→ steps over its first character.
-    /// - Not while the mouse is down: the line under a held button would
-    ///   change width and the pointer would be over another character. The
-    ///   end is shown when the button comes up (`PasteAwareTextView.mouseDown`).
+    /// - A mouse gesture needs no rule of its own: AppKit announces the
+    ///   selection a drag makes once, when the button comes up (a five-event
+    ///   drag, down or up the page, is one `didChangeSelection` at the
+    ///   release — `testAMouseSelectionIsAnnouncedOnceWhenTheButtonComesUp`),
+    ///   so no line changes width under a held pointer, whichever end of the
+    ///   selection is the one being dragged, and both ends show when it is
+    ///   let go. Were that ever to change, what would be wanted is the
+    ///   paragraphs that were showing at the press kept while the button is
+    ///   down — not the start's, which is the end under the pointer in an
+    ///   upward drag.
     func paragraphsShowingTheirMarkers(neighbours: Bool = false) -> [NSRange] {
         let text = string as NSString
         // A bar between two cells is in NO cell, so no cell shows its
@@ -280,7 +287,7 @@ extension NSTextView {
         }
         let selection = selectedRange()
         var found = [paragraph(at: selection.location)]
-        if selectedRanges.count == 1, selection.length > 0, pane?.isTrackingMouse != true {
+        if selectedRanges.count == 1, selection.length > 0 {
             var end = NSMaxRange(selection)
             if pane?.isRunningCommand != true, end > selection.location, text.character(at: end - 1) == 10 {
                 end -= 1

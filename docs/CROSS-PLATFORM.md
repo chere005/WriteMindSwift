@@ -158,18 +158,25 @@ for any editor that hides inline markers on the lines the caret is not on:
   needed it. So: before a key that extends a selection runs, show the lines
   at its ends and the lines either side of them, and show only the ends'
   lines once it has run; the line a key moved the caret to is shown anyway.
-- **Not for a selection made with the mouse.** While the button is held only
-  the start's line is shown — a line that changes width under a held button
-  puts the pointer over another character — and the far end's when it is
-  let go. A selection of whole lines (a triple click) ends at the start of
-  the next line without showing that line's markers; made with the keys it
-  does show them, because the caret really is there.
+- **A selection made with the mouse needs nothing of its own.** AppKit
+  announces what a drag selects once, when the button comes up — five drag
+  events down the page or up it are one change at the release — so no line
+  changes width under a held pointer, and both ends of the selection show
+  when it is let go. (A platform that announces mid-drag needs the paragraphs
+  that were showing at the press kept while the button is down.) A selection
+  of whole lines (a triple click) ends at the start of the next line without
+  showing that line's markers; made with the keys it does show them, because
+  the caret really is there.
 - **A double click takes the word under the pointer.** The first click shows
   its line's markers, which moves every word in the line; the second click is
-  read against the layout the FIRST saw: hide the line again for the length of
-  a click that is the second or later, and let the selection it makes show it.
-  (On "`foo` bar", a double click on "bar" took "foo" and on the f of "foo"
-  took the backtick.)
+  read against the layout the FIRST was aimed at: remember which paragraphs
+  were showing when a single click began, and show exactly those for the
+  length of a click that is the second or later, then let the selection it
+  makes show its line. That is not "hide everything again": a line the caret
+  was already in must keep its markers (the pointer was aimed at them), and a
+  paragraph above that wraps differently with its markers hidden must keep
+  the wrap the pointer saw. (On "`foo` bar", a double click on "bar" took
+  "foo" and on the f of "foo" took the backtick.)
 - **⌫ and ⌦ take the one character beside the cursor.** Completing a pair
   that a delete cuts in half (the other tick of a span goes with the first) is
   for a SELECTION, which can cut across syntax out of sight; a key beside the
