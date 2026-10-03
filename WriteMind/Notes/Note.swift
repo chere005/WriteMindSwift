@@ -18,6 +18,8 @@ struct Note: Identifiable, Hashable {
         for raw in contents.split(separator: "\n", omittingEmptySubsequences: false).prefix(40) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty { continue }
+            // A drawing cell's line is a file's name, not words to show.
+            if DrawingCells.parse(line) != nil { continue }
             if title == nil, line.hasPrefix("#") {
                 title = line.drop(while: { $0 == "#" }).trimmingCharacters(in: .whitespaces)
                 continue

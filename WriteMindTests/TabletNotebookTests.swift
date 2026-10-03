@@ -553,7 +553,7 @@ final class NotebookInkUndoTests: XCTestCase {
         let floor = store.drawingSteps
         XCTAssertTrue(store.inkFromTablet(stroke))
         state.drawingChanged(steps: store.drawingSteps)
-        state.tabletInkedNote(above: floor)
+        state.inkedNote(above: floor)
     }
 
     /// ⌘Z IS THE STROKES' ONLY UNTIL THEY ARE TAKEN BACK. Typed in after an

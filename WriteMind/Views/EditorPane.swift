@@ -13,6 +13,11 @@ struct EditorPane: View {
     @State private var scrollOffset: CGFloat = 0
     /// The two panes' frames for the drawing layer, and the way between.
     @StateObject private var frames = PaneFrames()
+    /// Where the drawing cells are on the pane that is up, as it last told
+    /// (`CellFrame`), and the one the caret is in — whose grip the layer
+    /// shows.
+    @State private var drawingFrames: [CellFrame] = []
+    @State private var caretDrawing: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -56,7 +61,10 @@ struct EditorPane: View {
                                          // arrow tool and a placement
                                          // waiting to land each have the
                                          // whole pane.
-                                         seamsEnabled: !appState.canvasOwnsPane)
+                                         seamsEnabled: !appState.canvasOwnsPane,
+                                         drawingCells: drawingCells(of: note),
+                                         onDrawingFrames: { told(drawingFrames: $0) },
+                                         onDrawingCaret: { caretDrawing = $0 })
                     } else {
                         MarkdownPreview(markdown: $store.text,
                                         onFollow: { store.follow(destination: $0) },
@@ -77,14 +85,17 @@ struct EditorPane: View {
                                         // the same notebook.
                                         seamsEnabled: !appState.canvasOwnsPane,
                                         onPickEvaluator: { store.setEnvironment($0, of: $1) },
-                                        runningCell: store.runningCell)
+                                        runningCell: store.runningCell,
+                                        drawingCells: drawingCells(of: note),
+                                        onDrawingFrames: { told(drawingFrames: $0) },
+                                        onDrawingCaret: { caretDrawing = $0 })
                             .id(note.id)
                     }
                     // The drawing belongs to the note, so it shows in both
                     // modes. In pen and select mode it takes the whole pane;
                     // in cursor mode it takes only the objects on it, and the
                     // text underneath gets everything else.
-                    DrawingCanvas(drawing: layerDrawing,
+                    DrawingCanvas(layer: layerDrawing,
                                   mode: appState.canvasMode,
                                   color: appState.penColor,
                                   width: appState.penWidth,
@@ -112,7 +123,17 @@ struct EditorPane: View {
                                   // Both panes scroll their objects with
                                   // the text now, so a picture stays beside
                                   // what it was put beside.
-                                  scrollOffset: scrollOffset)
+                                  scrollOffset: scrollOffset,
+                                  cells: $store.cells,
+                                  cellFrames: drawingFrames,
+                                  litCell: caretDrawing,
+                                  onCellTap: { appState.editor.focusDrawingCell($0) },
+                                  onCellChanged: { store.fitCell($0) },
+                                  // Drawn with the keyboard still in the
+                                  // text, so ⌘Z is the ink's until the next
+                                  // keystroke — down to where the drawing
+                                  // stood under it.
+                                  onCursorInk: { appState.inkedNote(above: store.drawingSteps) })
                     // The tablet writing straight into the note: its live
                     // stroke, its marquee, and where it lands on the notes
                     // while the pen is near. Over the layer, taking no
@@ -121,6 +142,8 @@ struct EditorPane: View {
                 }
                 .onAppear {
                     appState.editor.pasteImage = { store.pasteImage(from: $0) }
+                    // A drawing cell duplicated gets a file of its own.
+                    appState.editor.onFork = { store.copyCells($0) }
                     // How an evaluation's answer reaches the note: the
                     // bridge's own write, which takes no keyboard and
                     // moves no caret.
@@ -155,8 +178,8 @@ struct EditorPane: View {
                 // shown in the stored frame. And the markdown pane's,
                 // laid out on the last visit to the page, are of the note
                 // as it was then.
-                .onChange(of: appState.mode) { _, _ in frames.forget() }
-                .onChange(of: note.id) { _, _ in frames.forget() }
+                .onChange(of: appState.mode) { _, _ in forgetFrames() }
+                .onChange(of: note.id) { _, _ in forgetFrames() }
                 .onChange(of: store.pendingLinkInsertion) { _, range in
                     guard let range else { return }
                     appState.editor.select(range)
@@ -243,11 +266,34 @@ struct EditorPane: View {
     private func paneMapping(_ frames: PaneFrames, exact: Bool = false) -> PaneMapping {
         guard appState.mode == .preview else { return .identity }
         return frames.mapping(text: store.text, size: store.canvasSize, showMarkers: appState.showMarkers,
-                              collapsed: store.collapsedHere, exact: exact)
+                              collapsed: store.collapsedHere, cells: drawingCells(of: store.selectedNote),
+                              exact: exact)
     }
 
+    /// The note's drawing cells as the panes paint them.
+    private func drawingCells(of note: Note?) -> DrawingCellsShown {
+        DrawingCellsShown(looks: store.cellLooks, media: note.map { store.owningFolder(for: $0.url) })
+    }
+
+    /// The pane that is up told where its drawing cells are: the layer
+    /// draws into them by it, and the tablet routes by it.
+    private func told(drawingFrames: [CellFrame]) {
+        self.drawingFrames = drawingFrames
+        store.cellFrames = drawingFrames
+    }
+
+    /// Another note, or the other mode: nothing measured for the last one
+    /// is this one's — the cells' frames included, until the pane coming
+    /// up tells its own.
+    private func forgetFrames() {
+        frames.forget()
+        told(drawingFrames: [])
+        caretDrawing = nil
+    }
+
+    /// The words in the note — and a drawing cell's line is not words.
     private var wordCount: Int {
-        store.text.split { $0.isWhitespace || $0.isNewline }.count
+        DrawingCells.prose(store.text).split { $0.isWhitespace || $0.isNewline }.count
     }
 
     private func beginLink(from note: Note, caret: Int) {
@@ -279,7 +325,8 @@ struct EditorPane: View {
 final class PaneFrames: ObservableObject {
     /// How the markdown pane's cells are laid out for a note, in a pane,
     /// with its markers and folds.
-    typealias Layout = @MainActor (_ text: String, _ pane: CGSize, _ showMarkers: Bool, _ collapsed: Set<String>)
+    typealias Layout = @MainActor (_ text: String, _ pane: CGSize, _ showMarkers: Bool, _ collapsed: Set<String>,
+                                   _ drawings: DrawingCellsShown)
         -> (cells: [CellSeams.Box], width: CGFloat, height: CGFloat)
 
     /// The rendered page's cells, or nil until it has measured them.
@@ -291,11 +338,13 @@ final class PaneFrames: ObservableObject {
 
     /// The markdown pane's cells as last laid out.
     private struct LaidOut {
-        /// For this text, in a pane this wide, with these markers and folds.
+        /// For this text, in a pane this wide, with these markers and folds
+        /// — and drawing cells this big, which take the room they take.
         var text: String
         var pane: CGFloat
         var markers: Bool
         var folds: Set<String>
+        var footprints: [UUID: CGSize]
         var cells: [CellSeams.Box]
         /// The width the text was laid out at, and how tall the note is at
         /// the pane's full width — which together say whether a pane of
@@ -307,7 +356,7 @@ final class PaneFrames: ObservableObject {
         var measured = true
     }
 
-    init(layout: @escaping Layout = MarkdownTextView.cellBoxes(of:pane:showMarkers:collapsed:)) {
+    init(layout: @escaping Layout = MarkdownTextView.cellBoxes(of:pane:showMarkers:collapsed:drawings:)) {
         self.layout = layout
     }
 
@@ -328,9 +377,10 @@ final class PaneFrames: ObservableObject {
     /// `exact` for a position about to be saved: worked out from the note
     /// as it is now, never from cells carried along.
     func mapping(text: String, size: CGSize, showMarkers: Bool, collapsed: Set<String>,
-                 exact: Bool = false) -> PaneMapping {
+                 cells: DrawingCellsShown = DrawingCellsShown(), exact: Bool = false) -> PaneMapping {
         guard let rendered, size.width > 1 else { return .identity }
-        let source = sourceCells(text: text, size: size, showMarkers: showMarkers, collapsed: collapsed, exact: exact)
+        let source = sourceCells(text: text, size: size, showMarkers: showMarkers, collapsed: collapsed,
+                                 drawings: cells, exact: exact)
         // The page has a scroller beside it whenever the markdown pane
         // would — the same note, near enough the same height.
         return PaneMapping(from: source.cells, to: rendered,
@@ -342,8 +392,9 @@ final class PaneFrames: ObservableObject {
     /// while it is being typed into or the pane resized, the last layout
     /// carried along by the edit, with a fresh one coming once that stops.
     private func sourceCells(text: String, size: CGSize, showMarkers: Bool, collapsed: Set<String>,
-                             exact: Bool) -> (cells: [CellSeams.Box], width: CGFloat) {
-        if let laidOut, laidOut.markers == showMarkers, laidOut.folds == collapsed {
+                             drawings: DrawingCellsShown, exact: Bool) -> (cells: [CellSeams.Box], width: CGFloat) {
+        if let laidOut, laidOut.markers == showMarkers, laidOut.folds == collapsed,
+           laidOut.footprints == drawings.footprints {
             let wraps = laidOut.pane == size.width
                 && MarkdownTextView.textWidth(pane: size, noteHeight: laidOut.height) == laidOut.width
             if wraps, laidOut.text == text, laidOut.measured || !exact { return (laidOut.cells, laidOut.width) }
@@ -356,7 +407,8 @@ final class PaneFrames: ObservableObject {
                 relayout?.cancel()
                 let work = DispatchWorkItem { [weak self] in
                     guard let self, self.laidOut?.text == text else { return }
-                    self.laidOut = self.layOut(text, size: size, showMarkers: showMarkers, collapsed: collapsed)
+                    self.laidOut = self.layOut(text, size: size, showMarkers: showMarkers, collapsed: collapsed,
+                                               drawings: drawings)
                     self.relayout = nil
                     self.objectWillChange.send()
                 }
@@ -367,15 +419,16 @@ final class PaneFrames: ObservableObject {
         }
         relayout?.cancel()
         relayout = nil
-        let fresh = layOut(text, size: size, showMarkers: showMarkers, collapsed: collapsed)
+        let fresh = layOut(text, size: size, showMarkers: showMarkers, collapsed: collapsed, drawings: drawings)
         laidOut = fresh
         return (fresh.cells, fresh.width)
     }
 
-    private func layOut(_ text: String, size: CGSize, showMarkers: Bool, collapsed: Set<String>) -> LaidOut {
-        let fresh = layout(text, size, showMarkers, collapsed)
-        return LaidOut(text: text, pane: size.width, markers: showMarkers, folds: collapsed, cells: fresh.cells,
-                       width: fresh.width, height: fresh.height)
+    private func layOut(_ text: String, size: CGSize, showMarkers: Bool, collapsed: Set<String>,
+                        drawings: DrawingCellsShown) -> LaidOut {
+        let fresh = layout(text, size, showMarkers, collapsed, drawings)
+        return LaidOut(text: text, pane: size.width, markers: showMarkers, folds: collapsed,
+                       footprints: drawings.footprints, cells: fresh.cells, width: fresh.width, height: fresh.height)
     }
 
     /// The stored drawing as the pane on screen shows it.

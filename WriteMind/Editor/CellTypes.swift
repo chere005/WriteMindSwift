@@ -47,6 +47,10 @@ enum CellTypes {
         /// `eval ` prefix on its info string is the whole difference —
         /// so it needs no second block builder, only its own fence.
         case evaluation(Evaluator)
+        /// A cell of ink, shapes and pictures, kept in a file beside the
+        /// note (`DrawingCells`) — Sean, 2026-10-02: "drawing cell which
+        /// is cmd + 0".
+        case drawing
 
         /// A rung of the ladder as a kind — Body Text being the plain
         /// paragraph every bar starts out as rather than a seventh rung.
@@ -66,19 +70,27 @@ enum CellTypes {
             case .quote: return "Quote"
             case .code: return "Code Block"
             case .evaluation(let evaluator): return "\(evaluator.title) Evaluation Cell"
+            case .drawing: return "Drawing"
             }
         }
+
+        /// Chosen on the +, the cell opens THERE AND THEN instead of waiting
+        /// on the bar for a character: a drawing's next input is a stroke,
+        /// and a character would be typed onto its image line.
+        var opensAtOnce: Bool { self == .drawing }
     }
 
     /// The list, in the groups a separator goes between: body text on its
     /// own at the top because it is the default, then the ladder six deep
     /// (Sean's own rungs, not "Heading 1…6"), then the lists and the
-    /// quote, then the fenced block.
+    /// quote, then the fenced block, then the drawing — the one cell that
+    /// is not words.
     static let groups: [[Kind]] = [
         [.text],
         MarkdownFormatting.Heading.ladder.filter { $0 != .body }.map { Kind.heading($0) },
         MarkdownFormatting.ListStyle.allCases.map { Kind.list($0) } + [.quote],
         [.code],
+        [.drawing],
     ]
 
     /// The same list, flat.
@@ -89,7 +101,10 @@ enum CellTypes {
     ///
     /// Each of these is the command the menu item of the same name runs,
     /// handed the caret in the empty cell instead of the caret in the note.
-    static func opening(_ kind: Kind, in markdown: String, at caret: Int) -> MarkdownFormatting.Edit? {
+    /// A drawing has no command of its own: its line is written on the empty
+    /// line, named by `id`, and the caret goes to the end of it.
+    static func opening(_ kind: Kind, in markdown: String, at caret: Int,
+                        minting id: UUID) -> MarkdownFormatting.Edit? {
         let place = min(max(caret, 0), (markdown as NSString).length)
         let selection = NSRange(location: place, length: 0)
         switch kind {
@@ -112,6 +127,11 @@ enum CellTypes {
             // it differs, which is the point of the `eval ` prefix.
             return MarkdownFormatting.codeBlock(text: markdown, selection: selection,
                                                 language: evaluator.fence)
+        case .drawing:
+            let line = DrawingCells.line(id)
+            return MarkdownFormatting.Edit(range: selection, replacement: line,
+                                           selection: NSRange(location: place + (line as NSString).length,
+                                                              length: 0))
         }
     }
 
@@ -122,13 +142,15 @@ enum CellTypes {
     /// Both panes go through here and differ only in what they do with the
     /// answer — the markdown pane types the character itself through
     /// NSTextView and passes `written` empty, the rendered page has no text
-    /// view at the bar and carries it in.
+    /// view at the bar and carries it in. `id` names a drawing cell, and is
+    /// a parameter so that a test can know it and a cell made from objects
+    /// already on the page can mint its own.
     static func open(_ kind: Kind, writing written: String = "", in markdown: String,
-                     at offset: Int) -> (markdown: String, cell: NSRange, caret: Int) {
+                     at offset: Int, minting id: UUID = UUID()) -> (markdown: String, cell: NSRange, caret: Int) {
         let (opened, place) = PreviewEditing.insertBlock(in: markdown, at: offset)
         var text = opened as NSString
         var caret = min(max(place, 0), text.length)
-        if let edit = opening(kind, in: text as String, at: caret) {
+        if let edit = opening(kind, in: text as String, at: caret, minting: id) {
             text = text.replacingCharacters(in: edit.range, with: edit.replacement) as NSString
             caret = min(max(edit.selection.location, 0), text.length)
         }

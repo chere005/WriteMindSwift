@@ -24,6 +24,15 @@ enum MarkdownBlock: Equatable {
     /// with 8 empty lines"). The spacing BETWEEN cells is the editor's;
     /// these are the note's.
     case blank(lines: Int)
+    /// A drawing cell: `![](_drawings/cells/<ID>.png)` on a line of its own
+    /// (`DrawingCells`). The id is the cell; the alt text is whatever the
+    /// line says.
+    case drawing(id: UUID, alt: String)
+
+    var isDrawing: Bool {
+        if case .drawing = self { return true }
+        return false
+    }
 }
 
 /// A block and the slice of source it was parsed from — the range is what
@@ -116,6 +125,8 @@ enum MarkdownParser {
         for (lineIndex, rawLine) in allLines.enumerated() {
             defer { lineStart += (rawLine as NSString).length + 1 }
             let lineEnd = lineStart + (rawLine as NSString).length
+            // Where the open block ended before this line is read.
+            let openEnd = blockEnd
             // A blank line ends a block without being part of it, so only the
             // lines that go INTO a block move its end (a paragraph's range
             // stops at its last character, not at the newline after it).
@@ -167,6 +178,18 @@ enum MarkdownParser {
             if isRule(line) { flush(); blockStart = lineStart; emit(.rule); continue }
             if let (level, text) = heading(line) {
                 flush(); blockStart = lineStart; emit(.heading(level: level, text: text)); continue
+            }
+            // A drawing ends whatever it follows, the way a heading does —
+            // and that block keeps the range it had: `blockEnd` has already
+            // moved on to this line, and a paragraph whose range ran over
+            // the image line would write over it when edited.
+            if let cell = DrawingCells.parse(line) {
+                blockEnd = openEnd
+                flush()
+                blockStart = lineStart
+                blockEnd = lineEnd
+                emit(.drawing(id: cell.id, alt: cell.alt))
+                continue
             }
             if line.hasPrefix(">") {
                 if !paragraph.isEmpty || !bullets.isEmpty || !todos.isEmpty

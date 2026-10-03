@@ -18,12 +18,14 @@ enum NotebookCells {
     /// Nothing happens at either end of a cell (there is no cut to make that
     /// would not leave an empty one), and nothing happens inside a fenced
     /// block: a blank line in the middle of one does not make two blocks, it
-    /// makes one block with a hole in it.
+    /// makes one block with a hole in it. Nor in a drawing cell, whose one
+    /// line is a file's name: cut, it would be two broken lines.
     static func split(text: String, selection: NSRange) -> MarkdownFormatting.Edit? {
         let string = text as NSString
         let caret = min(max(selection.location, 0), string.length)
         guard let cell = block(containing: caret, in: text) else { return nil }
         if case .code = cell.block { return nil }
+        if case .drawing = cell.block { return nil }
 
         // The whitespace the caret sits in goes with the break: splitting
         // "one | two" must not leave a space hanging off either cell, and
@@ -51,7 +53,8 @@ enum NotebookCells {
     ///
     /// A heading will not take another cell's words: it is one line by
     /// definition, and a "merge" that left the words in a separate block
-    /// would only have deleted a blank line.
+    /// would only have deleted a blank line. Nor will a drawing cell, on
+    /// either side: its line has to stand alone to be one.
     static func merge(text: String, selection: NSRange) -> MarkdownFormatting.Edit? {
         let string = text as NSString
         let caret = min(max(selection.location, 0), string.length)
@@ -65,6 +68,8 @@ enum NotebookCells {
         if case .heading = first.block { return nil }
         if case .code = first.block { return nil }
         if case .code = second.block { return nil }
+        if case .drawing = first.block { return nil }
+        if case .drawing = second.block { return nil }
 
         let seam = first.range.location + first.range.length
         let gap = NSRange(location: seam, length: max(0, second.range.location - seam))

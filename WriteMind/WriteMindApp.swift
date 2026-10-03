@@ -73,6 +73,9 @@ struct WriteMindApp: App {
                 // drawing's steps say how far down its claim still reaches.
                 .onReceive(store.$text) { _ in appState.noteTyped() }
                 .onReceive(store.$drawing) { _ in appState.drawingChanged(steps: store.drawingSteps) }
+                // The drawing cells are the drawing too: a stroke in one is
+                // a step on the same stack.
+                .onReceive(store.$cells) { _ in appState.drawingChanged(steps: store.drawingSteps) }
         }
         .defaultSize(width: 1280, height: 800)
         .commands {
@@ -435,6 +438,13 @@ struct InsertMenu: Commands {
             }
             .shortcut(.codeBlock)
             .disabled(store.selectedNote == nil)
+
+            // ⌘0 (Sean, 2026-10-02: "drawing cell which is cmd + 0"). It
+            // makes a cell and never turns one into another kind, so it is
+            // Insert's and not Format's.
+            Button("Drawing Cell") { appState.editor.drawingCell() }
+                .shortcut(.drawingCell)
+                .disabled(store.selectedNote == nil)
         }
     }
 }

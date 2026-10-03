@@ -35,7 +35,7 @@ enum Shortcut: CaseIterable {
     case splitCell, mergeCells, duplicateCell, moveCellUp, moveCellDown
     case moveSectionUp, moveSectionDown
     // Insert
-    case insertImage, codeBlock, evaluationCell
+    case insertImage, codeBlock, evaluationCell, drawingCell
     // The project, and the camera
     case addFolderToProject, saveProject, refreshDevices
 
@@ -90,6 +90,7 @@ enum Shortcut: CaseIterable {
         case .insertImage: return KeyboardShortcut("i", modifiers: [.command, .shift])
         case .codeBlock: return KeyboardShortcut("8", modifiers: .command)
         case .evaluationCell: return KeyboardShortcut("9", modifiers: .command)
+        case .drawingCell: return KeyboardShortcut("0", modifiers: .command)
 
         case .addFolderToProject: return KeyboardShortcut("a", modifiers: [.command, .shift])
         case .saveProject: return KeyboardShortcut("s", modifiers: [.command, .shift])

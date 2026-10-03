@@ -55,6 +55,10 @@ final class AppState: ObservableObject {
             /// The objects on the layer: pick one up, or let the click
             /// through to the notebook.
             case objects
+            /// A drawing cell's PAPER, in cursor mode: a stroke into the
+            /// cell once the press has travelled (`paperStrokes`), or the
+            /// caret into the cell if it never does.
+            case paper
         }
 
         /// ⌘ IS THE SELECTOR, IN BOTH MODES (Sean, 2026-09-21: "in both
@@ -63,10 +67,30 @@ final class AppState: ObservableObject {
         /// because a modifier held down is asked for by hand and that is
         /// what overrides a mode; under the pen a ⌘-drag used to draw a
         /// stroke over whatever it was meant to be picking up.
-        func press(with modifiers: NSEvent.ModifierFlags) -> Press {
+        ///
+        /// ON A DRAWING CELL'S PAPER the cursor draws (Sean, 2026-10-02:
+        /// "drawing cell which is cmd + 0"): the cell is for drawing in,
+        /// and making him pick the pen up for each one is the step that
+        /// the cell was made to save. An object under the point — on the
+        /// layer or in a cell — is asked before the paper, by the canvas,
+        /// and is picked up as it always was.
+        func press(with modifiers: NSEvent.ModifierFlags, onCellPaper: Bool = false) -> Press {
             if modifiers.contains(.command) { return .marquee }
-            return self == .pen ? .draw : .objects
+            if self == .pen { return .draw }
+            return onCellPaper ? .paper : .objects
         }
+
+        /// WHETHER A CURSOR-MODE PRESS ON A CELL'S PAPER HAS BECOME A
+        /// STROKE: at once for a nib, whose touch IS the start of ink, and
+        /// for a mouse or a trackpad once it has travelled `paperTravel`.
+        /// A click that never moves leaves no dot and no empty step behind
+        /// it — it puts the caret in the cell instead.
+        static func paperStrokes(travelled: CGFloat, nib: Bool) -> Bool {
+            nib || travelled >= paperTravel
+        }
+
+        /// How far a mouse press on a cell's paper goes before it draws.
+        static let paperTravel: CGFloat = 3
     }
 
     /// What the right-hand pane shows: the camera's picture, or the page
@@ -343,32 +367,36 @@ final class AppState: ObservableObject {
 
     /// Whose ⌘Z it is. The drawing's while the pen is up, while something
     /// on the layer is picked, while a shape is waiting to be put down,
-    /// while the arrow tool is on, or straight after the tablet wrote in
-    /// the note — the five times the last thing done was done on the layer
-    /// (Sean, 2026-09-19: "fix undo in drawing mode").
-    var drawingOwnsUndo: Bool { layerInHand || tabletInkOwnsUndo }
+    /// while the arrow tool is on, or straight after ink went into the note
+    /// with the keyboard still in its text — the five times the last thing
+    /// done was done on the layer (Sean, 2026-09-19: "fix undo in drawing
+    /// mode").
+    var drawingOwnsUndo: Bool { layerInHand || inkOwnsUndo }
 
-    /// And ⇧⌘Z: the same, but the tablet's claim on it outlasts the
-    /// strokes it took back (`tabletInkOwnsRedo`).
-    var drawingOwnsRedo: Bool { layerInHand || tabletInkOwnsRedo }
+    /// And ⇧⌘Z: the same, but the ink's claim on it outlasts the strokes
+    /// it took back (`inkOwnsRedo`).
+    var drawingOwnsRedo: Bool { layerInHand || inkOwnsRedo }
 
     /// The four that are the layer's own: something on it in hand.
     private var layerInHand: Bool { penActive || connectActive || placing != nil || canvasSelection }
 
-    /// Where the drawing's undo stood under the tablet's FIRST stroke in
-    /// the note since the text was last typed in — `NoteStore.drawingSteps`,
-    /// which counts every step taken and taken back — and nil while the
-    /// tablet has no claim on ⌘Z. Not published: only the Undo and Redo
-    /// items read it, when pressed.
-    private(set) var tabletInkFloor: Int?
+    /// Where the drawing's undo stood under the FIRST stroke since the text
+    /// was last typed in that went into the note with the keyboard still in
+    /// its text — the tablet's in Notebook mode, and a cursor-mode stroke
+    /// on a drawing cell's paper — as `NoteStore.drawingSteps`, which counts
+    /// every step taken and taken back; nil while no ink has a claim on
+    /// ⌘Z. Not published: only the Undo and Redo items read it, when
+    /// pressed.
+    private(set) var inkFloor: Int?
     /// Where the drawing's undo stands now, told on every change to the
     /// drawing (`drawingChanged`).
     private(set) var drawingSteps = 0
-    /// A stroke from the tablet landed in the note (`NoteStore.inkFromTablet`)
-    /// over a drawing that stood at `floor` steps. The first since the
-    /// typing sets the claim's floor; the rest are above it.
-    func tabletInkedNote(above floor: Int) {
-        if tabletInkFloor == nil { tabletInkFloor = floor }
+    /// Ink went into the note over a drawing that stood at `floor` steps —
+    /// a tablet stroke landing (`NoteStore.inkFromTablet`), or the layer
+    /// starting a cursor-mode stroke in a cell. The first since the typing
+    /// sets the claim's floor; the rest are above it.
+    func inkedNote(above floor: Int) {
+        if inkFloor == nil { inkFloor = floor }
     }
     /// The note's drawing changed, and its undo stands at `steps`: the last
     /// thing done is the note's again (`notebookChanged`), and the
@@ -378,30 +406,31 @@ final class AppState: ObservableObject {
         drawingSteps = steps
     }
     /// The note's TEXT changed: the last thing done is the text's — the
-    /// page's claim goes (`notebookChanged`) and so does the tablet's ink's.
+    /// page's claim goes (`notebookChanged`) and so does the ink's.
     func noteTyped() {
         notebookChanged()
-        tabletInkFloor = nil
+        inkFloor = nil
     }
 
-    /// ⌘Z TAKES BACK THE TABLET'S STROKES IN THE NOTE, straight after
-    /// them: the pen is in one hand and ⌘Z under the other, the keyboard is
-    /// still in the note's text, and left to it ⌘Z after a stroke undid
-    /// the TYPING. From the stroke until the text is typed in, and only
-    /// while the notes can be seen — AND ONLY DOWN TO THE FLOOR: once the
-    /// strokes are taken back, and anything done on the layer after them,
-    /// what is next to undo is the typing before them, and an undo that
-    /// went on into the drawing undid an older step there and left the
-    /// newer words standing.
-    var tabletInkOwnsUndo: Bool {
-        guard let floor = tabletInkFloor else { return false }
+    /// ⌘Z TAKES BACK INK PUT IN THE NOTE, straight after it: the tablet's
+    /// strokes — the pen is in one hand and ⌘Z under the other — and a
+    /// cursor-mode stroke on a drawing cell's paper, after which nothing is
+    /// picked and the pen is down. Either way the keyboard is still in the
+    /// note's text, and left to it ⌘Z after a stroke undid the TYPING. From
+    /// the stroke until the text is typed in, and only while the notes can
+    /// be seen — AND ONLY DOWN TO THE FLOOR: once the strokes are taken
+    /// back, and anything done on the layer after them, what is next to
+    /// undo is the typing before them, and an undo that went on into the
+    /// drawing undid an older step there and left the newer words standing.
+    var inkOwnsUndo: Bool {
+        guard let floor = inkFloor else { return false }
         return drawingSteps > floor && notesInView
     }
 
-    /// ⇧⌘Z puts back what ⌘Z took off the drawing — the tablet's strokes —
+    /// ⇧⌘Z puts back what ⌘Z took off the drawing — the ink's strokes —
     /// until the text is typed in. When the drawing has nothing to put
     /// back it goes on to the text (the Redo item).
-    var tabletInkOwnsRedo: Bool { tabletInkFloor != nil && notesInView }
+    var inkOwnsRedo: Bool { inkFloor != nil && notesInView }
 
     /// The notes pane is on screen.
     private var notesInView: Bool { showEditor && !cameraFullWindow }

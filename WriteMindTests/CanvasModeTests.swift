@@ -253,6 +253,34 @@ final class CanvasModeTests: XCTestCase {
         XCTAssertEqual(AppState.CanvasMode.cursor.press(with: []), .objects)
     }
 
+    /// WHAT A PRESS DOES IN EACH SPACE (docs/CROSS-PLATFORM.md: the press
+    /// table). On a drawing cell's paper the cursor draws (Sean, 2026-10-02:
+    /// "drawing cell which is cmd + 0"): the cell is for drawing in, and
+    /// making him pick the pen up for each one is the step the cell was
+    /// made to save. An object under the point — on the layer or in a
+    /// cell — is asked before the paper, and is picked up as it always was.
+    func testOnACellsPaperTheCursorDrawsOnceItHasTravelled() {
+        typealias Mode = AppState.CanvasMode
+        // ⌘ held: the marquee, in that space, whatever is under it.
+        XCTAssertEqual(Mode.pen.press(with: [.command], onCellPaper: true), .marquee)
+        XCTAssertEqual(Mode.cursor.press(with: [.command], onCellPaper: true), .marquee)
+        // The pen draws anywhere — into the space under its first point.
+        XCTAssertEqual(Mode.pen.press(with: [], onCellPaper: true), .draw)
+        XCTAssertEqual(Mode.pen.press(with: [], onCellPaper: false), .draw)
+        // The cursor: an object is picked up; the paper is drawn on.
+        XCTAssertEqual(Mode.cursor.press(with: [], onCellPaper: false), .objects)
+        XCTAssertEqual(Mode.cursor.press(with: [], onCellPaper: true), .paper)
+        // A press on the paper becomes a stroke once a mouse has travelled
+        // three points, and at once under a nib — whose touch IS ink. A
+        // click that never moves leaves no dot and no empty step: it puts
+        // the caret in the cell instead.
+        XCTAssertEqual(Mode.paperTravel, 3)
+        XCTAssertFalse(Mode.paperStrokes(travelled: 0, nib: false))
+        XCTAssertFalse(Mode.paperStrokes(travelled: 2.9, nib: false))
+        XCTAssertTrue(Mode.paperStrokes(travelled: 3, nib: false))
+        XCTAssertTrue(Mode.paperStrokes(travelled: 0, nib: true))
+    }
+
     /// A symbol that does not exist draws as nothing at all, and the button
     /// or the footer label is then a blank space that means something.
     func testEveryModeHasAWordAndASymbolThatExists() {

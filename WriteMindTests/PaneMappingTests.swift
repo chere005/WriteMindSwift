@@ -461,9 +461,10 @@ final class PaneFramesTests: XCTestCase {
     /// A PaneFrames that counts its layouts — each one a whole TextKit
     /// layout of the note.
     private func counted(_ layouts: @escaping () -> Void) -> PaneFrames {
-        PaneFrames { text, pane, markers, folds in
+        PaneFrames { text, pane, markers, folds, drawings in
             layouts()
-            return MarkdownTextView.cellBoxes(of: text, pane: pane, showMarkers: markers, collapsed: folds)
+            return MarkdownTextView.cellBoxes(of: text, pane: pane, showMarkers: markers, collapsed: folds,
+                                              drawings: drawings)
         }
     }
 
@@ -620,8 +621,8 @@ final class PaneCaretTests: XCTestCase {
                 let back = PaneCaret.rendered(open: words, inside: selection, fence: nil)
                 guard case .text(let range) = back else { return XCTFail() }
                 XCTAssertTrue(NSLocationInRange(range.location, words) || range.location == NSMaxRange(words))
-            case .cells, .bar:
-                XCTFail("a caret is a caret")
+            case .cells, .bar, .drawing:
+                XCTFail("a caret is a caret, and this note has no drawing cell")
             case nil:
                 break
             }

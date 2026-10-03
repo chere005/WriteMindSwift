@@ -41,8 +41,13 @@ enum NoteExport {
     /// `folds` are how that pane is laying the note out — its markers
     /// shown or hidden, its sections closed — because that is the layout
     /// the objects were put beside.
-    static func pdf(markdown: String, drawing: Drawing, media: URL?, pane: CGSize,
-                    markers: Bool = true, folds: Set<String> = [],
+    ///
+    /// A DRAWING CELL goes on paper the way the layer does, as vectors:
+    /// painted by the cell's own painter on white (`DrawingCellPainter`),
+    /// at the size the page shows it in this column — never through an
+    /// `ImageRenderer`. A folded one is printed, as every fold is.
+    static func pdf(markdown: String, drawing: Drawing, cells: DrawingCellsShown = DrawingCellsShown(),
+                    media: URL?, pane: CGSize, markers: Bool = true, folds: Set<String> = [],
                     paper: CGSize = PagePlan.paper, margin: CGFloat = PagePlan.margin) -> Data? {
         let size = pane.width > 40 && pane.height > 40 ? pane : fallbackPane
         let column = max(1, size.width - MarkdownPreview.sideInset * 2)
@@ -54,34 +59,34 @@ enum NoteExport {
         let onPaper = {
             var pieces: [NotePDF.Piece] = []
             let blocks = MarkdownParser.positioned(from: markdown)
-            let renderers = blocks.map { renderer(for: $0.block, width: column) }
-            var heights: [CGFloat] = []
-            for renderer in renderers {
+            var renderers: [Int: ImageRenderer<AnyView>] = [:]
+            let frames = layOut(blocks, column: column, cells: cells) { index, block in
+                let renderer = renderer(for: block, width: column)
+                renderers[index] = renderer
                 var height: CGFloat = 0
                 renderer.render { measured, _ in height = measured.height }
-                heights.append(height)
+                return height
             }
 
-            // The same column the preview builds: the cells in order, one
-            // gap apart, and nothing on the drawing layer in it.
-            let places = PreviewLayout.positions(
-                rows: zip(blocks, heights).map { (id: $0.range.location, height: $1) },
-                spacing: MarkdownPreview.blockGap,
-                top: MarkdownPreview.topInset + MarkdownPreview.gapHeight)
-
-            var cells: [CellSeams.Box] = []
+            var boxes: [CellSeams.Box] = []
             for (index, block) in blocks.enumerated() {
-                guard heights[index] > 0, let place = places[block.range.location] else { continue }
-                cells.append(CellSeams.Box(top: place.top, bottom: place.bottom, offset: block.range.location))
-                let frame = CGRect(x: MarkdownPreview.sideInset, y: place.top,
-                                   width: column, height: heights[index])
-                let renderer = renderers[index]
-                pieces.append(NotePDF.Piece(frame: frame) { context in
-                    context.translateBy(x: frame.minX, y: frame.minY)
-                    // The renderer draws downwards from the origin, which
-                    // is what the document's coordinates already are.
-                    renderer.render { _, draw in draw(context) }
-                })
+                guard let frame = frames[index] else { continue }
+                boxes.append(CellSeams.Box(top: frame.minY, bottom: frame.maxY, offset: block.range.location))
+                if case .drawing(let id, _) = block.block {
+                    let look = cells.look(id)
+                    pieces.append(NotePDF.Piece(frame: frame) { context in
+                        DrawingCellPainter.paint(look, in: context, at: frame.origin, column: column, paper: .white,
+                                                 media: cells.media)
+                    })
+                } else if let renderer = renderers[index] {
+                    pieces.append(NotePDF.Piece(frame: frame) { context in
+                        context.translateBy(x: frame.minX, y: frame.minY)
+                        // The renderer draws downwards from the origin,
+                        // which is what the document's coordinates already
+                        // are.
+                        renderer.render { _, draw in draw(context) }
+                    })
+                }
             }
 
             // Then the drawing, one object at a time, each in its own box.
@@ -95,8 +100,8 @@ enum NoteExport {
             // long note to the bottom puts the whole note on one shrunken
             // sheet. That is the rule Sean asked for (2026-09-20: "free
             // floating… don't push other cells around") followed through.
-            let placed = drawingOnPaper(drawing, markdown: markdown, cells: cells, pane: size,
-                                        markers: markers, folds: folds)
+            let placed = drawingOnPaper(drawing, markdown: markdown, cells: boxes, pane: size,
+                                        markers: markers, folds: folds, drawings: cells)
             for item in placed.visibleItems {
                 let box = item.bounds(in: size)
                 guard box.width.isFinite, box.height.isFinite, box.height > 0 else { continue }
@@ -120,12 +125,36 @@ enum NoteExport {
     /// — that pane laying the note out with `markers` and `folds` — and
     /// put beside the same words among the paper's own `cells`.
     static func drawingOnPaper(_ drawing: Drawing, markdown: String, cells: [CellSeams.Box], pane size: CGSize,
-                               markers: Bool, folds: Set<String>) -> Drawing {
-        let source = MarkdownTextView.cellBoxes(of: markdown, pane: size, showMarkers: markers, collapsed: folds)
+                               markers: Bool, folds: Set<String>,
+                               drawings: DrawingCellsShown = DrawingCellsShown()) -> Drawing {
+        let source = MarkdownTextView.cellBoxes(of: markdown, pane: size, showMarkers: markers, collapsed: folds,
+                                                drawings: drawings)
         let mapping = PaneMapping(from: source.cells, to: cells,
                                   fromColumn: MarkdownTextView.column(width: source.width),
                                   toColumn: MarkdownPreview.column(width: size.width))
         return drawing.shown(through: mapping, in: size)
+    }
+
+    /// THE COLUMN ON PAPER: where each block goes, the way the rendered
+    /// page stacks them — in order, one gap apart, from the page's top — or
+    /// nil for one with no height. A drawing cell is as tall as the page
+    /// shows it in this column, at the column's left, and is never handed
+    /// to `measure`: that is an `ImageRenderer`, and a drawing goes on
+    /// paper as vectors. `measure` is given the block's index and the block.
+    static func layOut(_ blocks: [PositionedBlock], column: CGFloat, cells: DrawingCellsShown,
+                       measure: (Int, MarkdownBlock) -> CGFloat) -> [CGRect?] {
+        let sizes: [CGSize] = blocks.enumerated().map { index, block in
+            if case .drawing(let id, _) = block.block { return cells.look(id).shown(column: column).size }
+            return CGSize(width: column, height: measure(index, block.block))
+        }
+        let places = PreviewLayout.positions(
+            rows: zip(blocks, sizes).map { (id: $0.range.location, height: $1.height) },
+            spacing: MarkdownPreview.blockGap,
+            top: MarkdownPreview.topInset + MarkdownPreview.gapHeight)
+        return zip(blocks, sizes).map { block, size in
+            guard size.height > 0, let place = places[block.range.location] else { return nil }
+            return CGRect(x: MarkdownPreview.sideInset, y: place.top, width: size.width, height: size.height)
+        }
     }
 
     /// One cell, as the preview draws it, on white paper.

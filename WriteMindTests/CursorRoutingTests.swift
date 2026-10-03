@@ -66,7 +66,7 @@ private final class HostedPane {
     func show(_ mode: AppState.CanvasMode) {
         let note = ZStack {
             StandInLayer(view: standIn)
-            DrawingCanvas(drawing: .constant(Drawing()), mode: mode, color: .black, width: 2)
+            DrawingCanvas(layer: .constant(Drawing()), mode: mode, color: .black, width: 2)
         }
         host.rootView = bars
             ? AnyView(VStack(spacing: 0) {

@@ -34,10 +34,21 @@ final class FoldingTypesetter: NSATSTypesetter {
                                           baselineOffset: UnsafeMutablePointer<CGFloat>) {
         guard let layoutManager else { return }
         let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-        guard folding.hides(characters) else { return }
-        lineRect.pointee.size.height = 0
-        usedRect.pointee.size.height = 0
-        baselineOffset.pointee = 0
+        if folding.hides(characters) {
+            lineRect.pointee.size.height = 0
+            usedRect.pointee.size.height = 0
+            baselineOffset.pointee = 0
+            return
+        }
+        // A DRAWING CELL'S ROOM, under the last fragment of its line: the
+        // line's text at the top, the drawing under it, the gap still at
+        // the bottom, and the baseline where it was (`CellLines`).
+        guard let layout = layoutManager as? FoldingLayoutManager,
+              let container = currentTextContainer ?? layout.textContainers.first else { return }
+        let room = layout.drawings.room(under: characters, column: FoldingLayoutManager.column(of: container))
+        guard room > 0 else { return }
+        lineRect.pointee.size.height += room
+        usedRect.pointee.size.height += room
     }
 }
 
@@ -45,6 +56,27 @@ final class FoldingTypesetter: NSATSTypesetter {
 /// glyphs on top of the line that took its place.
 final class FoldingLayoutManager: NSLayoutManager {
     let folding = FoldingState()
+    /// The note's drawing cells: where their lines are and what they show.
+    let drawings = CellLines()
+
+    /// After an edit, and before anything is laid out, the drawing lines
+    /// are read again — the typesetter has to know which lines they are
+    /// the moment it lays the first one out.
+    override func processEditing(for textStorage: NSTextStorage, edited editMask: NSTextStorageEditActions,
+                                 range newCharRange: NSRange, changeInLength delta: Int,
+                                 invalidatedRange invalidatedCharRange: NSRange) {
+        super.processEditing(for: textStorage, edited: editMask, range: newCharRange, changeInLength: delta,
+                             invalidatedRange: invalidatedCharRange)
+        guard editMask.contains(.editedCharacters),
+              let again = drawings.read(textStorage.string, edited: newCharRange.location) else { return }
+        invalidateLayout(forCharacterRange: again, actualCharacterRange: nil)
+    }
+
+    /// The drawing cells, painted on the page under the words.
+    override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+        paintDrawingCells(forGlyphRange: glyphsToShow, at: origin)
+    }
 
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         guard !folding.hidden.isEmpty else {

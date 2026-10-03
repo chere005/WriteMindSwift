@@ -259,7 +259,7 @@ final class NotebookScribe: ObservableObject {
             guard store.inkFromTablet(stroke) else { return }
             // ⌘Z is the stroke's now, not the typing's — down to where
             // the drawing stood under it.
-            state?.tabletInkedNote(above: floor)
+            state?.inkedNote(above: floor)
         }
         onUndo = { [weak store] in store?.undoDrawing() }
         onRedo = { [weak store] in store?.redoDrawing() }

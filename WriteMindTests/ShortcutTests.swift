@@ -37,6 +37,14 @@ final class ShortcutTests: XCTestCase {
         }
     }
 
+    /// Sean, 2026-10-02: "drawing cell which is cmd + 0" — the one number
+    /// the ladder, ⌘8 and ⌘9 had left free.
+    func testADrawingCellIsCommandZero() {
+        XCTAssertEqual(Shortcut.drawingCell.chord.key.character, "0")
+        XCTAssertEqual(Shortcut.drawingCell.chord.modifiers, .command)
+        XCTAssertEqual(Shortcut.drawingCell.written, "⌘0")
+    }
+
     /// The heading ladder is built by a `ForEach` over the levels, so the
     /// menu has to be able to ask for the case rather than making a chord.
     func testEveryRungOfTheLadderHasItsOwnNumber() {

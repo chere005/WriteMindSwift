@@ -15,6 +15,73 @@ nothing is deleted: this file is the ledger of the two apps agreeing.
 
 ## Open
 
+### Drawing cells: one line in the note, one visible file beside it, ⌘0
+Sean, 2026-10-02: "on drawing segments, add a dock button which inserts it
+into the cell of the existing cursor, and a create cell from drawing which
+has a new type of cell.. and drawing cell which is cmd + 0"; asked whether
+the files should be hidden or visible, "visible data generally speaking".
+
+- **The line.** `![](_drawings/cells/<UUID>.png)` on a line of its own, a
+  blank line either side, the UUID upper case when written. It is a drawing
+  cell when the WHOLE trimmed line is exactly that — any alt text, the
+  folder exactly, a UUID in either case, `.png` — optionally preceded by
+  `<a id="…"></a>`, the anchor a link to the cell writes in front of it.
+  Words beside it, another folder, `../`, a name that is not a UUID or
+  another extension: a paragraph, as before. Inside a fence (closed or
+  not) it is code. The cell is known by its UUID and nothing else. The
+  block above a drawing line ends where it ended; it does not run on over
+  the image line.
+- **The file** is `_drawings/cells/<UUID>.png` in the note's OWN folder —
+  so the line is the same at every depth and a moved note never needs it
+  rewritten. `_drawings` is the note's data and NEVER a section: never
+  listed, never counted, never a name a new or renamed section can take,
+  never a place a note or a section is moved to (any letter case). The
+  older hidden `.drawings/` sidecars are not moved.
+- **What is in the file.** A PNG any reader shows (the cell painted on
+  white, at twice its points), and in it, just before IEND, an `iTXt`
+  chunk with keyword `WriteMind`, compression flag 1, method 0, empty
+  language and translated keyword, and the payload zlib-compressed (a
+  standard zlib stream: header, deflate, Adler-32). The payload is JSON
+  with sorted keys: `{"aspect", "items", "version": 1, "width"}`. `items`
+  are exactly the drawing layer's own objects as the sidecar stores them.
+  EVERY FRACTION IS A FRACTION OF `width`, ON BOTH AXES — x in 0…1, y in
+  0…`aspect` — so growing the cell moves no point and nothing stretches.
+  `width` is the column's width in points when the cell was first drawn
+  in; `aspect` is height ÷ width. An empty cell is eight lines of the
+  note's text tall; ink within a line of the bottom gets four lines of
+  room under it (it never shrinks by itself); dragging it shorter stops at
+  the ink plus 12 points, and never under two lines.
+- **What each state of the file means.** Nothing there: an empty cell,
+  created by the first change. Our PNG, version 1, every object read:
+  editable. A PNG with no `WriteMind` chunk: that picture, read-only. Our
+  chunk but a newer version, one object that will not decode, a bad CRC
+  or a bad stream: its pixels, read-only, one line saying why — never "the
+  rest of it". An iCloud placeholder (`.<UUID>.png.icloud`): one line,
+  "not downloaded yet", and nothing is ever created over it. Changed by
+  another writer since it was read: the write is refused and the cell goes
+  read-only. A write only ever goes over the bytes last read or written.
+- **Nothing under `_drawings/cells` is ever deleted** — not by emptying a
+  cell (it is written empty), not by deleting its line, not by any sweep of
+  unused pictures. A note moved to another folder COPIES its cells' files
+  there and leaves the originals; renamed, nothing happens; trashed, its
+  cells stay, so putting it back works; duplicated, the copy's lines get
+  new UUIDs and copies of the files (one id pasted twice stays one id in
+  the copy), and a note with no cells is copied byte for byte.
+- **⌘0 (Ctrl+0 on the port): a drawing cell here**, also Insert ▸ Drawing
+  Cell and Drawing at the bottom of the + on the bar — the one kind there
+  that opens the moment it is chosen, because its next input is a stroke.
+  One text edit, undone by one undo. At an armed bar the cell is made
+  there. In a cell it goes UNDER THE CARET'S OWN SOURCE LINE: after a
+  one-line paragraph or heading; in a list, a quote or a paragraph of
+  several lines, under the line the caret is on, which makes that cell
+  two. A fence is never split (after a code or maths cell), nothing comes
+  between an evaluation cell and its answer (after the answer), a drawing
+  cell gets the next one after it, a cell of blank lines takes it at the
+  caret. On the rendered view with nothing open, at the gap nearest the
+  middle of what is on screen — never after the note's first cell for want
+  of a caret. The caret ends at the end of the new line; the mode is left
+  alone; a drawing cell is never opened as its markdown text.
+
 ### ⌘T keeps everything where it was
 Sean, 2026-10-02: "preserve the position of things as much as possible
 between markdown and wysiwyg mode". The two modes lay the same cells out
