@@ -318,8 +318,34 @@ enum MarkdownInline {
     /// note that is legible on screen has to be legible on paper too (Sean,
     /// 2026-09-19: "be mindful of text color"). Nil leaves every colour
     /// exactly as it was written.
+    ///
+    /// REMEMBERED by what it was made from (Sean, 2026-10-03: "resizing the
+    /// screen by dragging the middle vertical line is groggy"): the rendered
+    /// page builds every row again at every width the divider goes through,
+    /// and tokenising and styling every paragraph of a long note each time
+    /// was a fifth of what a drag cost. The same words at the same size on the
+    /// same paper are the same string.
     static func attributed(_ source: String, baseSize: CGFloat = 15,
                            paper: String? = nil) -> AttributedString {
+        let key = "\(baseSize)|\(paper ?? "")|\(source)" as NSString
+        if let kept = attributedCache.object(forKey: key) { return kept.value }
+        let made = buildAttributed(source, baseSize: baseSize, paper: paper)
+        attributedCache.setObject(AttributedBox(made), forKey: key)
+        return made
+    }
+
+    private final class AttributedBox {
+        let value: AttributedString
+        init(_ value: AttributedString) { self.value = value }
+    }
+
+    private static let attributedCache: NSCache<NSString, AttributedBox> = {
+        let cache = NSCache<NSString, AttributedBox>()
+        cache.countLimit = 6000
+        return cache
+    }()
+
+    private static func buildAttributed(_ source: String, baseSize: CGFloat, paper: String?) -> AttributedString {
         var result = AttributedString()
         var stack: [Style] = []
 

@@ -333,7 +333,17 @@ struct DrawingCanvas: View {
                 // and a resized pane moves the nodes they run between.
                 // reconnect only writes back what actually changed, so this
                 // settles in one pass.
-                if size.width > 1, size.height > 1 { layer.reconnect(in: size) }
+                // Written back only when something changed: a write through
+                // the rendered page's binding is mapped back through an
+                // exact offscreen layout of the WHOLE note, which a drag of
+                // the divider did at every width it went through (Sean,
+                // 2026-10-03: "resizing the screen by dragging the middle
+                // vertical line is groggy").
+                if size.width > 1, size.height > 1 {
+                    var reconnected = layer
+                    reconnected.reconnect(in: size)
+                    if reconnected != layer { layer = reconnected }
+                }
             }
             .onChange(of: layer.images.map(\.file)) { _, _ in loadImages() }
             .onChange(of: documentID) { _, _ in

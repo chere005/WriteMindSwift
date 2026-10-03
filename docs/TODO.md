@@ -10,15 +10,6 @@ had to say it. Verification is the job, not an item.
 
 ## Open
 
-- **Dragging the divider between the notes and the video is groggy.** Sean,
-  2026-10-02: "resizing the screen by dragging the middle vertical line is
-  groggy". The HSplitView's divider lags the pointer. Not yet looked into;
-  the likely weight is what a width change runs on every frame — the
-  note's offscreen layout for the pane mapping (`PaneFrames`, which now
-  waits 150 ms after a resize stops, but check it holds), the drawing
-  layer's redraw, the tablet pane's page relayout — and `Instruments` on a
-  drag is the first step, not a guess.
-
 - **Dragging the Dock handle to a seam.** The Dock and Make Cell handles
   are built (2026-10-02: `Docking`, `EditorPane+Docking`); what is not is
   dragging the Dock handle to wherever the pointer is let go (Sean,

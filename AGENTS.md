@@ -1074,6 +1074,18 @@ CoreMind's `bin/report-status.sh`.
   `SidebarRenameTests` holds the store half; the field's focus and the
   gesture were driven in a scratch copy, Return itself was not (computer
   use cannot send a real key to a text field).
+- **DRAGGING THE DIVIDER WAS GROGGY BECAUSE A RESIZE WROTE THE DRAWING BACK**
+  (Sean, 2026-10-03: "resizing the screen by dragging the middle vertical line
+  is groggy"; found by `sample`ing a scratch copy while `app_drag` pulled the
+  divider over a 14,000-word note with ink). `DrawingCanvas`'s
+  `.onChange(of: geo.size)` did `layer.reconnect(in:)` through the binding —
+  a get, a mutation and a SET, and a set on the rendered page maps back
+  through an EXACT offscreen layout of the whole note (`PaneFrames.layOut`)
+  at every width the divider passed. It now reconnects a copy and writes only
+  when something changed. And `MarkdownInline.attributed` is remembered by
+  (text, size, paper): the page builds every row again at every width. Before:
+  ~320 of the sample's main-thread samples in the offscreen layout, ~370 in the
+  rows' bodies; after: none, 12. Measure a resize this way before guessing.
 - **THE PEN'S BUTTONS: HOLD = ERASER / BOX, DOUBLE PRESS = UNDO / REDO** (Sean,
   2026-10-03). `TabletPen` (TabletInput.swift) latches at the nib's down:
   `selecting` for the UPPER switch (the box, as before), `erasing` for the LOWER
