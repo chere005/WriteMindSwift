@@ -1188,7 +1188,10 @@ CoreMind's `bin/report-status.sh`.
   the panel and of the Tablet Developer menu (`TabletDeveloperMenuModel`, the menu's
   state as a value) — and sent to the FOOTER (`say(in:)` → `NoteStore.notice`, the
   line the camera's notices use), because the panel is up only while the virtual
-  tablet is the pick, which the real-tablet recording flow never has.
+  tablet is the pick, which the real-tablet recording flow never has. The footer
+  is the NOTES pane's, so with the notes put away, the page whole-window or no note
+  open `ContentView.strayNotice` says the same notice in a capsule at the foot of
+  the window (`editorFooterIsOnScreen`) — never both.
   Recordings are kept in Application Support/WriteMind/PenRecordings (the test
   host's own folder under test).
   **THE SCRIPT** (`WriteMindTests/Support/TabletScript.swift`): `TabletScript`

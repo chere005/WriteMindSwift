@@ -530,7 +530,8 @@ is how the code is put together.
   **Replay Pen Session…** plays one back at real speed, at 2×, or one event at
   a time — so a pen bug seen once is a file. Whatever they did (saved, nothing
   heard, a file that cannot be played, a replay that would not be heard) is said
-  in the footer and at the foot of that menu, whichever tablet is picked.
+  in the footer (a line at the foot of the window when the notes are put away or
+  no note is open) and at the foot of that menu, whichever tablet is picked.
   `docs/WACOM-DEV.md` has the step-by-step.
 - **A bar you can put away a piece at a time.** The toolbar is in
   sections — Style, Structure, Insert, Maths, Flow Chart, Capture — and the

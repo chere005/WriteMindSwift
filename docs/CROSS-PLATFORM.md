@@ -415,7 +415,9 @@ plugged in".
   data folder. Everything it says — recording, saved and where, nothing heard, a
   file that cannot be played and its line, a replay that would not be heard — is
   said in the app's footer whatever is picked (the virtual tablet's window is up
-  only while it is the pick), at the foot of the developer menu and in the window.
+  only while it is the pick; where the footer is not on screen — notes put away,
+  the page whole-window, no note open — in a line at the foot of the window), at
+  the foot of the developer menu and in the window.
 - **Tests write the gesture** — a chain over the virtual pen on a clock that never
   sleeps: hover, down, move, up, hold(lower){…}, tap, doublePress, wait — in page
   fractions, through the whole path into the page and into the notebook. Six small

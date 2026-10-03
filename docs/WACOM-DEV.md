@@ -52,8 +52,9 @@ unless you switch them on.
   where), nothing heard, a file that cannot be played and its line, a replay
   that would not be heard and why — is said in the **footer** whatever is
   picked (the window is up only while the virtual tablet is the pick, and
-  recording the real tablet is the whole point), kept at the foot of the Tablet
-  Developer menu, and shown in the window too. **Replay…** says why it cannot
+  recording the real tablet is the whole point) — or, with the notes put away,
+  the page whole-window or no note open, in a line at the foot of the window —
+  kept at the foot of the Tablet Developer menu, and shown in the window too. **Replay…** says why it cannot
   before it asks for a file.
 - **Replay…** plays one back through the same door, on the field it was
   recorded on: at **real speed**, at **½×, 2×, 4× or Max**, or **one event at a

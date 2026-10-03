@@ -2,8 +2,43 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var store: NoteStore
 
     var body: some View {
+        content
+            // A notice with no footer to land in (below).
+            .overlay(alignment: .bottom) { strayNotice }
+    }
+
+    /// THE FOOTER IS THE NOTES PANE'S: it is on screen only with the notes
+    /// pane up and a note open in it. A notice the store keeps (the pen
+    /// developer's "Saved pen-….ndjson", "Nothing was recorded", a replay that
+    /// would not be heard) is said there — and where there is no footer, in a
+    /// line at the foot of the window instead, so it is never said to nobody:
+    /// a real-tablet session recorded with the notes put away, or the page
+    /// held up whole-window, still says where it was saved.
+    nonisolated static func editorFooterIsOnScreen(fullWindow: Bool, editorShowing: Bool, noteOpen: Bool) -> Bool {
+        !fullWindow && editorShowing && noteOpen
+    }
+
+    @ViewBuilder private var strayNotice: some View {
+        if let notice = store.captureNotice,
+           !Self.editorFooterIsOnScreen(fullWindow: appState.cameraFullWindow, editorShowing: appState.showEditor,
+                                        noteOpen: store.selectedNote != nil) {
+            Text(notice)
+                .font(.caption)
+                .foregroundStyle(Color.accentColor)
+                .lineLimit(2)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(12)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder private var content: some View {
         if appState.cameraFullWindow {
             // THE WHOLE WINDOW IS THE PICTURE (Sean, 2026-09-21). Not a
             // pane at its widest — the sidebar, the notes and the divider

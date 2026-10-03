@@ -99,6 +99,26 @@ final class TabletDeveloperMessagesTests: XCTestCase {
                       "the developer's footer line is the store's notice")
     }
 
+    /// A NOTICE IS NEVER SAID TO NOBODY: the footer is the notes pane's, so
+    /// where it is not on screen — the notes put away, the page held up
+    /// whole-window, no note open — `ContentView` says the store's notice in a
+    /// line at the foot of the window; where it is, only the footer does.
+    func testTheNoticeIsInTheFooterWhereThereIsOneAndAtTheFootOfTheWindowWhereThereIsNot() throws {
+        let on = ContentView.editorFooterIsOnScreen
+        XCTAssertTrue(on(false, true, true), "notes up, a note open: the footer says it")
+        XCTAssertFalse(on(false, false, true), "the notes put away (the page alone)")
+        XCTAssertFalse(on(true, true, true), "the page held up whole-window")
+        XCTAssertFalse(on(false, true, false), "no note open: the pane says 'No note open', with no footer")
+        XCTAssertFalse(on(true, false, false))
+
+        // The view reads the store's notice for that line (the scene is not
+        // built under test, so from the source, as the wiring test below does).
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let content = try String(contentsOf: root.appending(path: "WriteMind/Views/ContentView.swift"), encoding: .utf8)
+        XCTAssertTrue(content.contains("store.captureNotice"), "ContentView no longer says a notice with no footer")
+        XCTAssertTrue(content.contains(".overlay(alignment: .bottom) { strayNotice }"), "and no longer puts it on screen")
+    }
+
     /// The footer is not the only place: with nothing wired, the message is
     /// still the status the panel and the menu show.
     func testAMessageIsTheStatusWithNoFooterWired() {
